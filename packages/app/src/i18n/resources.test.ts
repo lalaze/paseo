@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createInstance } from "i18next";
 import { ar } from "./resources/ar";
 import { en } from "./resources/en";
 import { es } from "./resources/es";
@@ -104,6 +105,26 @@ function findUntranslatedConnectionErrors(): string[] {
 }
 
 describe("translation resources", () => {
+  it.each([
+    ["en", en, "Save"],
+    ["zh-CN", zhCN, "保存"],
+    ["ar", ar, "حفظ"],
+    ["es", es, "Guardar"],
+    ["fr", fr, "Enregistrer"],
+    ["ja", ja, "保存"],
+    ["ko", ko, "저장"],
+    ["pt-BR", ptBR, "Salvar"],
+    ["ru", ru, "Сохранить"],
+  ])("translates the browser start page save action in %s", async (locale, resource, expected) => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng: locale,
+      fallbackLng: false,
+      resources: { [locale]: { translation: resource } },
+    });
+    expect(i18n.t("common.actions.save")).toBe(expected);
+  });
+
   it("keeps all supported language keys in sync with English", () => {
     const englishKeys = flattenKeys(en).sort();
     expect(flattenKeys(ar).sort()).toEqual(englishKeys);

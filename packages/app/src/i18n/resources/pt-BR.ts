@@ -29,6 +29,7 @@ export const ptBR: TranslationResources = {
     back: "Voltar",
     loading: "Carregando...",
     actions: {
+      save: "Salvar",
       back: "Voltar",
       cancel: "Cancelar",
       close: "Fechar",

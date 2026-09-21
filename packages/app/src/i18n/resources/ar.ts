@@ -28,6 +28,7 @@ export const ar: TranslationResources = {
     back: "خلف",
     loading: "تحميل...",
     actions: {
+      save: "حفظ",
       back: "خلف",
       cancel: "يلغي",
       close: "يغلق",
