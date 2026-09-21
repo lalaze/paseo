@@ -2002,6 +2002,13 @@ export const zhCN: TranslationResources = {
     },
     general: {
       title: "通用",
+      browserStartPage: {
+        title: "浏览器开始页",
+        url: "新标签页网址",
+        invalidUrl: "请输入有效的 HTTP 或 HTTPS 网址。",
+        saved: "开始页已保存。",
+        saveError: "无法保存开始页。",
+      },
       browserData: {
         title: "浏览器数据",
         siteData: "Cookie 和网站数据",

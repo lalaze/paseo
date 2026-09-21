@@ -2058,6 +2058,13 @@ export const ptBR: TranslationResources = {
     },
     general: {
       title: "Geral",
+      browserStartPage: {
+        title: "Página inicial do navegador",
+        url: "URL de novas abas",
+        invalidUrl: "Digite uma URL HTTP ou HTTPS válida.",
+        saved: "Página inicial salva.",
+        saveError: "Não foi possível salvar a página inicial.",
+      },
       browserData: {
         title: "Dados do navegador",
         siteData: "Cookies e dados de sites",

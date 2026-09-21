@@ -2078,6 +2078,13 @@ export const fr: TranslationResources = {
     },
     general: {
       title: "Général",
+      browserStartPage: {
+        title: "Page de démarrage du navigateur",
+        url: "URL des nouveaux onglets",
+        invalidUrl: "Saisissez une URL HTTP ou HTTPS valide.",
+        saved: "Page de démarrage enregistrée.",
+        saveError: "Impossible d’enregistrer la page de démarrage.",
+      },
       browserData: {
         title: "Données du navigateur",
         siteData: "Cookies et données des sites",

@@ -2145,6 +2145,13 @@ export const en = {
     },
     general: {
       title: "General",
+      browserStartPage: {
+        title: "Browser start page",
+        url: "New tab URL",
+        invalidUrl: "Enter a valid HTTP or HTTPS URL.",
+        saved: "Start page saved.",
+        saveError: "Couldn't save the start page.",
+      },
       browserData: {
         title: "Browser data",
         siteData: "Cookies and site data",

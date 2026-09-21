@@ -23,6 +23,19 @@ export type BrowserRecordPatch = Partial<Omit<BrowserRecord, "browserId" | "crea
 
 export interface BrowserIndexState {
   browsersById: Record<string, BrowserRecord>;
+  startPageUrl: string;
+}
+
+export const DEFAULT_BROWSER_START_PAGE_URL = "https://example.com";
+
+export function parseBrowserStartPageUrl(value: string): string | null {
+  const normalized = normalizeBrowserUrl(value);
+  try {
+    const url = new URL(normalized);
+    return url.protocol === "http:" || url.protocol === "https:" ? normalized : null;
+  } catch {
+    return null;
+  }
 }
 
 const BrowserViewportSchema = z.discriminatedUnion("mode", [
@@ -49,6 +62,11 @@ const BrowserRecordSchema = z.strictObject({
 
 export const BrowserIndexStateSchema: z.ZodType<BrowserIndexState> = z.strictObject({
   browsersById: z.record(z.string(), BrowserRecordSchema),
+  startPageUrl: z
+    .string()
+    .transform(parseBrowserStartPageUrl)
+    .transform((url) => url ?? DEFAULT_BROWSER_START_PAGE_URL)
+    .catch(DEFAULT_BROWSER_START_PAGE_URL),
 });
 
 export function createFixedBrowserViewport(width: number, height: number): BrowserViewport {
@@ -76,7 +94,9 @@ function browserViewportsEqual(left: BrowserViewport, right: BrowserViewport): b
 
 export function normalizeBrowserIndexState(value: unknown): BrowserIndexState {
   const result = BrowserIndexStateSchema.safeParse(value);
-  return result.success ? result.data : { browsersById: {} };
+  return result.success
+    ? result.data
+    : { browsersById: {}, startPageUrl: DEFAULT_BROWSER_START_PAGE_URL };
 }
 
 export function trimNonEmpty(value: string | null | undefined): string | null {
@@ -90,7 +110,7 @@ export function trimNonEmpty(value: string | null | undefined): string | null {
 export function normalizeBrowserUrl(value: string | null | undefined): string {
   const trimmed = trimNonEmpty(value);
   if (!trimmed) {
-    return "https://example.com";
+    return DEFAULT_BROWSER_START_PAGE_URL;
   }
   if (/^(localhost|\d{1,3}(?:\.\d{1,3}){3}|\[[\da-fA-F:.]+])(?::\d+)?(?:[/?#]|$)/.test(trimmed)) {
     return `http://${trimmed}`;
@@ -107,11 +127,12 @@ export function normalizeBrowserUrl(value: string | null | undefined): string {
 export function createBrowserRecord(input: {
   browserId: string;
   initialUrl: string | null | undefined;
+  startPageUrl?: string;
   now: number;
 }): BrowserRecord {
   return {
     browserId: input.browserId,
-    url: normalizeBrowserUrl(input.initialUrl),
+    url: normalizeBrowserUrl(trimNonEmpty(input.initialUrl) ?? input.startPageUrl),
     title: "",
     isLoading: false,
     canGoBack: false,
@@ -185,10 +206,9 @@ export function removeBrowserFromIndex<S extends BrowserIndexState>(
   return { ...state, browsersById: next };
 }
 
-export function sanitizeBrowsersForPersist(state: BrowserIndexState): {
-  browsersById: Record<string, BrowserRecord>;
-} {
+export function sanitizeBrowsersForPersist(state: BrowserIndexState): BrowserIndexState {
   return {
+    startPageUrl: state.startPageUrl,
     browsersById: Object.fromEntries(
       Object.entries(state.browsersById).map(([browserId, browser]) => [
         browserId,

@@ -2045,6 +2045,13 @@ export const ja: TranslationResources = {
     },
     general: {
       title: "一般",
+      browserStartPage: {
+        title: "ブラウザーのスタートページ",
+        url: "新しいタブのURL",
+        invalidUrl: "有効なHTTPまたはHTTPSのURLを入力してください。",
+        saved: "スタートページを保存しました。",
+        saveError: "スタートページを保存できませんでした。",
+      },
       browserData: {
         title: "ブラウザーデータ",
         siteData: "Cookie とサイトデータ",

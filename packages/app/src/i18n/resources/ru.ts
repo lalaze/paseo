@@ -2058,6 +2058,13 @@ export const ru: TranslationResources = {
     },
     general: {
       title: "Основные",
+      browserStartPage: {
+        title: "Начальная страница браузера",
+        url: "URL новой вкладки",
+        invalidUrl: "Введите корректный URL HTTP или HTTPS.",
+        saved: "Начальная страница сохранена.",
+        saveError: "Не удалось сохранить начальную страницу.",
+      },
       browserData: {
         title: "Данные браузера",
         siteData: "Файлы cookie и данные сайтов",

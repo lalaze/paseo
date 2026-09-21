@@ -2073,6 +2073,13 @@ export const es: TranslationResources = {
     },
     general: {
       title: "General",
+      browserStartPage: {
+        title: "Página de inicio del navegador",
+        url: "URL de las nuevas pestañas",
+        invalidUrl: "Introduce una URL HTTP o HTTPS válida.",
+        saved: "Página de inicio guardada.",
+        saveError: "No se pudo guardar la página de inicio.",
+      },
       browserData: {
         title: "Datos del navegador",
         siteData: "Cookies y datos de sitios",

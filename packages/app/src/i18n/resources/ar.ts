@@ -2024,6 +2024,13 @@ export const ar: TranslationResources = {
     },
     general: {
       title: "عام",
+      browserStartPage: {
+        title: "صفحة بدء المتصفح",
+        url: "رابط علامة التبويب الجديدة",
+        invalidUrl: "أدخل رابط HTTP أو HTTPS صالحًا.",
+        saved: "تم حفظ صفحة البدء.",
+        saveError: "تعذر حفظ صفحة البدء.",
+      },
       browserData: {
         title: "بيانات المتصفح",
         siteData: "ملفات تعريف الارتباط وبيانات المواقع",

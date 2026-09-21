@@ -11,6 +11,7 @@ import {
   type BrowserRecordPatch,
   type BrowserViewport,
   createBrowserRecord,
+  DEFAULT_BROWSER_START_PAGE_URL,
   normalizeBrowserIndexState,
   normalizeBrowserUrl,
   removeBrowserFromIndex,
@@ -26,6 +27,7 @@ export {
 } from "./state";
 
 interface BrowserStoreState extends BrowserIndexState {
+  setStartPageUrl: (url: string) => Promise<void>;
   createBrowser: (input?: { initialUrl?: string }) => string;
   updateBrowser: (browserId: string, patch: BrowserRecordPatch) => void;
   setBrowserViewport: (browserId: string, viewport: BrowserViewport) => void;
@@ -45,13 +47,18 @@ function createBrowserId(): string {
 
 export const useBrowserStore = create<BrowserStoreState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       browsersById: {},
+      startPageUrl: DEFAULT_BROWSER_START_PAGE_URL,
+      setStartPageUrl: async (startPageUrl) => {
+        await set({ startPageUrl });
+      },
       createBrowser: (input) => {
         const browserId = createBrowserId();
         const record = createBrowserRecord({
           browserId,
           initialUrl: input?.initialUrl,
+          startPageUrl: get().startPageUrl,
           now: Date.now(),
         });
 

@@ -4,6 +4,8 @@ import {
   type BrowserIndexState,
   createFixedBrowserViewport,
   createBrowserRecord,
+  DEFAULT_BROWSER_START_PAGE_URL,
+  parseBrowserStartPageUrl,
   normalizeBrowserIndexState,
   normalizeBrowserUrl,
   removeBrowserFromIndex,
@@ -12,6 +14,7 @@ import {
 
 function withRecords(records: ReturnType<typeof createBrowserRecord>[]): BrowserIndexState {
   return {
+    startPageUrl: DEFAULT_BROWSER_START_PAGE_URL,
     browsersById: Object.fromEntries(records.map((record) => [record.browserId, record])),
   };
 }
@@ -150,6 +153,7 @@ describe("sanitizeBrowsersForPersist", () => {
   it("clears transient fields on every record", () => {
     const base = createBrowserRecord({ browserId: "b1", initialUrl: "https://a.test", now: 0 });
     const state: BrowserIndexState = {
+      startPageUrl: "https://start.test",
       browsersById: {
         b1: { ...base, isLoading: true, lastError: "network down" },
       },
@@ -157,6 +161,7 @@ describe("sanitizeBrowsersForPersist", () => {
 
     const persisted = sanitizeBrowsersForPersist(state);
 
+    expect(persisted.startPageUrl).toBe("https://start.test");
     expect(persisted.browsersById.b1?.isLoading).toBe(false);
     expect(persisted.browsersById.b1?.lastError).toBe(null);
   });
@@ -187,5 +192,67 @@ describe("normalizeBrowserIndexState", () => {
     expect(
       normalizeBrowserIndexState({ browsersById: { b1: legacy } }).browsersById.b1?.viewport,
     ).toEqual({ mode: "responsive" });
+  });
+});
+
+describe("browser start page", () => {
+  it.each([
+    ["search.test/path", "https://search.test/path"],
+    [" localhost:3000 ", "http://localhost:3000"],
+    ["", DEFAULT_BROWSER_START_PAGE_URL],
+    ["   ", DEFAULT_BROWSER_START_PAGE_URL],
+    ["javascript:alert(1)", null],
+    ["file:///tmp/page.html", null],
+    ["https://", null],
+    ["not a url", null],
+  ])("validates and normalizes %j", (input, expected) => {
+    expect(parseBrowserStartPageUrl(input)).toBe(expected);
+  });
+
+  it.each([undefined, "", "   "])(
+    "opens the saved start page when the initial URL is %j",
+    (initialUrl) => {
+      expect(
+        createBrowserRecord({
+          browserId: "b1",
+          initialUrl,
+          startPageUrl: "https://start.test",
+          now: 0,
+        }).url,
+      ).toBe("https://start.test");
+    },
+  );
+
+  it("keeps explicit links ahead of the start page", () => {
+    expect(
+      createBrowserRecord({
+        browserId: "b1",
+        initialUrl: "localhost:3000",
+        startPageUrl: "https://start.test",
+        now: 0,
+      }).url,
+    ).toBe("http://localhost:3000");
+  });
+
+  it("restores the start page without changing existing tabs", () => {
+    const state = withRecords([
+      createBrowserRecord({ browserId: "b1", initialUrl: "https://open.test", now: 0 }),
+    ]);
+    state.startPageUrl = "https://start.test";
+    expect(
+      normalizeBrowserIndexState(JSON.parse(JSON.stringify(sanitizeBrowsersForPersist(state)))),
+    ).toEqual(state);
+  });
+
+  it("loads older saved tabs with the default start page", () => {
+    const browser = createBrowserRecord({
+      browserId: "b1",
+      initialUrl: "https://open.test",
+      now: 0,
+    });
+    expect(normalizeBrowserIndexState({ browsersById: { b1: browser } })).toEqual({
+      browsersById: { b1: browser },
+      startPageUrl: DEFAULT_BROWSER_START_PAGE_URL,
+    });
   });
 });

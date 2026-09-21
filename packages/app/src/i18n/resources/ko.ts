@@ -2034,6 +2034,13 @@ export const ko: TranslationResources = {
     },
     general: {
       title: "일반",
+      browserStartPage: {
+        title: "브라우저 시작 페이지",
+        url: "새 탭 URL",
+        invalidUrl: "올바른 HTTP 또는 HTTPS URL을 입력하세요.",
+        saved: "시작 페이지를 저장했습니다.",
+        saveError: "시작 페이지를 저장할 수 없습니다.",
+      },
       browserData: {
         title: "브라우저 데이터",
         siteData: "쿠키 및 사이트 데이터",
