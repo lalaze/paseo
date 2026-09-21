@@ -493,6 +493,15 @@ export const fr: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "Préparation du transfert…",
+        updateHost: "Mettez à jour l’hôte pour envoyer des fichiers dans cet espace de travail.",
+        progress: "Envoi de {{name}} · {{percent}} %",
+        tooLarge: "La taille maximale par fichier est de 100 MiB.",
+        complete: "{{completed}}/{{total}} fichiers envoyés",
+        foldersUnsupported: "Envoyez des fichiers ou compressez les dossiers en ZIP.",
+        destination: "Envoyer des fichiers vers {{directory}}",
+      },
       sort: {
         name: "Nom",
         modified: "Modifié",
@@ -566,6 +575,14 @@ export const fr: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "Outils de développement",
+        loading: "Ouverture des outils de développement…",
+        failed:
+          "Impossible de connecter les outils de développement. Rouvrez l’onglet du navigateur et réessayez.",
+        retry: "Reconnecter",
+        browserClosed: "L’onglet du navigateur a été fermé.",
+      },
       unavailable: {
         title: "Le navigateur est réservé au bureau",
         subtitle: "Ouvrez cet espace de travail dans Electron pour utiliser le navigateur intégré.",

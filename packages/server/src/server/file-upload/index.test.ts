@@ -1,4 +1,14 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +64,106 @@ describe("file uploads", () => {
       },
     });
     expect(readFileSync(path, "utf8")).toBe("hello world");
+  });
+
+  it("publishes workspace uploads only after completion, preserving Unicode names and existing files", async () => {
+    const paseoHome = makePaseoHome();
+    const cwd = makePaseoHome();
+    mkdirSync(join(cwd, "nested"));
+    const uploads = new FileUploadStore({ paseoHome });
+    const request = {
+      type: "file.upload.request" as const,
+      fileName: "笔记.txt",
+      mimeType: "text/plain",
+      size: 5,
+      modifiedAt: "2026-05-02T00:00:00.000Z",
+      requestId: "workspace-upload",
+      destination: { cwd, directory: "nested" },
+    };
+    const target = join(cwd, "nested", request.fileName);
+    uploads.beginUpload(request);
+    await uploads.receiveFrame(uploadBegins(request.requestId));
+    await uploads.receiveFrame(uploadChunk(request.requestId, "hello"));
+    expect(existsSync(target)).toBe(false);
+    const response = await uploads.receiveFrame(uploadEnds(request.requestId));
+    expect(response?.payload.error).toBeNull();
+    expect(response?.payload.file?.path).toBe(target);
+    expect(response?.payload.file?.fileName).toBe("笔记.txt");
+    expect(readFileSync(target, "utf8")).toBe("hello");
+    expect(readdirSync(join(paseoHome, "uploads"))).toEqual([]);
+
+    uploads.beginUpload(request);
+    await uploads.receiveFrame(uploadBegins(request.requestId));
+    await uploads.receiveFrame(uploadChunk(request.requestId, "other"));
+    const collision = await uploads.receiveFrame(uploadEnds(request.requestId));
+    expect(collision?.payload.error).toContain("EEXIST");
+    expect(readFileSync(target, "utf8")).toBe("hello");
+    expect(readdirSync(join(cwd, "nested"))).toEqual(["笔记.txt"]);
+    expect(readdirSync(join(paseoHome, "uploads"))).toEqual([]);
+  });
+
+  it("rejects traversal, symlink escapes, invalid names and oversized workspace uploads", async () => {
+    const paseoHome = makePaseoHome();
+    const cwd = makePaseoHome();
+    const outside = makePaseoHome();
+    symlinkSync(outside, join(cwd, "escape"), "junction");
+    const uploads = new FileUploadStore({ paseoHome });
+    const inputs = [
+      { directory: "../outside", fileName: "file.txt", size: 0 },
+      { directory: "escape", fileName: "file.txt", size: 0 },
+      { directory: ".", fileName: "../file.txt", size: 0 },
+      { directory: ".", fileName: "file.txt", size: 100 * 1024 * 1024 + 1 },
+    ];
+    for (const [index, input] of inputs.entries()) {
+      const requestId = `invalid-${index}`;
+      uploads.beginUpload({
+        type: "file.upload.request",
+        mimeType: "text/plain",
+        modifiedAt: "2026-05-02T00:00:00.000Z",
+        requestId,
+        fileName: input.fileName,
+        size: input.size,
+        destination: { cwd, directory: input.directory },
+      });
+      const response = await uploads.receiveFrame(uploadBegins(requestId));
+      expect(response?.payload.file).toBeNull();
+      expect(response?.payload.error).toEqual(expect.any(String));
+    }
+    expect(readdirSync(outside)).toEqual([]);
+    expect(readdirSync(cwd)).toEqual(["escape"]);
+  });
+
+  it("does not follow a destination file symlink or publish incomplete uploads", async () => {
+    const paseoHome = makePaseoHome();
+    const cwd = makePaseoHome();
+    const outside = makePaseoHome();
+    writeFileSync(join(outside, "keep.txt"), "keep");
+    symlinkSync(join(outside, "keep.txt"), join(cwd, "file.txt"));
+    const uploads = new FileUploadStore({ paseoHome });
+    const request = {
+      type: "file.upload.request" as const,
+      fileName: "file.txt",
+      mimeType: "text/plain",
+      size: 5,
+      modifiedAt: "2026-05-02T00:00:00.000Z",
+      requestId: "symlink-file",
+      destination: { cwd, directory: "." },
+    };
+    uploads.beginUpload(request);
+    await uploads.receiveFrame(uploadBegins(request.requestId));
+    await uploads.receiveFrame(uploadChunk(request.requestId, "hello"));
+    expect((await uploads.receiveFrame(uploadEnds(request.requestId)))?.payload.error).toContain(
+      "EEXIST",
+    );
+    expect(readFileSync(join(outside, "keep.txt"), "utf8")).toBe("keep");
+
+    uploads.beginUpload({ ...request, fileName: "partial.txt" });
+    await uploads.receiveFrame(uploadBegins(request.requestId));
+    await uploads.receiveFrame(uploadChunk(request.requestId, "hi"));
+    expect((await uploads.receiveFrame(uploadEnds(request.requestId)))?.payload.error).toContain(
+      "size mismatch",
+    );
+    expect(existsSync(join(cwd, "partial.txt"))).toBe(false);
   });
 
   it("rejects chunks beyond the declared size and removes the partial file", async () => {

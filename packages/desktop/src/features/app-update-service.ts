@@ -76,7 +76,7 @@ export interface AppUpdateService {
 
 export interface AppUpdateServiceDeps {
   runtime: AppUpdateRuntime;
-  isPackaged(): boolean;
+  isEnabled(): boolean;
   now(): number;
   bucket(): Promise<number>;
   reportCheckError?(error: unknown): void;
@@ -246,7 +246,7 @@ export function createAppUpdateService(deps: AppUpdateServiceDeps): AppUpdateSer
     releaseChannel: AppReleaseChannel;
     intent: AppUpdateCheckIntent;
   }): Promise<AppUpdateCheckResult> {
-    if (!deps.isPackaged()) {
+    if (!deps.isEnabled()) {
       return buildCheckResult({
         currentVersion,
         hasUpdate: false,
@@ -333,11 +333,11 @@ export function createAppUpdateService(deps: AppUpdateServiceDeps): AppUpdateSer
     },
     onBeforeQuit?: () => Promise<void>,
   ): Promise<AppUpdateInstallResult> {
-    if (!deps.isPackaged()) {
+    if (!deps.isEnabled()) {
       return {
         installed: false,
         version: currentVersion,
-        message: "Auto-update is not available in development mode.",
+        message: "Auto-update is not available in this build.",
       };
     }
 
@@ -473,7 +473,7 @@ export function createAppUpdateService(deps: AppUpdateServiceDeps): AppUpdateSer
     releaseChannel: AppReleaseChannel;
     signal: AbortSignal;
   }): Promise<boolean> {
-    if (!deps.isPackaged() || !downloadedUpdateVersion) {
+    if (!deps.isEnabled() || !downloadedUpdateVersion) {
       return false;
     }
 

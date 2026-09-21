@@ -444,3 +444,89 @@ test("hides unsupported file operations and revert actions", async ({ page }) =>
   await expect(page.getByTestId("diff-file-0-duplicate")).toHaveCount(0);
   await expect(page.getByTestId("diff-file-0-revert")).toHaveCount(0);
 });
+
+test("uploads files from the built-in explorer and reports collisions without overwriting", async ({
+  page,
+}) => {
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  const uploadButton = page.getByTestId("files-upload");
+  const status = page.getByTestId("files-upload-status");
+  const file = {
+    name: "上传.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("uploaded content"),
+  };
+  const chooser = page.waitForEvent("filechooser");
+  await uploadButton.click();
+  await (
+    await chooser
+  ).setFiles([
+    file,
+    { name: "empty.bin", mimeType: "application/octet-stream", buffer: Buffer.alloc(0) },
+  ]);
+  await expect(status).toContainText("Uploaded 2/2 files");
+  await expect(
+    page.getByTestId("file-explorer-tree-scroll").getByText("上传.txt", { exact: true }),
+  ).toBeVisible();
+  expect(await readFile(path.join(workspace.repoPath, "上传.txt"), "utf8")).toBe(
+    "uploaded content",
+  );
+  expect(await readFile(path.join(workspace.repoPath, "empty.bin"))).toEqual(Buffer.alloc(0));
+
+  const retryChooser = page.waitForEvent("filechooser");
+  await uploadButton.click();
+  await (await retryChooser).setFiles({ ...file, buffer: Buffer.from("replacement") });
+  await expect(status).toContainText("Uploaded 0/1 files");
+  await expect(status.getByRole("alert")).toContainText("EEXIST");
+  expect(await readFile(path.join(workspace.repoPath, "上传.txt"), "utf8")).toBe(
+    "uploaded content",
+  );
+  await expect(uploadButton).toBeEnabled();
+});
+
+test("drops uploads into folders and the containing directory of file rows", async ({
+  page,
+}, testInfo) => {
+  await mkdir(path.join(workspace.repoPath, "upload-folder"));
+  await writeFile(path.join(workspace.repoPath, "upload-folder", "anchor.txt"), "anchor");
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  const tree = page.getByTestId("file-explorer-tree-scroll");
+  const folder = tree.getByText("upload-folder", { exact: true });
+  await folder.click();
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(
+      new File([new Uint8Array([0, 1, 128, 255])], "binary.bin", {
+        type: "application/octet-stream",
+      }),
+    );
+    return data;
+  });
+  await folder.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(
+    page.getByText("Upload files to upload-folder", { exact: true }).last(),
+  ).toBeVisible();
+  await folder.dispatchEvent("drop", { dataTransfer: transfer });
+  await transfer.dispose();
+  await expect(tree.getByText("binary.bin", { exact: true })).toBeVisible();
+  expect(await readFile(path.join(workspace.repoPath, "upload-folder", "binary.bin"))).toEqual(
+    Buffer.from([0, 1, 128, 255]),
+  );
+
+  const secondTransfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(["sibling"], "sibling.txt", { type: "text/plain" }));
+    return data;
+  });
+  await tree
+    .getByText("anchor.txt", { exact: true })
+    .dispatchEvent("drop", { dataTransfer: secondTransfer });
+  await secondTransfer.dispose();
+  await expect(tree.getByText("sibling.txt", { exact: true })).toBeVisible();
+  expect(
+    await readFile(path.join(workspace.repoPath, "upload-folder", "sibling.txt"), "utf8"),
+  ).toBe("sibling");
+  await page.screenshot({ path: testInfo.outputPath("built-in-file-upload.png") });
+});

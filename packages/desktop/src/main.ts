@@ -27,6 +27,7 @@ import {
   webContents,
 } from "electron";
 import { registerDaemonManager } from "./daemon/daemon-manager.js";
+import { registerBrowserDevToolsIpc } from "./features/browser-devtools.js";
 import { parsePassthroughCliArgsFromArgv, runPassthroughCli } from "./daemon/cli/passthrough.js";
 import { closeAllTransportSessions } from "./daemon/local-transport.js";
 import {
@@ -405,6 +406,7 @@ ipcMain.handle("paseo:browser:register-attached", (event, rawInput: unknown) => 
     throw new Error("Attached browser guest disappeared after registration");
   }
   browserKeyboard.attach({ contents: guest, hostContents: event.sender });
+  event.sender.send("paseo:event:browser-registered", { browserId: input.browserId });
   log.info("[browser-webview] registered", {
     browserId: input.browserId,
     webContentsId: input.webContentsId,
@@ -465,6 +467,8 @@ ipcMain.handle("paseo:browser:focus", (event, browserId: unknown): boolean => {
   contents.focus();
   return true;
 });
+
+registerBrowserDevToolsIpc();
 
 ipcMain.handle("paseo:browser:open-devtools", (event, browserId: unknown) => {
   if (typeof browserId !== "string" || browserId.trim().length === 0) {

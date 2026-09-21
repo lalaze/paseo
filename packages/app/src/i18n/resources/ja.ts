@@ -493,6 +493,15 @@ export const ja: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "アップロードを準備中…",
+        updateHost: "ワークスペースにアップロードするにはホストを更新してください。",
+        progress: "{{name}} をアップロード中 · {{percent}}%",
+        tooLarge: "ファイルの上限は 100 MiB です。",
+        complete: "{{completed}}/{{total}} ファイルをアップロードしました",
+        foldersUnsupported: "ファイルを選択するか、フォルダーを ZIP に圧縮してください。",
+        destination: "{{directory}} にファイルをアップロード",
+      },
       sort: {
         name: "名前",
         modified: "更新日時",
@@ -566,6 +575,14 @@ export const ja: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "開発者ツール",
+        loading: "開発者ツールを開いています…",
+        failed:
+          "開発者ツールに接続できませんでした。ブラウザーのタブを開き直して再試行してください。",
+        retry: "再接続",
+        browserClosed: "ブラウザーのタブは閉じられました。",
+      },
       unavailable: {
         title: "ブラウザはデスクトップ専用です",
         subtitle: "組み込みブラウザを使用するには、このワークスペースをElectronで開いてください。",

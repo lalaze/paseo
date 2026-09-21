@@ -1105,6 +1105,56 @@ describe("workspace-layout-store actions", () => {
     });
   });
 
+  it("persists a movable DevTools tab separately from its browser", async () => {
+    const workspaceKey = createWorkspaceKey();
+    const isolated = createWorkspaceLayoutStore(createDeterministicWorkspaceLayoutIds());
+    const store = isolated.getState();
+    store.openTab({
+      workspaceKey,
+      target: { kind: "browser", browserId: "page-a" },
+      intent: "reveal",
+    });
+    const sidePaneId = store.ensureSidePane(workspaceKey);
+    if (!sidePaneId) throw new Error("Expected side pane");
+    const target = { kind: "browser_devtools", browserId: "page-a" } as const;
+    const tabId = store.openTab({
+      workspaceKey,
+      target,
+      intent: "reveal",
+      placement: { mode: "pane", paneId: sidePaneId },
+    });
+    if (!tabId) throw new Error("Expected DevTools tab");
+    expect(store.openTab({ workspaceKey, target, intent: "reveal" })).toBe(tabId);
+    expect(
+      findPaneContainingTab(isolated.getState().layoutByWorkspace[workspaceKey].root, tabId)?.id,
+    ).toBe(sidePaneId);
+    store.moveTabToPane(workspaceKey, tabId, "main");
+    const restored = createWorkspaceLayoutStore(createDeterministicWorkspaceLayoutIds());
+    await restored.persist.rehydrate();
+    const root = restored.getState().layoutByWorkspace[workspaceKey].root;
+    expect(findPaneContainingTab(root, tabId)?.id).toBe("main");
+    expect(
+      collectAllTabs(root)
+        .filter((tab) => tab.target.kind !== "new_tab")
+        .map((tab) => tab.target),
+    ).toEqual([
+      { kind: "browser", browserId: "page-a" },
+      target,
+      { kind: "files" },
+      { kind: "changes_tree" },
+    ]);
+    restored.getState().closeTab(workspaceKey, tabId);
+    expect(
+      collectAllTabs(restored.getState().layoutByWorkspace[workspaceKey].root)
+        .filter((tab) => tab.target.kind !== "new_tab")
+        .map((tab) => tab.target),
+    ).toEqual([
+      { kind: "browser", browserId: "page-a" },
+      { kind: "files" },
+      { kind: "changes_tree" },
+    ]);
+  });
+
   it("replaces a pane's sole New tab when real content opens", () => {
     const workspaceKey = createWorkspaceKey();
     const store = workspaceLayoutStore.getState();

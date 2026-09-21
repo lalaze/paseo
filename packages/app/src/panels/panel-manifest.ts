@@ -43,6 +43,11 @@ const manifests = {
     supportedHosts: ["main"],
     resourceKey: (target) => target.browserId,
   },
+  browser_devtools: {
+    kind: "browser_devtools",
+    supportedHosts: ["main", "explorer"],
+    resourceKey: (target) => target.browserId,
+  },
   changes_tree: {
     kind: "changes_tree",
     supportedHosts: ["explorer"],

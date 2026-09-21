@@ -2,6 +2,24 @@
 
 All workspaces share one version and release together.
 
+## Self-use macOS builds
+
+For a fork you install manually, run `npm run build:desktop:mac:self` on your Mac.
+The build uses your Mac's architecture; add `-- --arm64` or `-- --x64` to select it.
+Install the DMG from `packages/desktop/release-self/` and replace the app manually
+for each update.
+
+On GitHub, enable Actions in your fork and run **macOS Self Build** from the branch
+containing your changes. Choose `arm64` for Apple Silicon or `x64` for Intel, then
+download the installer from the run's artifacts. This workflow does not create a
+release or require repository secrets.
+
+These builds have no update feed, Apple developer certificate, or notarization.
+They use a local ad-hoc signature because Apple Silicon requires signed executable
+code. macOS may require approval in **System Settings > Privacy & Security** on
+first launch. Automatic and manual update checks are disabled when the packaged
+`app-update.yml` is absent.
+
 ## Two steps
 
 A release has exactly two steps. The agent does the first, the user authorizes the second.

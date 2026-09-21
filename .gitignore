@@ -88,5 +88,6 @@ packages/protocol/src/generated/validation/*.aot.ts
 
 /artifacts
 packages/desktop/.cache/
+packages/desktop/release-self/
 packages/desktop/src-tauri/resources/managed-runtime/
 app.json

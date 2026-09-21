@@ -58,12 +58,20 @@ export function openExplorerSidebarView(
     panel.openCompactFileExplorer(input.checkout);
     return;
   }
-  if (!input.workspaceKey) return;
+  openExplorerSidebarTarget(input.workspaceKey, VIEW_TARGETS[input.view]);
+}
+
+/** Opens or moves a target into the desktop Explorer dock. */
+export function openExplorerSidebarTarget(
+  workspaceKey: string | null,
+  target: WorkspaceTabTarget,
+): void {
+  if (!workspaceKey) return;
   const store = useWorkspaceLayoutStore.getState();
-  const paneId = store.showExplorerSidebar(input.workspaceKey);
+  const paneId = store.showExplorerSidebar(workspaceKey);
   store.openTab({
-    workspaceKey: input.workspaceKey,
-    target: VIEW_TARGETS[input.view],
+    workspaceKey,
+    target,
     intent: "reveal",
     placement: paneId ? { mode: "pane", paneId } : undefined,
   });

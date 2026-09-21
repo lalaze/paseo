@@ -1,0 +1,10 @@
+extends: ./electron-builder.yml
+publish: null
+directories:
+  output: release-self
+mac:
+  # Apple Silicon needs a local signature; no Apple certificate is used.
+  identity: "-"
+  notarize: false
+  hardenedRuntime: false
+  target: dmg

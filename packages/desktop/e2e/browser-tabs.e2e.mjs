@@ -411,6 +411,103 @@ async function selectDeviceSize(page, label) {
   return !openPixels.equals(closedPixels);
 }
 
+async function verifyDevToolsTab({
+  page,
+  client,
+  browserId,
+  targetUrl,
+  inspectorPort,
+  artifactDir,
+}) {
+  const open = page.getByRole("button", { name: "Open browser dev tools", exact: true });
+  await open.click();
+  const tools = page.locator(`[data-browser-devtools="${browserId}"]`);
+  await page
+    .locator(`[data-browser-devtools="${browserId}"][data-devtools-status="ready"]`)
+    .waitFor({ timeout: timeoutMs });
+  await open.click();
+  assert((await tools.count()) === 1, "Repeated DevTools opens created duplicate tabs");
+  const dock = page.getByTestId("workspace-explorer-sidebar").filter({ visible: true });
+  const inspectorTab = dock.getByTestId(`explorer-sidebar-tab-browser_devtools_${browserId}`);
+  await inspectorTab.waitFor({ state: "visible" });
+  const filesTab = dock.getByTestId("explorer-sidebar-tab-files");
+  if ((await filesTab.count()) === 0) {
+    await dock.getByTestId("explorer-sidebar-tab-rail").click({ button: "right" });
+    await page
+      .getByTestId("explorer-sidebar-tab-configuration")
+      .getByText("Files", { exact: true })
+      .click();
+    await inspectorTab.click();
+  }
+  const nativeView = await readDevToolsView(inspectorPort);
+  await filesTab.click();
+  await tools.waitFor({ state: "hidden" });
+  await waitForDevToolsVisibility(inspectorPort, nativeView.id, false);
+  await inspectorTab.click();
+  await tools.waitFor({ state: "visible" });
+  await waitForDevToolsVisibility(inspectorPort, nativeView.id, true);
+  const browserClip = page.getByTestId(`browser-webview-clip-${browserId}`);
+  const originalWidth = (await browserClip.boundingBox()).width;
+  await page.getByTestId(`workspace-tab-browser_${browserId}`).click();
+  const other = await callBrowserTool(client, "browser_new_tab", { url: targetUrl });
+  await page.getByTestId(`workspace-tab-browser_${other.browserId}`).click();
+  await tools.waitFor({ state: "hidden" });
+  await waitForDevToolsVisibility(inspectorPort, nativeView.id, false);
+  const switchedWidth = (
+    await page.getByTestId(`browser-webview-clip-${other.browserId}`).boundingBox()
+  ).width;
+  assert(
+    Math.abs(switchedWidth - originalWidth) < 3,
+    "Switching inspector content changed the Explorer dock width",
+  );
+  assert(
+    await dock.getByTestId("files-pane-header").isVisible(),
+    "Explorer did not fall back to Files",
+  );
+  assert((await tools.count()) === 1, "Switching browser tabs unmounted its inspector");
+  await page.getByTestId(`workspace-tab-browser_${browserId}`).click();
+  await tools.waitFor({ state: "visible" });
+  await waitForDevToolsVisibility(inspectorPort, nativeView.id, true);
+  assert(
+    Math.abs((await browserClip.boundingBox()).width - originalWidth) < 3,
+    "Inspector split width was not restored",
+  );
+  await page.screenshot({ path: path.join(artifactDir, "devtools-tab.png") });
+  await inspectorTab.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await tools.waitFor({ state: "detached" });
+  await page.evaluate(async (id) => {
+    await window.paseoDesktop.browser.unregisterWorkspaceBrowser(id);
+  }, browserId);
+  await open.click();
+  await page
+    .getByText("Couldn't connect developer tools. Reopen the browser tab and try again.", {
+      exact: true,
+    })
+    .waitFor({ timeout: timeoutMs });
+  await page.getByRole("button", { name: "Reconnect", exact: true }).click();
+  await page
+    .locator(`[data-browser-devtools="${browserId}"][data-devtools-status="failed"]`)
+    .waitFor({ timeout: timeoutMs });
+  await page.evaluate(
+    async ({ browserId: id, workspaceId }) => {
+      const guest = document.querySelector(`[data-paseo-browser-id="${id}"]`);
+      await window.paseoDesktop.browser.registerAttachedBrowser({
+        browserId: id,
+        workspaceId,
+        webContentsId: guest.getWebContentsId(),
+      });
+    },
+    { browserId, workspaceId: workspaceIds[0] },
+  );
+  await page
+    .locator(`[data-browser-devtools="${browserId}"][data-devtools-status="ready"]`)
+    .waitFor({ timeout: timeoutMs });
+  await inspectorTab.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await tools.waitFor({ state: "detached" });
+}
+
 async function selectElementAndReadAnnotationPaint({ page, client, browserId, artifactDir }) {
   await clickGuestElement(page, client, browserId, "#bridge-target");
   const comment = page.getByRole("textbox", {
@@ -455,17 +552,17 @@ function recordViewportMismatch(failures, label, actual, expected) {
   );
 }
 
-async function setWindowHidden(inspectorPort, hidden) {
+async function evaluateElectronMain(inspectorPort, expression) {
   const [target] = await (await fetch(`http://127.0.0.1:${inspectorPort}/json/list`)).json();
   const socket = new WebSocket(target.webSocketDebuggerUrl);
   try {
-    await new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       socket.addEventListener("error", reject, { once: true });
       socket.addEventListener("message", ({ data }) => {
         const response = JSON.parse(data);
         if (response.id !== 1) return;
         if (response.error || response.result?.exceptionDetails) reject(new Error(data));
-        else resolve();
+        else resolve(response.result.result.value);
       });
       socket.addEventListener(
         "open",
@@ -475,7 +572,8 @@ async function setWindowHidden(inspectorPort, hidden) {
               id: 1,
               method: "Runtime.evaluate",
               params: {
-                expression: `(() => { const win = process.mainModule.require('electron').BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('localhost:')); win.${hidden ? "hide" : "show"}(); if (win.isVisible() !== ${!hidden}) throw new Error('Window visibility did not change'); })()`,
+                expression,
+                returnByValue: true,
               },
             }),
           ),
@@ -485,6 +583,34 @@ async function setWindowHidden(inspectorPort, hidden) {
   } finally {
     socket.close();
   }
+}
+
+async function setWindowHidden(inspectorPort, hidden) {
+  await evaluateElectronMain(
+    inspectorPort,
+    `(() => { const win = process.mainModule.require('electron').BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('localhost:')); win.${hidden ? "hide" : "show"}(); if (win.isVisible() !== ${!hidden}) throw new Error('Window visibility did not change'); })()`,
+  );
+}
+
+async function readDevToolsView(inspectorPort) {
+  return evaluateElectronMain(
+    inspectorPort,
+    `(() => {
+    const win = process.mainModule.require('electron').BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('localhost:'));
+    const view = win.contentView.children.find(view => view.webContents?.getURL().startsWith('devtools://'));
+    return view ? { id: view.webContents.id, visible: view.getVisible() } : null;
+  })()`,
+  );
+}
+
+async function waitForDevToolsVisibility(inspectorPort, id, visible) {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const view = await readDevToolsView(inspectorPort);
+    assert(view?.id === id, "Browser switch replaced the native inspector and lost its state");
+    if (view.visible === visible) return;
+    await delay(100);
+  }
+  throw new Error(`Native inspector visibility did not become ${visible}`);
 }
 
 async function verifyHiddenBrowserScreenshots({
@@ -995,6 +1121,8 @@ async function runRegression({
   if (failures.length > 0) {
     throw new Error(`Browser viewport regressions:\n- ${failures.join("\n- ")}`);
   }
+
+  await verifyDevToolsTab({ page, client, browserId, targetUrl, inspectorPort, artifactDir });
 
   return {
     browserId,

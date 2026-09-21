@@ -1,0 +1,50 @@
+name: macOS Self Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: "Mac architecture (arm64 for Apple Silicon, x64 for Intel)"
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x64
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ inputs.architecture == 'arm64' && 'macos-14' || 'macos-15-intel' }}
+    timeout-minutes: 60
+    env:
+      ONNXRUNTIME_NODE_INSTALL: skip
+      NODE_OPTIONS: --max-old-space-size=8192
+      PASEO_DESKTOP_SMOKE: "1"
+      PASEO_DESKTOP_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/desktop-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: node scripts/npm-retry.mjs ci
+      - name: Build self-use macOS app
+        run: npm run build:desktop:mac:self -- --${{ inputs.architecture }}
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: paseo-macos-${{ inputs.architecture }}
+          path: packages/desktop/release-self/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-smoke-${{ inputs.architecture }}
+          path: ${{ runner.temp }}/desktop-smoke
+          if-no-files-found: ignore

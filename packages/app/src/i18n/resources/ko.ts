@@ -488,6 +488,15 @@ export const ko: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "업로드 준비 중…",
+        updateHost: "작업 공간에 파일을 업로드하려면 호스트를 업데이트하세요.",
+        progress: "{{name}} 업로드 중 · {{percent}}%",
+        tooLarge: "파일 크기는 최대 100 MiB입니다.",
+        complete: "{{completed}}/{{total}}개 파일 업로드 완료",
+        foldersUnsupported: "파일을 선택하거나 폴더를 ZIP으로 압축하세요.",
+        destination: "{{directory}}에 파일 업로드",
+      },
       sort: {
         name: "이름",
         modified: "수정일",
@@ -561,6 +570,13 @@ export const ko: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "개발자 도구",
+        loading: "개발자 도구를 여는 중…",
+        failed: "개발자 도구에 연결하지 못했습니다. 브라우저 탭을 다시 열고 재시도하세요.",
+        retry: "다시 연결",
+        browserClosed: "브라우저 탭이 닫혔습니다.",
+      },
       unavailable: {
         title: "브라우저는 데스크톱 전용입니다",
         subtitle: "내장 브라우저를 사용하려면 이 워크스페이스를 Electron에서 여세요.",

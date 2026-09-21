@@ -2819,6 +2819,7 @@ export const FileUploadRequestSchema = z.object({
   size: z.number().int().nonnegative(),
   modifiedAt: z.string(),
   requestId: z.string(),
+  destination: z.object({ cwd: z.string().min(1), directory: z.string() }).optional(),
 });
 
 export const ClearAgentAttentionMessageSchema = z.object({
@@ -3617,6 +3618,7 @@ export const ServerInfoStatusPayloadSchema = z
         workspaceRecovery: z.boolean().optional(),
         // COMPAT(workspaceFileEditing): added in v0.2.0, remove after 2027-01-18 once daemon floor >= v0.2.0.
         workspaceFileEditing: z.boolean().optional(),
+        workspaceFileUpload: z.boolean().optional(),
         // COMPAT(providerUsageList): added in v0.1.98, drop the gate when daemon floor >= v0.1.98.
         providerUsageList: z.boolean().optional(),
         // COMPAT(agentDetach): added in v0.1.98, remove gate after 2026-12-19 once daemon floor >= v0.1.98.

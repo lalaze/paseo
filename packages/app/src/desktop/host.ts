@@ -155,6 +155,12 @@ export interface DesktopBrowserBridge {
   }) => Promise<void>;
   focus?: (browserId: string) => Promise<boolean>;
   openDevTools?: (browserId: string) => Promise<unknown>;
+  createDevTools?: (browserId: string, instanceId: string) => Promise<void>;
+  updateDevTools?: (
+    instanceId: string,
+    bounds: { x: number; y: number; width: number; height: number } | null,
+  ) => Promise<void>;
+  destroyDevTools?: (instanceId: string) => Promise<void>;
   clearProfile?: (legacyBrowserIds: string[]) => Promise<void>;
   executeAutomationCommand?: (
     request: BrowserAutomationExecuteRequest,

@@ -2097,6 +2097,88 @@ async function verifyBrowserKeyboardIsolation({ guest, win, browserId, usesMeta,
   return checks;
 }
 
+async function verifyBrowserDevTools({ win, guest, browserId }) {
+  win.showInactive();
+  const {
+    createBrowserDevTools,
+    updateBrowserDevTools,
+    destroyBrowserDevTools,
+  } = require("../dist/features/browser-devtools.js");
+  const { getPaseoBrowserWebviewRegistry } = require("../dist/features/browser-webviews/index.js");
+  const registry = getPaseoBrowserWebviewRegistry();
+  registry.registerWebContents({
+    browserId,
+    hostWebContentsId: win.webContents.id,
+    webContentsId: guest.id,
+  });
+  const sender = win.webContents;
+  const instanceId = "capture-harness-devtools";
+  try {
+    let missingBrowserRejected = false;
+    try {
+      await createBrowserDevTools({ sender, browserId: "missing-browser", instanceId });
+    } catch {
+      missingBrowserRejected = true;
+    }
+    if (!missingBrowserRejected) fail("DevTools accepted a missing browser");
+    await withTimeout(
+      createBrowserDevTools({ sender, browserId, instanceId }),
+      "embedded DevTools",
+      15000,
+    );
+    const frontend = guest.devToolsWebContents;
+    if (!frontend) fail("DevTools frontend is missing");
+    const view = win.contentView.children.find((child) => child.webContents === frontend);
+    if (!view) fail("DevTools did not mount in the host window");
+    if (view.getVisible()) fail("DevTools appeared before its panel reported bounds");
+    const bounds = { x: 400, y: 50, width: 580, height: 620 };
+    updateBrowserDevTools({ sender, instanceId, bounds });
+    if (!view.getVisible() || !isDeepStrictEqual(view.getBounds(), bounds))
+      fail("DevTools panel bounds mismatch");
+    const evaluated = await frontend.executeJavaScript(`(async () => {
+      const SDK = await import('./core/sdk/sdk.js');
+      const response = await SDK.TargetManager.TargetManager.instance().primaryPageTarget().runtimeAgent().invoke_evaluate({ expression: 'location.href', returnByValue: true });
+      return response.result.value;
+    })()`);
+    if (evaluated !== guest.getURL())
+      fail(`DevTools inspected the wrong page: ${JSON.stringify(evaluated)}`);
+    updateBrowserDevTools({ sender, instanceId, bounds: null });
+    if (view.getVisible() || frontend.isDestroyed())
+      fail("Hiding the DevTools tab did not retain its session");
+    const resized = { x: 320, y: 50, width: 660, height: 620 };
+    updateBrowserDevTools({ sender, instanceId, bounds: resized });
+    if (!view.getVisible() || !isDeepStrictEqual(view.getBounds(), resized))
+      fail("DevTools did not resize after reveal");
+    await sender.executeJavaScript("location.hash = 'devtools-retained'");
+    if (frontend.isDestroyed()) fail("Workspace route navigation destroyed DevTools");
+    pass("DevTools initial connection and bounds verified");
+    const closed = new Promise((resolve) => frontend.once("destroyed", resolve));
+    destroyBrowserDevTools(sender, instanceId);
+    await withTimeout(closed, "DevTools close");
+    // Electron emits destroyed from inside native teardown; the next user IPC
+    // arrives after that stack has finished releasing the old frontend.
+    await new Promise((resolve) => setImmediate(resolve));
+    if (guest.isDestroyed()) fail("Closing DevTools closed the browser");
+    pass("DevTools closed, reopening");
+    await withTimeout(
+      createBrowserDevTools({ sender, browserId, instanceId }),
+      "reopen DevTools",
+      15000,
+    );
+    const reopened = guest.devToolsWebContents;
+    if (!reopened || reopened.id === frontend.id)
+      fail("DevTools did not reopen with a fresh frontend");
+    const disconnected = new Promise((resolve) => reopened.once("destroyed", resolve));
+    guest.close();
+    await withTimeout(disconnected, "browser close disposes DevTools");
+    pass("browser DevTools embeds, inspects, resizes, hides, reopens, and cleans up");
+    return { group: "automation", check: "browser-devtools", pass: true };
+  } finally {
+    destroyBrowserDevTools(sender, instanceId);
+    registry.unregisterHostWebContents(sender.id);
+  }
+}
+
 async function runAutomationGroup() {
   const results = [];
   const { BrowserKeyboard } = require(PRODUCTION_BROWSER_KEYBOARD_PATH);
@@ -2434,6 +2516,7 @@ async function runAutomationGroup() {
       sentinel: browserKeyboardSentinels.state,
     });
     results.push(...browserKeyboardChecks);
+    results.push(await verifyBrowserDevTools({ win, guest, browserId }));
 
     // Resize is not harness-testable: the harness hosts webviews in the parked
     // 1px resident host, and Electron does not propagate CSS-box resizes to a

@@ -484,6 +484,15 @@ export const en = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "Preparing upload…",
+        updateHost: "Update the host to upload files into this workspace.",
+        progress: "Uploading {{name}} · {{percent}}%",
+        tooLarge: "The maximum file size is 100 MiB.",
+        complete: "Uploaded {{completed}}/{{total}} files",
+        foldersUnsupported: "Upload individual files, or compress folders into ZIP archives first.",
+        destination: "Upload files to {{directory}}",
+      },
       sort: {
         name: "Name",
         modified: "Modified",
@@ -557,6 +566,13 @@ export const en = {
       },
     },
     browser: {
+      devTools: {
+        title: "DevTools",
+        loading: "Opening developer tools…",
+        failed: "Couldn't connect developer tools. Reopen the browser tab and try again.",
+        retry: "Reconnect",
+        browserClosed: "The browser tab has been closed.",
+      },
       unavailable: {
         title: "Browser is desktop-only",
         subtitle: "Open this workspace in Electron to use the built-in browser.",

@@ -487,6 +487,15 @@ export const ar: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "جارٍ تجهيز الرفع…",
+        updateHost: "حدّث المضيف لرفع الملفات إلى مساحة العمل.",
+        progress: "جارٍ رفع {{name}} · {{percent}}%",
+        tooLarge: "الحد الأقصى لحجم الملف هو 100 MiB.",
+        complete: "تم رفع {{completed}}/{{total}} ملفات",
+        foldersUnsupported: "ارفع ملفات منفردة أو اضغط المجلدات بصيغة ZIP أولاً.",
+        destination: "رفع ملفات إلى {{directory}}",
+      },
       sort: {
         name: "اسم",
         modified: "معدل",
@@ -560,6 +569,13 @@ export const ar: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "أدوات المطور",
+        loading: "جارٍ فتح أدوات المطور…",
+        failed: "تعذر الاتصال بأدوات المطور. أعد فتح علامة تبويب المتصفح وحاول مرة أخرى.",
+        retry: "إعادة الاتصال",
+        browserClosed: "تم إغلاق علامة تبويب المتصفح.",
+      },
       unavailable: {
         title: "المتصفح مخصص لسطح المكتب فقط",
         subtitle: "افتح مساحة العمل هذه في Electron لاستخدام المتصفح المدمج.",

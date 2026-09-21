@@ -487,6 +487,15 @@ export const zhCN: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "正在准备上传…",
+        updateHost: "请更新主机以向工作区上传文件。",
+        progress: "正在上传 {{name}} · {{percent}}%",
+        tooLarge: "单文件最大 100 MiB。",
+        complete: "已上传 {{completed}}/{{total}} 个文件",
+        foldersUnsupported: "请选择文件上传，或先将文件夹打包为 ZIP。",
+        destination: "上传文件到 {{directory}}",
+      },
       sort: {
         name: "名称",
         modified: "修改时间",
@@ -560,6 +569,13 @@ export const zhCN: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "开发者工具",
+        loading: "正在打开开发者工具…",
+        failed: "无法连接开发者工具。请重新打开浏览器标签页后重试。",
+        retry: "重新连接",
+        browserClosed: "浏览器标签页已关闭。",
+      },
       unavailable: {
         title: "浏览器仅桌面端可用",
         subtitle: "在 Electron 中打开此 workspace 以使用内置浏览器。",

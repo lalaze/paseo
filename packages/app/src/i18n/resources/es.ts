@@ -493,6 +493,15 @@ export const es: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "Preparando la subida…",
+        updateHost: "Actualiza el host para subir archivos a este espacio de trabajo.",
+        progress: "Subiendo {{name}} · {{percent}}%",
+        tooLarge: "El tamaño máximo por archivo es de 100 MiB.",
+        complete: "{{completed}}/{{total}} archivos subidos",
+        foldersUnsupported: "Sube archivos individuales o comprime las carpetas en ZIP.",
+        destination: "Subir archivos a {{directory}}",
+      },
       sort: {
         name: "Nombre",
         modified: "Modificado",
@@ -566,6 +575,14 @@ export const es: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "Herramientas de desarrollo",
+        loading: "Abriendo las herramientas de desarrollo…",
+        failed:
+          "No se pudieron conectar las herramientas de desarrollo. Vuelve a abrir la pestaña del navegador e inténtalo de nuevo.",
+        retry: "Reconectar",
+        browserClosed: "La pestaña del navegador se ha cerrado.",
+      },
       unavailable: {
         title: "El navegador es solo para escritorio",
         subtitle: "Abra este espacio de trabajo en Electron para usar el navegador integrado.",

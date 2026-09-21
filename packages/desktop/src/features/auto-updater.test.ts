@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { UUID } from "builder-util-runtime";
@@ -28,8 +29,14 @@ const { autoUpdaterMock } = vi.hoisted(() => {
 vi.mock("electron", () => ({
   app: {
     getPath: vi.fn(),
+    getAppPath: () => "/test/resources/app.asar",
     isPackaged: true,
   },
+}));
+
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+  existsSync: vi.fn(() => true),
 }));
 
 vi.mock("electron-updater", () => ({
@@ -40,6 +47,8 @@ import {
   bucketFromStagingUserId,
   checkForAppUpdate,
   createAppUpdateLifecycleLogger,
+  downloadAndInstallUpdate,
+  installAppUpdateOnQuit,
   resolveStagingUserId,
   rolloutManifestSchema,
   shouldAdmitToRollout,
@@ -47,6 +56,30 @@ import {
 } from "./auto-updater";
 
 describe("checkForAppUpdate", () => {
+  it("never contacts an update feed or installs updates when no feed is packaged", async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    const checksBefore = autoUpdaterMock.checkForUpdates.mock.calls.length;
+    const downloadsBefore = autoUpdaterMock.downloadUpdate.mock.calls.length;
+    const installsBefore = autoUpdaterMock.quitAndInstall.mock.calls.length;
+    const input = { currentVersion: "1.2.3", releaseChannel: "stable" } as const;
+    try {
+      for (const intent of ["automatic", "manual"] as const) {
+        const result = await checkForAppUpdate({ ...input, intent });
+        expect(result.hasUpdate).toBe(false);
+        expect(result.errorMessage).toBeNull();
+      }
+      expect(await downloadAndInstallUpdate(input)).toMatchObject({ installed: false });
+      expect(await installAppUpdateOnQuit({ ...input, signal: new AbortController().signal })).toBe(
+        false,
+      );
+      expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(checksBefore);
+      expect(autoUpdaterMock.downloadUpdate).toHaveBeenCalledTimes(downloadsBefore);
+      expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledTimes(installsBefore);
+    } finally {
+      vi.mocked(existsSync).mockReturnValue(true);
+    }
+  });
+
   it("treats an unpublished channel manifest as an unavailable update", async () => {
     const error = Object.assign(new Error("Cannot find latest-mac.yml"), {
       code: "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND",

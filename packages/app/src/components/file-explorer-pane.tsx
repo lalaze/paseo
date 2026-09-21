@@ -27,7 +27,15 @@ import { StyleSheet, useUnistyles, withUnistyles } from "react-native-unistyles"
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { isWeb } from "@/constants/platform";
 import * as Clipboard from "expo-clipboard";
-import { ChevronDown, Eye, EyeOff, FilePlus, FolderPlus, RotateCw } from "lucide-react-native";
+import {
+  ChevronDown,
+  Eye,
+  EyeOff,
+  FilePlus,
+  FolderPlus,
+  RotateCw,
+  Upload,
+} from "lucide-react-native";
 import { MaterialFileIcon } from "@/components/material-file-icon";
 import {
   TreeChevron,
@@ -63,7 +71,9 @@ import { useFileExplorerActions } from "@/hooks/use-file-explorer-actions";
 import { useIsLocalDaemon } from "@/hooks/use-is-local-daemon";
 import { buildWorkspaceExplorerStateKey } from "@/hooks/use-file-explorer-actions";
 import { usePanelStore, type ExpandedPathsUpdate, type SortOption } from "@/stores/panel-store";
-import { buildAbsoluteExplorerPath } from "@/utils/explorer-paths";
+import { buildAbsoluteExplorerPath, parentExplorerPath } from "@/utils/explorer-paths";
+import { useUpload } from "@/file-explorer/use-upload";
+import { UploadDropTarget } from "@/file-explorer/upload-drop-target";
 import { isHiddenExplorerPath } from "@/file-explorer/visibility";
 import {
   flattenExplorerTree,
@@ -258,6 +268,10 @@ function TreeRowItem({
   const showNameHover = useCallback(() => setIsHovered(true), []);
   const hideNameHover = useCallback(() => setIsHovered(false), []);
   const isDirectory = entry.kind === "directory";
+  const uploadDataSet = useMemo(
+    () => ({ uploadDirectory: isDirectory ? entry.path : parentExplorerPath(entry.path) }),
+    [entry.path, isDirectory],
+  );
   const dragSourceRef = useWorkspaceFileDragSource({
     enabled: !isDirectory,
     serverId,
@@ -351,6 +365,7 @@ function TreeRowItem({
         accessibilityState={accessibilityState}
         aria-selected={isSelected}
         testID={testID}
+        dataSet={uploadDataSet}
       >
         <View ref={dragSourceRef} style={styles.entryInfo}>
           <View style={styles.entryIcon}>
@@ -486,6 +501,23 @@ export function FileExplorerPane({
   const explorerDerived = useMemo(() => deriveExplorerFields(explorerState), [explorerState]);
   const { directories, pendingRequest, isExplorerLoading, error, selectedEntryPath } =
     explorerDerived;
+  const refreshUploadedDirectory = useCallback(
+    (directory: string) =>
+      requestDirectoryListing(directory, { recordHistory: false, setCurrentPath: false }),
+    [requestDirectoryListing],
+  );
+  const upload = useUpload({
+    serverId,
+    workspaceRoot: normalizedWorkspaceRoot,
+    onUploaded: refreshUploadedDirectory,
+  });
+  const selectedEntry = Array.from(directories.values())
+    .flatMap((directory) => directory.entries)
+    .find((entry) => entry.path === selectedEntryPath);
+  const uploadDirectory =
+    selectedEntry?.kind === "directory"
+      ? selectedEntry.path
+      : parentExplorerPath(selectedEntryPath ?? ".");
 
   const isDirectoryLoading = useCallback(
     (path: string) => isPendingListForPath({ isExplorerLoading, pendingRequest, path }),
@@ -1057,25 +1089,47 @@ export function FileExplorerPane({
       }}
       style={styles.container}
     >
-      <FileExplorerPaneContent
-        error={error}
-        isCompact={isCompact}
-        showInitialLoading={showInitialLoading}
-        showBackFromError={showBackFromError}
-        listRows={listRows}
-        onNewEntryAtRoot={fsEntryOpsEnabled ? handleNewEntry : undefined}
-        currentSortLabel={currentSortLabel}
-        isRefreshFetching={isRefreshFetching}
-        treeListRef={treeListRef}
-        scrollbar={scrollbar}
-        renderTreeRow={renderTreeRow}
-        handleSortCycle={handleSortCycle}
-        handleToggleHiddenFiles={handleToggleHiddenFiles}
-        handleRefresh={handleRefresh}
-        handleBackFromError={handleBackFromError}
-        handleRetry={handleRetry}
-        sortTriggerStyle={sortTriggerStyle}
-      />
+      <UploadDropTarget
+        disabled={upload.busy || !upload.supported}
+        onDrop={upload.drop}
+        onReject={upload.reject}
+      >
+        <FileExplorerPaneContent
+          upload={upload}
+          uploadDirectory={uploadDirectory}
+          error={error}
+          isCompact={isCompact}
+          showInitialLoading={showInitialLoading}
+          showBackFromError={showBackFromError}
+          listRows={listRows}
+          onNewEntryAtRoot={fsEntryOpsEnabled ? handleNewEntry : undefined}
+          currentSortLabel={currentSortLabel}
+          isRefreshFetching={isRefreshFetching}
+          treeListRef={treeListRef}
+          scrollbar={scrollbar}
+          renderTreeRow={renderTreeRow}
+          handleSortCycle={handleSortCycle}
+          handleToggleHiddenFiles={handleToggleHiddenFiles}
+          handleRefresh={handleRefresh}
+          handleBackFromError={handleBackFromError}
+          handleRetry={handleRetry}
+          sortTriggerStyle={sortTriggerStyle}
+        />
+        {upload.state.status !== "idle" ? (
+          <View style={styles.uploadStatus} testID="files-upload-status">
+            <Text style={styles.uploadStatusText} accessibilityLiveRegion="polite">
+              {upload.state.message}
+            </Text>
+            {upload.state.status === "finished"
+              ? Array.from(new Set(upload.state.errors)).map((message) => (
+                  <Text key={message} style={styles.errorText} accessibilityRole="alert">
+                    {message}
+                  </Text>
+                ))
+              : null}
+          </View>
+        ) : null}
+      </UploadDropTarget>
     </View>
   );
 }
@@ -1132,6 +1186,8 @@ function RootCreationContextTarget({
 }
 
 interface FileExplorerPaneContentProps {
+  upload: ReturnType<typeof useUpload>;
+  uploadDirectory: string;
   error: string | null;
   isCompact: boolean;
   showInitialLoading: boolean;
@@ -1175,6 +1231,12 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
   } = props;
 
   const showHiddenFiles = usePanelStore((state) => state.explorerShowHiddenFiles);
+  const pickUpload = props.upload.pick;
+  const uploadDirectory = props.uploadDirectory;
+  const handleUpload = useCallback(
+    () => pickUpload(uploadDirectory),
+    [pickUpload, uploadDirectory],
+  );
 
   const handleNewFileAtRoot = useCallback(() => {
     onNewEntryAtRoot?.(".", "file");
@@ -1237,6 +1299,27 @@ function FileExplorerPaneContent(props: FileExplorerPaneContentProps) {
           <ChevronDown size={12} color={theme.colors.foregroundMuted} />
         </Pressable>
         <ToolbarControls style={styles.headerActions}>
+          <ToolbarButton
+            label={t("workspace.fileExplorer.upload.destination", {
+              directory: props.uploadDirectory,
+            })}
+            compact={isCompact}
+            disabled={props.upload.busy}
+            testID="files-upload"
+            onPress={handleUpload}
+          >
+            {props.upload.busy ? (
+              <LoadingSpinner
+                size={paneContentToolbarIconSize(isCompact)}
+                color={theme.colors.foregroundExtraMuted}
+              />
+            ) : (
+              <Upload
+                size={paneContentToolbarIconSize(isCompact)}
+                color={theme.colors.foregroundExtraMuted}
+              />
+            )}
+          </ToolbarButton>
           {onNewEntryAtRoot ? (
             <>
               <ToolbarButton
@@ -1645,6 +1728,8 @@ function getErrorRecoveryPath(state: AgentFileExplorerState | undefined): string
 }
 
 const styles = StyleSheet.create((theme) => ({
+  uploadStatus: { padding: theme.spacing[2], gap: theme.spacing[1] },
+  uploadStatusText: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   container: {
     flex: 1,
   },

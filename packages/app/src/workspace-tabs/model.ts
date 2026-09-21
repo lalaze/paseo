@@ -39,6 +39,7 @@ export type WorkspaceTabTarget =
   | { kind: "provider_subagent"; parentAgentId: string; subagentId: string }
   | { kind: "terminal"; terminalId: string }
   | { kind: "browser"; browserId: string }
+  | { kind: "browser_devtools"; browserId: string }
   | { kind: "changes_tree" }
   | { kind: "files" }
   | { kind: "pull_request" }

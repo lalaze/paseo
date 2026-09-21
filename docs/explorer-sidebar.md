@@ -20,6 +20,17 @@ tabs, including agents, terminals, files, and diffs, can move between Explorer a
 Keep panel implementations independent of either shell. `WorkspacePanelHost` owns mounting and
 retention, while each shell owns its tabs, focus, dragging, resizing, and shortcuts.
 
+File transfers belong to Files and do not require a plugin. Uploads use the daemon's binary
+transfer channel with a workspace destination; attachments keep their separate upload storage.
+Gate workspace uploads on `workspaceFileUpload` so an older daemon cannot silently store the file
+as an attachment instead. Downloads use the existing file action and download queue.
+
+The browser's DevTools button opens its inspector as an Explorer tab alongside Files and Changes.
+Pressing it also moves an existing inspector into the dock. Inspectors keep the source page in
+their tooltip; the tab label stays short. Switching browser tabs shows the matching open inspector,
+or another Explorer tab when that page has no inspector. Returning restores the inspector unless
+you explicitly selected another Explorer tab.
+
 ## Explorer sidebar
 
 `packages/app/src/workspace-tabs/explorer-sidebar.ts` owns show, hide, toggle, and view selection.
@@ -64,7 +75,11 @@ Removing a pane clears its remembered id; a later side open creates a new pane. 
 ordinary pane stays when its final tab closes and shows the New launcher. An empty workspace does
 not automatically create an agent draft tab; choosing Agent opens one. Explorer cannot replace the
 workspace canvas, even when visible. Restoring a saved layout enforces the same rule while preserving Explorer and saved
-tab content. There is no hidden side-pane lifecycle.
+tab content. Browser DevTools follow their source browser tab: switching away hides an inspector-only
+pane and gives its width back to the workspace; switching back restores it. This is a presentation
+projection, so saved placement, split widths, and the mounted inspector survive the switch. A pane
+with other content shows that content instead. An inspector moved into its source browser's own tab
+group remains selectable there.
 
 Placement intent still controls existing tabs:
 

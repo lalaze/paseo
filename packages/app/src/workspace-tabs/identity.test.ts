@@ -93,6 +93,17 @@ describe("working diff tab identity", () => {
 });
 
 describe("workspace utility panel identity", () => {
+  it("keeps each browser's DevTools distinct from its page and other browsers", () => {
+    const target = { kind: "browser_devtools", browserId: "browser-a" } as const;
+    expect(normalizeWorkspaceTabTarget({ ...target, browserId: " browser-a " })).toEqual(target);
+    expect(normalizeWorkspaceTabTarget({ ...target, browserId: " " })).toBeNull();
+    expect(workspaceTabTargetsEqual(target, { ...target })).toBe(true);
+    expect(workspaceTabTargetsEqual(target, { ...target, browserId: "browser-b" })).toBe(false);
+    expect(workspaceTabTargetsEqual(target, { kind: "browser", browserId: "browser-a" })).toBe(
+      false,
+    );
+    expect(buildDeterministicWorkspaceTabId(target)).toBe("browser_devtools_browser-a");
+  });
   it.each(["files", "pull_request"] as const)(
     "normalizes and deterministically keys %s",
     (kind) => {

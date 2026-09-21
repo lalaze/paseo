@@ -110,6 +110,7 @@ import { useArchiveAgent } from "@/hooks/use-archive-agent";
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { removeResidentBrowserWebview } from "@/desktop/browser/resident-webviews";
 import { createWorkspaceBrowser, useBrowserStore } from "@/desktop/browser/store";
+import { projectBrowserDevToolsLayout } from "@/desktop/browser/devtools/layout";
 import { getDesktopHost } from "@/desktop/host";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
@@ -330,6 +331,9 @@ function getFallbackTabOptionLabel(
   if (tab.target.kind === "browser") {
     return labels.browser;
   }
+  if (tab.target.kind === "browser_devtools") {
+    return "DevTools";
+  }
   if (tab.target.kind === "file") {
     return tab.target.path.split("/").findLast(Boolean) ?? tab.target.path;
   }
@@ -379,6 +383,9 @@ function getFallbackTabOptionDescription(
   }
   if (tab.target.kind === "browser") {
     return labels.browser;
+  }
+  if (tab.target.kind === "browser_devtools") {
+    return "DevTools";
   }
   if (tab.target.kind === "provider_subagent") {
     return labels.agent;
@@ -1810,8 +1817,12 @@ function WorkspaceScreenContent({
     return () => handler.remove();
   }, [isExplorerSidebarShowing, isMobile, isRouteFocused, showMobileAgent]);
 
-  const workspaceLayout = useWorkspaceLayoutStore((state) =>
+  const storedWorkspaceLayout = useWorkspaceLayoutStore((state) =>
     persistenceKey ? (state.layoutByWorkspace[persistenceKey] ?? null) : null,
+  );
+  const workspaceLayout = useMemo(
+    () => (storedWorkspaceLayout ? projectBrowserDevToolsLayout(storedWorkspaceLayout) : null),
+    [storedWorkspaceLayout],
   );
   const unfocusedPaneId = useWorkspaceLayoutStore((state) =>
     persistenceKey ? state.focusRestorationByWorkspace[persistenceKey]?.restorePaneId : undefined,

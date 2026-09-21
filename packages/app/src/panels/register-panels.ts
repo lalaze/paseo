@@ -1,5 +1,6 @@
 import { agentPanelRegistration } from "@/panels/agent-panel";
 import { browserPanelRegistration } from "@/desktop/browser/panel";
+import { browserDevToolsPanelRegistration } from "@/desktop/browser/devtools/panel";
 import {
   changesTreePanelRegistration,
   commitDiffPanelRegistration,
@@ -29,6 +30,7 @@ export function ensurePanelsRegistered(): void {
   registerPanel(setupPanelRegistration);
   registerPanel(terminalPanelRegistration);
   registerPanel(browserPanelRegistration);
+  registerPanel(browserDevToolsPanelRegistration);
   registerPanel(filePanelRegistration);
   registerPanel(filesPanelRegistration);
   registerPanel(pullRequestPanelRegistration);

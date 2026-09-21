@@ -492,6 +492,15 @@ export const ptBR: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "Preparando o envio…",
+        updateHost: "Atualize o host para enviar arquivos a este espaço de trabalho.",
+        progress: "Enviando {{name}} · {{percent}}%",
+        tooLarge: "O tamanho máximo por arquivo é 100 MiB.",
+        complete: "{{completed}}/{{total}} arquivos enviados",
+        foldersUnsupported: "Envie arquivos individuais ou compacte pastas em ZIP.",
+        destination: "Enviar arquivos para {{directory}}",
+      },
       sort: {
         name: "Nome",
         modified: "Modificado",
@@ -565,6 +574,14 @@ export const ptBR: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "Ferramentas de desenvolvimento",
+        loading: "Abrindo ferramentas de desenvolvimento…",
+        failed:
+          "Não foi possível conectar as ferramentas de desenvolvimento. Reabra a aba do navegador e tente novamente.",
+        retry: "Reconectar",
+        browserClosed: "A aba do navegador foi fechada.",
+      },
       unavailable: {
         title: "O navegador é exclusivo do desktop",
         subtitle: "Abra este workspace no Electron para usar o navegador integrado.",

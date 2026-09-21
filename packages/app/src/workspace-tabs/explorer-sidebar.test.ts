@@ -10,6 +10,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 
 import { usePanelStore } from "@/stores/panel-store";
 import {
+  collectAllPanes,
   collectAllTabs,
   findPaneById,
   selectExplorerSidebarPaneId,
@@ -17,10 +18,12 @@ import {
 } from "@/stores/workspace-layout-store";
 import {
   isExplorerSidebarOpen,
+  openExplorerSidebarTarget,
   openExplorerSidebarView,
   resolveExplorerSidebarPresentation,
   toggleExplorerSidebar,
 } from "@/workspace-tabs/explorer-sidebar";
+import { projectBrowserDevToolsLayout } from "@/desktop/browser/devtools/layout";
 
 const WORKSPACE_KEY = "server-1:ws-main";
 const CHECKOUT = { serverId: "server-1", cwd: "/tmp/repo", isGit: true };
@@ -40,6 +43,72 @@ beforeEach(() => {
 });
 
 describe("Explorer sidebar", () => {
+  it("moves an existing browser inspector into Explorer and preserves its tab", () => {
+    const store = useWorkspaceLayoutStore.getState();
+    store.openTab({
+      workspaceKey: WORKSPACE_KEY,
+      target: { kind: "browser", browserId: "a" },
+      intent: "reveal",
+    });
+    const sideId = store.ensureSidePane(WORKSPACE_KEY)!;
+    const target = { kind: "browser_devtools", browserId: "a" } as const;
+    const tabId = store.openTab({
+      intent: "reveal",
+      workspaceKey: WORKSPACE_KEY,
+      target,
+      placement: { mode: "pane", paneId: sideId },
+    });
+    openExplorerSidebarTarget(WORKSPACE_KEY, target);
+    openExplorerSidebarTarget(WORKSPACE_KEY, target);
+    const state = useWorkspaceLayoutStore.getState();
+    const layout = state.layoutByWorkspace[WORKSPACE_KEY];
+    const explorer = findPaneById(layout.root, selectExplorerSidebarPaneId(state, WORKSPACE_KEY)!)!;
+    expect(explorer.focusedTabId).toBe(tabId);
+    expect(explorer.hidden).not.toBe(true);
+    expect(
+      collectAllTabs(layout.root).filter((tab) => tab.target.kind === "browser_devtools"),
+    ).toHaveLength(1);
+    expect(findPaneById(layout.root, sideId)?.tabIds ?? []).not.toContain(tabId);
+  });
+
+  it("follows browser tabs within Explorer while retaining Files and Changes", () => {
+    const store = useWorkspaceLayoutStore.getState();
+    store.openTab({
+      workspaceKey: WORKSPACE_KEY,
+      target: { kind: "browser", browserId: "a" },
+      intent: "reveal",
+    });
+    openExplorerSidebarTarget(WORKSPACE_KEY, { kind: "files" });
+    openExplorerSidebarTarget(WORKSPACE_KEY, { kind: "changes_tree" });
+    openExplorerSidebarTarget(WORKSPACE_KEY, { kind: "browser_devtools", browserId: "a" });
+    openExplorerSidebarTarget(WORKSPACE_KEY, { kind: "browser_devtools", browserId: "b" });
+    const state = useWorkspaceLayoutStore.getState();
+    const saved = state.layoutByWorkspace[WORKSPACE_KEY];
+    const explorerId = selectExplorerSidebarPaneId(state, WORKSPACE_KEY)!;
+    const inspectorA = collectAllTabs(saved.root).find(
+      (tab) => tab.target.kind === "browser_devtools" && tab.target.browserId === "a",
+    )!;
+    const projected = projectBrowserDevToolsLayout(saved);
+    expect(findPaneById(projected.root, explorerId)?.focusedTabId).toBe(inspectorA.tabId);
+    expect(collectAllTabs(projected.root)).toEqual(collectAllTabs(saved.root));
+
+    const mainPane = collectAllPanes(saved.root).find((pane) => pane.id !== explorerId)!;
+    store.openTab({
+      workspaceKey: WORKSPACE_KEY,
+      target: { kind: "browser", browserId: "c" },
+      intent: "reveal",
+      placement: { mode: "pane", paneId: mainPane.id },
+    });
+    const withoutInspector = projectBrowserDevToolsLayout(
+      useWorkspaceLayoutStore.getState().layoutByWorkspace[WORKSPACE_KEY],
+    );
+    const active = collectAllTabs(withoutInspector.root).find(
+      (tab) => tab.tabId === findPaneById(withoutInspector.root, explorerId)?.focusedTabId,
+    );
+    expect(active?.target.kind).toBe("files");
+    expect(findPaneById(withoutInspector.root, explorerId)?.hidden).not.toBe(true);
+  });
+
   it("selects the Explorer shell from layout and split capabilities", () => {
     expect(resolveExplorerSidebarPresentation({ isCompact: true })).toBe("overlay");
     expect(

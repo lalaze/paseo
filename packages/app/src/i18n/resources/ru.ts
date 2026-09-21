@@ -492,6 +492,15 @@ export const ru: TranslationResources = {
       },
     },
     fileExplorer: {
+      upload: {
+        preparing: "Подготовка к загрузке…",
+        updateHost: "Обновите хост для загрузки файлов в рабочее пространство.",
+        progress: "Загрузка {{name}} · {{percent}}%",
+        tooLarge: "Максимальный размер файла — 100 MiB.",
+        complete: "Загружено файлов: {{completed}}/{{total}}",
+        foldersUnsupported: "Загружайте отдельные файлы или сначала упакуйте папки в ZIP.",
+        destination: "Загрузить файлы в {{directory}}",
+      },
       sort: {
         name: "Имя",
         modified: "Дата изменения",
@@ -565,6 +574,14 @@ export const ru: TranslationResources = {
       },
     },
     browser: {
+      devTools: {
+        title: "Инструменты разработчика",
+        loading: "Открытие инструментов разработчика…",
+        failed:
+          "Не удалось подключить инструменты разработчика. Откройте вкладку браузера заново и повторите попытку.",
+        retry: "Переподключиться",
+        browserClosed: "Вкладка браузера закрыта.",
+      },
       unavailable: {
         title: "Встроенный браузер доступен только в настольном приложении",
         subtitle:

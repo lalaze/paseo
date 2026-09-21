@@ -51,9 +51,10 @@ function normalizeSimpleWorkspaceTabTarget(value: WorkspaceTabTarget): Workspace
       const terminalId = trimNonEmpty(value.terminalId);
       return terminalId ? { kind: "terminal", terminalId } : null;
     }
-    case "browser": {
+    case "browser":
+    case "browser_devtools": {
       const browserId = trimNonEmpty(value.browserId);
-      return browserId ? { kind: "browser", browserId } : null;
+      return browserId ? { kind: value.kind, browserId } : null;
     }
     case "changes_tree":
     case "files":
@@ -134,6 +135,9 @@ function secondaryWorkspaceTabTargetsEqual(
   if (left.kind === "browser" && right.kind === "browser") {
     return left.browserId === right.browserId;
   }
+  if (left.kind === "browser_devtools" && right.kind === "browser_devtools") {
+    return left.browserId === right.browserId;
+  }
   if (left.kind === "file" && right.kind === "file") {
     return workspaceFileLocationsEqual(left, right);
   }
@@ -209,6 +213,9 @@ export function buildDeterministicWorkspaceTabId(target: WorkspaceTabTarget): st
   }
   if (target.kind === "browser") {
     return `browser_${target.browserId}`;
+  }
+  if (target.kind === "browser_devtools") {
+    return `browser_devtools_${target.browserId}`;
   }
   if (target.kind === "setup") {
     return `setup_${target.workspaceId}`;

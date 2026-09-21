@@ -126,6 +126,14 @@ contextBridge.exposeInMainWorld("paseoDesktop", {
     focus: (browserId: string) => ipcRenderer.invoke("paseo:browser:focus", browserId),
     openDevTools: (browserId: string) =>
       ipcRenderer.invoke("paseo:browser:open-devtools", browserId),
+    createDevTools: (browserId: string, instanceId: string) =>
+      ipcRenderer.invoke("paseo:browser:devtools:create", browserId, instanceId),
+    updateDevTools: (
+      instanceId: string,
+      bounds: { x: number; y: number; width: number; height: number } | null,
+    ) => ipcRenderer.invoke("paseo:browser:devtools:update", instanceId, bounds),
+    destroyDevTools: (instanceId: string) =>
+      ipcRenderer.invoke("paseo:browser:devtools:destroy", instanceId),
     clearProfile: (legacyBrowserIds: string[]) =>
       ipcRenderer.invoke("paseo:browser:clear-profile", legacyBrowserIds),
     executeAutomationCommand: (request: Record<string, unknown>) =>

@@ -136,6 +136,9 @@ function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
   if (tab.target.kind === "draft") {
     return `workspace-draft-close-${tab.target.draftId}`;
   }
+  if (tab.target.kind === "browser_devtools") {
+    return `workspace-browser-devtools-close-${tab.target.browserId}`;
+  }
   if (tab.target.kind === "browser") {
     return `workspace-browser-close-${tab.target.browserId}`;
   }

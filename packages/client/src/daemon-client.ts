@@ -37,6 +37,7 @@ import type {
   CreatePaseoWorktreeRequest,
   FileDownloadTokenResponse,
   FileUploadResponse,
+  FileUploadRequest,
   FileExplorerResponse,
   FileVersion,
   FileWriteResult,
@@ -484,6 +485,8 @@ export interface FileUploadInput {
   modifiedAt?: string;
   requestId?: string;
   chunkSize?: number;
+  destination?: FileUploadRequest["destination"];
+  onProgress?: (sentBytes: number) => void;
 }
 export type FileUploadResult = FileUploadResponse["payload"];
 type FileDownloadTokenPayload = FileDownloadTokenResponse["payload"];
@@ -4771,6 +4774,7 @@ export class DaemonClient {
       requestId: resolvedRequestId,
       message: {
         type: "file.upload.request",
+        destination: input.destination,
         fileName: input.fileName,
         mimeType: input.mimeType,
         size: bytes.byteLength,
@@ -4823,6 +4827,7 @@ export class DaemonClient {
             payload: bytes.subarray(offset, Math.min(offset + chunkSize, bytes.byteLength)),
           }),
         );
+        input.onProgress?.(Math.min(offset + chunkSize, bytes.byteLength));
       }
 
       this.sendBinaryFrame(

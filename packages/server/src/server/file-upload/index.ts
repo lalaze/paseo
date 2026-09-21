@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, link, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { FileTransferOpcode, type FileTransferFrame } from "@getpaseo/protocol/binary-frames/index";
 import { getErrorMessage } from "@getpaseo/protocol/error-utils";
 import type { FileUploadRequest, FileUploadResponse } from "../messages.js";
+import { resolveExplorerFilePath } from "../file-explorer/service.js";
+
+class WorkspaceUploadError extends Error {}
 
 interface FileUploadStoreOptions {
   paseoHome: string;
@@ -21,6 +24,8 @@ interface PendingUpload {
   mimeType: string;
   size: number;
   path: string;
+  destination: FileUploadRequest["destination"];
+  originalFileName: string;
   receivedBytes: number;
   started: boolean;
   staleTimeout: ReturnType<typeof setTimeout>;
@@ -62,6 +67,8 @@ export class FileUploadStore {
       mimeType: request.mimeType,
       size: request.size,
       path: join(uploadDir, fileName),
+      destination: request.destination,
+      originalFileName: request.fileName,
       receivedBytes: 0,
       started: false,
       staleTimeout: this.createStaleUploadTimeout(source, request.requestId),
@@ -123,6 +130,12 @@ export class FileUploadStore {
   }
 
   private async startWriting(upload: PendingUpload): Promise<void> {
+    if (upload.destination) {
+      if (upload.size > 100 * 1024 * 1024) {
+        throw new WorkspaceUploadError("The maximum file size is 100 MiB.");
+      }
+      await resolveUploadTarget(upload);
+    }
     await mkdir(join(this.paseoHome, "uploads", upload.id), { recursive: true });
     await writeFile(upload.path, new Uint8Array());
     upload.started = true;
@@ -144,12 +157,26 @@ export class FileUploadStore {
 
   private async completeUpload(upload: PendingUpload): Promise<FileUploadResponse> {
     this.clearPendingUpload(upload);
-    if (upload.receivedBytes !== upload.size) {
+    if (!upload.started || upload.receivedBytes !== upload.size) {
       await this.removeUploadDirectory(upload);
       return buildUploadResponse(
         upload,
         `Upload size mismatch: expected ${upload.size}, received ${upload.receivedBytes}.`,
       );
+    }
+    if (upload.destination) {
+      const target = await resolveUploadTarget(upload);
+      const temporaryPath = join(target.directory, `.paseo-${upload.id}.tmp`);
+      try {
+        await copyFile(upload.path, temporaryPath);
+        // Linking a complete sibling publishes atomically and never replaces an existing file.
+        await link(temporaryPath, target.path);
+      } finally {
+        await rm(temporaryPath, { force: true });
+      }
+      await this.removeUploadDirectory(upload);
+      upload.path = target.path;
+      upload.fileName = upload.originalFileName;
     }
     upload.completed = true;
     return buildUploadResponse(upload, null);
@@ -198,6 +225,23 @@ export class FileUploadStore {
   private async removeUploadDirectory(upload: PendingUpload): Promise<void> {
     await rm(join(this.paseoHome, "uploads", upload.id), { recursive: true, force: true });
   }
+}
+
+async function resolveUploadTarget(upload: PendingUpload) {
+  const destination = upload.destination;
+  if (!destination) throw new WorkspaceUploadError("Upload destination is required.");
+  const name = upload.originalFileName;
+  if (name === "." || name === ".." || /[/\\]/.test(name) || name.includes("\0") || !name.trim()) {
+    throw new WorkspaceUploadError("Invalid upload file name.");
+  }
+  const directory = await resolveExplorerFilePath({
+    root: destination.cwd,
+    relativePath: destination.directory,
+  });
+  if (!(await stat(directory)).isDirectory()) {
+    throw new WorkspaceUploadError("Upload destination must be a directory.");
+  }
+  return { directory, path: join(directory, name) };
 }
 
 function buildUploadResponse(upload: PendingUpload, error: string | null): FileUploadResponse {

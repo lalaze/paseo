@@ -155,7 +155,7 @@ function createService(input?: { now?: () => number; bucket?: () => Promise<numb
   const runtime = new FakeAppUpdateRuntime();
   const service = createAppUpdateService({
     runtime,
-    isPackaged: () => true,
+    isEnabled: () => true,
     now: input?.now ?? (() => Date.parse("2026-04-28T12:00:00.000Z")),
     bucket: input?.bucket ?? (async () => 0.99),
   });

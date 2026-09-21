@@ -15,6 +15,9 @@ It validates the compositor behavior that unit tests cannot see:
 - parked guests remain capturable with Chromium background throttling enabled;
 - the real-Electron host-composer sentinel proves guest Enter cannot submit a focused
   host composer;
+- browser DevTools uses an embedded native view, inspects the selected page, retains
+  its connection while hidden, follows panel bounds, and releases its frontend when
+  the tool tab or inspected browser closes;
 - the automation group loads the compiled production keyboard boundary and guest
   preload, then proves that initial page window handlers get first refusal, unhandled
   shortcuts synchronously suppress editable browser defaults before crossing the host

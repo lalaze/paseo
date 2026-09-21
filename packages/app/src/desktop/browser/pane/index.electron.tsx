@@ -35,6 +35,8 @@ import { useTranslation } from "react-i18next";
 import * as Clipboard from "expo-clipboard";
 import { Button } from "@/components/ui/button";
 import { useRetainedPanelActive } from "@/components/retained-panel";
+import { openExplorerSidebarTarget } from "@/workspace-tabs/explorer-sidebar";
+import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/contexts/toast-context";
 import {
@@ -1307,24 +1309,11 @@ export function BrowserPane({
   }, [cancelElementSelector, selectorActive, startElementSelector]);
 
   const handleOpenDevTools = useCallback(() => {
-    const currentBrowserId = browserIdRef.current;
-    const openDevTools = getDesktopHost()?.browser?.openDevTools;
-    if (typeof openDevTools !== "function") {
-      console.warn("[browser-pane] openDevTools bridge missing", { browserId: currentBrowserId });
-      return;
-    }
-    void openDevTools(currentBrowserId)
-      .then((result) => {
-        console.info("[browser-pane] openDevTools result", {
-          browserId: currentBrowserId,
-          result,
-        });
-        return undefined;
-      })
-      .catch((error: unknown) => {
-        console.warn("[browser-pane] openDevTools failed", { browserId: currentBrowserId, error });
-      });
-  }, []);
+    openExplorerSidebarTarget(buildWorkspaceTabPersistenceKey({ serverId, workspaceId }), {
+      kind: "browser_devtools",
+      browserId,
+    });
+  }, [browserId, serverId, workspaceId]);
 
   const baseIconButtonStyle = useCallback(
     ({ hovered, pressed }: { hovered?: boolean; pressed?: boolean }) => [
