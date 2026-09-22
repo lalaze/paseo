@@ -1,5 +1,8 @@
 # Plugins
 
+Director collaboration is built into the daemon. See [collaboration](collaboration.md) for its
+setup and migration from the legacy plugin.
+
 Local plugins contribute daemon RPCs, native app surfaces, workspace panels, Command Center items,
 client slash commands, timeline items, header buttons, composer pills, app themes, composer attachment sources, and settings screens.
 Paseo executes `index.server.ts` in a subprocess and `index.client.tsx` in every connected app.

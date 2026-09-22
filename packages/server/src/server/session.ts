@@ -1,3 +1,4 @@
+import type { CollaborationService } from "./collaboration/service.js";
 import { searchTimeline } from "./agent/chat-search/index.js";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { BrowserAutomationHostCapabilitySchema } from "@getpaseo/protocol/browser-automation/capabilities";
@@ -461,6 +462,7 @@ export interface SessionOptions {
   workspaceLabelService?: WorkspaceLabelService;
   filesystem?: SessionFileSystem;
   scheduleService: ScheduleService;
+  collaborationService?: CollaborationService;
   checkoutDiffManager: CheckoutDiffManager;
   github?: ForgeService;
   createAgentMcpTransport?: AgentMcpTransportFactory;
@@ -788,6 +790,8 @@ export class Session {
   private readonly createAgentLifecycleDispatch: CreateAgentLifecycleDispatch;
   private readonly creationService: Pick<CreationService, "create" | "subscribe">;
 
+  private readonly collaborationService?: CollaborationService;
+
   constructor(options: SessionOptions) {
     const {
       clientId,
@@ -845,6 +849,7 @@ export class Session {
       daemonRuntimeConfig,
       getWebSocketRuntimeMetrics,
     } = options;
+    this.collaborationService = options.collaborationService;
     this.browserToolsBroker = options.browserToolsBroker;
     this.clientId = clientId;
     this.authorization = new SessionAuthorization(permissions);
@@ -2268,7 +2273,37 @@ export class Session {
     return undefined;
   }
 
+  private async handleCollaborationCommand(
+    msg: Extract<SessionInboundMessage, { type: "collaboration.command.request" }>,
+  ): Promise<void> {
+    try {
+      if (!this.collaborationService) throw new Error("内置协作不可用");
+      const state = await this.collaborationService.command(msg.command, msg.input);
+      this.emit({
+        type: "collaboration.command.response",
+        payload: { requestId: msg.requestId, state },
+      });
+    } catch (error) {
+      this.emit({
+        type: "rpc_error",
+        payload: {
+          requestId: msg.requestId,
+          requestType: msg.type,
+          error: error instanceof Error ? error.message : String(error),
+          code: "collaboration_failed",
+        },
+      });
+    }
+  }
+
+  private dispatchRemainingMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    return this.dispatchScheduleMessage(msg) ?? this.dispatchMiscMessage(msg);
+  }
+
   private async dispatchInboundMessage(msg: SessionInboundMessage, source?: object): Promise<void> {
+    if (msg.type === "collaboration.command.request") {
+      return this.handleCollaborationCommand(msg);
+    }
     const promise =
       this.dispatchSubscriptionMessage(msg, source) ??
       this.dispatchVoiceAndControlMessage(msg) ??
@@ -2287,8 +2322,7 @@ export class Session {
       this.dispatchPluginDirectoryMessage(msg) ??
       this.dispatchPluginMessage(msg) ??
       this.dispatchTerminalMessage(msg) ??
-      this.dispatchScheduleMessage(msg) ??
-      this.dispatchMiscMessage(msg);
+      this.dispatchRemainingMessage(msg);
     if (promise) await promise;
   }
 

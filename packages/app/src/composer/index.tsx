@@ -1419,7 +1419,7 @@ function ComposerContentImpl({
 
   const runClientSlashCommand = useCallback(
     (command: ClientSlashCommand): boolean => {
-      if (command.execution !== "immediate" || !onClientSlashCommand) {
+      if (!onClientSlashCommand) {
         return false;
       }
 

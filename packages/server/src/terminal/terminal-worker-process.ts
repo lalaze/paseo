@@ -41,7 +41,7 @@ function sendToParent(message: TerminalWorkerToParentMessage): void {
     return;
   }
   try {
-    process.send(message, (error) => {
+    process.send(message, (error: Error | null) => {
       if (error) {
         ipcClosing = true;
       }

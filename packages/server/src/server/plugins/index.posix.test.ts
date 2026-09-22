@@ -1348,3 +1348,23 @@ async function applyReviewedUpdate(service: PluginService, pluginId: string) {
   expect(preview?.outcome).toBe("update");
   return service.applyUpdates([preview!.proposal!]);
 }
+
+it("checks the host guard before starting a conflicting configured plugin", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-guard-"));
+  roots.push(home);
+  const directory = await createPlugin("paseo-director", 'throw new Error("must not start");');
+  const service = createService(
+    home,
+    { "paseo-director": { source: "directory", path: directory } },
+    {
+      beforeStart: () => {
+        throw new Error("Built-in collaboration owns this database");
+      },
+    },
+  );
+  await service.start();
+  expect(await service.listPlugins()).toMatchObject([
+    { id: "paseo-director", status: "failed", error: "Built-in collaboration owns this database" },
+  ]);
+  await service.stopAllPlugins();
+});

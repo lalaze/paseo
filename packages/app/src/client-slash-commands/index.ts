@@ -1,20 +1,36 @@
 import type { Agent } from "@/stores/session-store";
 import type { WorkspaceDraftTabSetup } from "@/workspace-tabs/model";
 
-export type ClientSlashCommandKind = "archive-agent" | "replace-agent-with-draft";
+export type ClientSlashCommandKind =
+  | "archive-agent"
+  | "replace-agent-with-draft"
+  | "enable-collaboration";
 export type ClientSlashCommandExecution = "immediate" | "insert";
 
 export interface ClientSlashCommand {
   name: string;
+  args?: string;
   aliases: readonly string[];
   description: string;
-  descriptionKey: "composer.clientCommands.archiveAgent" | "composer.clientCommands.freshDraft";
+  descriptionKey:
+    | "composer.clientCommands.archiveAgent"
+    | "composer.clientCommands.freshDraft"
+    | "composer.clientCommands.collaboration";
   argumentHint: string;
   kind: ClientSlashCommandKind;
   execution: ClientSlashCommandExecution;
 }
 
 export const CLIENT_SLASH_COMMANDS: readonly ClientSlashCommand[] = [
+  {
+    name: "director",
+    aliases: [],
+    description: "Enable collaboration in this conversation",
+    descriptionKey: "composer.clientCommands.collaboration",
+    argumentHint: "",
+    kind: "enable-collaboration",
+    execution: "insert",
+  },
   {
     name: "exit",
     aliases: ["quit", "q"],
@@ -56,6 +72,8 @@ export function resolveClientSlashCommand(input: {
     return null;
   }
 
+  const collaboration = /^\/director(?:\s+([\s\S]*))?$/.exec(trimmed);
+  if (collaboration) return { ...CLIENT_SLASH_COMMANDS[0]!, args: collaboration[1]?.trim() };
   const commandName = trimmed.slice(1);
   if (!commandName || /\s/.test(commandName)) {
     return null;
