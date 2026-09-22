@@ -895,9 +895,10 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surfaceSidebar,
   },
   desktopSidebarBorder: {
+    _web: { backdropFilter: theme.conversation.blur },
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceSidebar,
+    backgroundColor: theme.colors.surfaceSidebarCanvas,
   },
   sidebarDragArea: {
     position: "relative",

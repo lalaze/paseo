@@ -2,6 +2,28 @@
 
 Tokens — every color, font size, weight, spacing step, radius, icon size — live in `packages/app/src/styles/theme.ts`.
 
+Use `surfaceCanvas` for page and chat backgrounds and `surfaceSidebarCanvas` for pinned
+sidebars that can reveal an imported image skin. Keep `surface0` and `surfaceSidebar` solid
+for menus, overlays, terminals and inverse text. Conversation materials own the translucent
+user-message, composer and header surfaces; do not make the general surface tokens transparent
+to achieve a glass effect. Assistant replies render directly over the artwork, with a subtle
+text shadow instead of a card, border or extra inset. Web blur stays on the bounded control
+surfaces, never the whole scrolling conversation. Built-in themes retain their original surfaces.
+Tool summaries and command labels over artwork use the same text shadow and foreground as
+replies; expanding a tool group must not introduce a solid heading strip above transparent rows.
+React Navigation's outer screen background must follow `surfaceCanvas` too; setting only
+the stack's `contentStyle` leaves an opaque layer over the artwork.
+The pinned Explorer dock owns its full-height sidebar fill; its content wrapper must stay
+transparent so it does not cover the artwork or stack another full-height tint over it.
+
+Desktop and web image skins import Dream Skin v1 ZIP artwork and color tokens through
+`packages/app/src/appearance/skins/`. Codex-specific CSS is not portable to Paseo and is
+never applied. Keep imports in the device's IndexedDB, separate from host settings and
+plugin theme contributions. Preserve package attribution and license text; the loader's
+license does not grant redistribution rights to gallery artwork.
+Keep the theme picker visible while a skin is active and show the skin's name as its current
+value. Choosing a regular theme deactivates the skin without deleting it from the library.
+
 ---
 
 ## 1. Character

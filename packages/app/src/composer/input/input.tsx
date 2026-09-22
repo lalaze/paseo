@@ -1795,6 +1795,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
         {/* Regular input */}
         <View
           ref={inputWrapperRef}
+          testID="message-input-surface"
           style={inputWrapperCombinedStyle}
           pointerEvents={surfacePresentation.input.pointerEvents}
         >
@@ -1917,9 +1918,10 @@ const styles = StyleSheet.create((theme: Theme) => ({
     flexShrink: 1,
     flexDirection: "column",
     gap: theme.spacing[3],
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: theme.conversation.composerBackground,
     borderWidth: theme.borderWidth[1],
-    borderColor: theme.colors.borderAccent,
+    borderColor: theme.conversation.border,
+    _web: { backdropFilter: theme.conversation.blur, boxShadow: theme.conversation.shadow },
     borderRadius: theme.borderRadius["2xl"],
     paddingVertical: {
       xs: theme.spacing[2],

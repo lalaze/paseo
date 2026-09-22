@@ -127,12 +127,11 @@ const styles = StyleSheet.create((theme) => ({
     flex: 1,
     minWidth: 0,
     minHeight: 0,
-    backgroundColor: theme.colors.surfaceSidebar,
+    backgroundColor: theme.colors.surfaceSidebarCanvas,
   },
   tabRail: {
     position: "relative",
     flexShrink: 0,
-    backgroundColor: theme.colors.surfaceSidebar,
   },
   tabRailDivider: {
     position: "absolute",
@@ -145,6 +144,5 @@ const styles = StyleSheet.create((theme) => ({
   content: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: theme.colors.surfaceSidebar,
   },
 }));

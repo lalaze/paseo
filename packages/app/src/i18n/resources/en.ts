@@ -2281,6 +2281,23 @@ export const en = {
       },
     },
     appearance: {
+      skins: {
+        title: "Image skins",
+        description:
+          "Import a Dream Skin ZIP to use its artwork and colors. Codex-specific CSS is not applied. Skins stay on this device.",
+        import: "Import theme ZIP",
+        gallery: "Browse Dream Skin",
+        restore: "Restore default",
+        pending: "Applying skin…",
+        failed: "Could not apply skin: {{reason}}",
+        retry: "Retry loading skins",
+        empty: "Download a theme from Dream Skin, then import its ZIP here.",
+        apply: "Apply {{name}}",
+        active: "Active: {{name}}",
+        strength: "Background strength",
+        author: "By {{name}}",
+        remove: "Remove skin",
+      },
       theme: {
         title: "Theme",
         accessibilityLabel: "Theme: {{value}}",

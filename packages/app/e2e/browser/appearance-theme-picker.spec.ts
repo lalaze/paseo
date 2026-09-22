@@ -3,6 +3,285 @@ import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { getServerId } from "../support/helpers/server-id";
 import { openSettingsSection } from "../support/helpers/settings";
+import { strToU8, zipSync } from "fflate";
+import { readFile } from "node:fs/promises";
+import { openAgentRoute, seedMockAgentWorkspace } from "../support/helpers/mock-agent";
+import { openFileExplorer } from "../support/helpers/file-explorer";
+
+test("image skins coordinate conversation surfaces", async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "@paseo:app-settings",
+      JSON.stringify({ toolCallDetailLevel: "overview" }),
+    );
+  });
+  const agent = await seedMockAgentWorkspace({
+    repoPrefix: "skin-conversation-",
+    title: "Skin conversation",
+    initialPrompt: "Explain how the workspace keeps my coding agents connected.",
+    model: "ten-second-stream",
+  });
+  try {
+    await page.goto("/settings");
+    await openSettingsSection(page, "appearance");
+    const buffer = process.env.PASEO_SKIN_QA_ZIP
+      ? await readFile(process.env.PASEO_SKIN_QA_ZIP)
+      : Buffer.from(
+          zipSync({
+            "theme.json": strToU8(
+              JSON.stringify({
+                schemaVersion: 1,
+                id: "warm",
+                name: "Warm",
+                image: "background.png",
+                appearance: "dark",
+                colors: {
+                  background: "#0d0d0e",
+                  panel: "#171513",
+                  panelAlt: "#211d18",
+                  accent: "#c8a55a",
+                  accentAlt: "#e3c27a",
+                  text: "#f3ead7",
+                  muted: "#b5a386",
+                  line: "rgba(200,165,90,.28)",
+                },
+              }),
+            ),
+            "background.png": Buffer.from(
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG1sAAAAASUVORK5CYII=",
+              "base64",
+            ),
+          }),
+        );
+    await page
+      .getByTestId("skin-file-input")
+      .setInputFiles({ name: "warm.zip", mimeType: "application/zip", buffer });
+    await expect(page.getByTestId("skin-background")).toBeVisible();
+    await page.getByRole("button", { name: "65%", exact: true }).click();
+    await openAgentRoute(page, agent);
+    await expect(page.getByTestId("assistant-message").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("message-input-root")).toBeVisible();
+    await expect(page.getByText("Updating messages", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("assistant-message-surface")).toHaveCount(0);
+    await expect(page.getByTestId("assistant-message").first()).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(page.getByTestId("assistant-message").first()).toHaveCSS(
+      "border-top-width",
+      "0px",
+    );
+    await expect(page.getByTestId("assistant-message").first()).toHaveCSS(
+      "text-shadow",
+      "rgba(0, 0, 0, 0.8) 0px 1px 3px",
+    );
+    await expect(page.getByTestId("message-input-surface")).toHaveCSS(
+      "background-color",
+      "rgba(23, 21, 19, 0.74)",
+    );
+    await expect(page.getByTestId("user-message-surface").first()).toHaveCSS(
+      "border-top-width",
+      "1px",
+    );
+    await page.mouse.move(1200, 100);
+    await page.screenshot({ path: testInfo.outputPath("skin-conversation.png"), fullPage: true });
+    await expect
+      .poll(
+        async () => {
+          const agents = await agent.client.fetchAgents();
+          return agents.entries.find((entry) => entry.agent.id === agent.agentId)?.agent.status;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe("idle");
+    const toolGroup = page.getByTestId("tool-call-group").last();
+    await expect(toolGroup).toBeVisible();
+    const toolHeading = toolGroup.getByRole("button").first();
+    await toolHeading.click();
+    await expect(toolGroup.getByTestId("tool-call-badge").first()).toBeVisible();
+    await page.mouse.move(1200, 100);
+    await expect(toolHeading).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(toolGroup).toHaveCSS("text-shadow", "rgba(0, 0, 0, 0.8) 0px 1px 3px");
+    await expect(
+      toolGroup.getByTestId("tool-call-badge").last().locator('[dir="auto"]').first(),
+    ).toHaveCSS("color", "rgb(243, 234, 215)");
+    await toolGroup.screenshot({ path: testInfo.outputPath("skin-tools-expanded.png") });
+    await toolHeading.click();
+    await openFileExplorer(page);
+    await expect(page.getByTestId("workspace-explorer-sidebar")).toHaveCSS(
+      "background-color",
+      "rgba(23, 21, 19, 0.5)",
+    );
+    await expect(page.getByTestId("files-pane-header")).toHaveCSS(
+      "background-color",
+      "rgba(23, 21, 19, 0.5)",
+    );
+    await page.mouse.move(600, 100);
+    await page.screenshot({ path: testInfo.outputPath("skin-explorer.png"), fullPage: true });
+    const opaqueExplorerLayers = await page
+      .getByTestId("file-explorer-tree-scroll")
+      .evaluate((tree) => {
+        const opaque: string[] = [];
+        let element: Element | null = tree;
+        while (element && element !== document.body) {
+          const color = getComputedStyle(element).backgroundColor;
+          if (color.startsWith("rgb(") || color.endsWith(", 1)")) {
+            opaque.push(`${element.getAttribute("data-testid") ?? element.className}: ${color}`);
+          }
+          element = element.parentElement;
+        }
+        return opaque;
+      });
+    expect(opaqueExplorerLayers).toEqual([]);
+    await page.goto("/settings");
+    await openSettingsSection(page, "appearance");
+    await page.getByRole("button", { name: "Restore default", exact: true }).click();
+    await expect(page.getByTestId("skin-background")).toHaveCount(0);
+    await openAgentRoute(page, agent);
+    await expect(page.getByTestId("skin-background")).toHaveCount(0);
+    await expect(page.getByTestId("assistant-message").first()).toHaveCSS("text-shadow", "none");
+    await expect(page.getByTestId("message-input-surface")).toHaveCSS("backdrop-filter", "none");
+    await openFileExplorer(page);
+    await expect(page.getByTestId("workspace-explorer-sidebar")).toHaveCSS(
+      "background-color",
+      /^rgb\(/,
+    );
+  } finally {
+    await agent.cleanup();
+  }
+});
+
+test("imports, switches and restores image skins without reloading", async ({ page }, testInfo) => {
+  await page.goto("/settings");
+  await openSettingsSection(page, "appearance");
+  const artwork = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 600;
+    canvas.height = 400;
+    const context = canvas.getContext("2d")!;
+    const gradient = context.createLinearGradient(0, 0, 600, 400);
+    gradient.addColorStop(0, "#1d4ed8");
+    gradient.addColorStop(1, "#c084fc");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 600, 400);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  const originalTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  const makePackage = (name: string, appearance: "dark" | "light") =>
+    Buffer.from(
+      zipSync({
+        "theme.json": strToU8(
+          JSON.stringify({
+            schemaVersion: 1,
+            id: name.toLowerCase(),
+            name,
+            image: "background.png",
+            appearance,
+            art: { focusX: 0.8 },
+          }),
+        ),
+        "background.png": Buffer.from(artwork, "base64"),
+        "theme.css": strToU8("body { display: none !important; }"),
+      }),
+    );
+  await page.getByTestId("skin-file-input").setInputFiles({
+    name: "mountain.zip",
+    mimeType: "application/zip",
+    buffer: makePackage("Mountain", "dark"),
+  });
+  await expect(page.getByText("Active: Mountain", { exact: true })).toBeVisible();
+  const background = page.getByTestId("skin-background");
+  await expect(background.locator("img")).toHaveCSS("opacity", "0.3");
+  await expect(background.locator("img")).toHaveCSS("object-position", "80% 50%");
+  await expect(background).toHaveCSS("pointer-events", "none");
+  await background.locator("img").evaluate((image: HTMLImageElement) => image.decode());
+  const ambientScreenshot = await page.screenshot();
+  await page.getByRole("button", { name: "65%", exact: true }).click();
+  await expect(background.locator("img")).toHaveCSS("opacity", "0.65");
+  const fullScreenshot = await page.screenshot();
+  const blueDifference = await page.evaluate(
+    async ([ambient, full]) => {
+      const pixel = async (data: string) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${data}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return context.getImageData(image.width - 40, 200, 1, 1).data[2];
+      };
+      return (await pixel(full)) - (await pixel(ambient));
+    },
+    [ambientScreenshot.toString("base64"), fullScreenshot.toString("base64")],
+  );
+  expect(blueDifference).toBeGreaterThan(30);
+  await page.getByTestId("skin-file-input").setInputFiles({
+    name: "ocean.zip",
+    mimeType: "application/zip",
+    buffer: makePackage("Ocean", "light"),
+  });
+  await expect(page.getByText("Active: Ocean", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Apply Mountain", exact: true }).click();
+  await expect(page.getByText("Active: Mountain", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(originalTimeOrigin);
+  await expect(background.locator("img")).toHaveCSS("opacity", "0.65");
+  await page.screenshot({ path: testInfo.outputPath("image-skin-settings.png"), fullPage: true });
+  const workspace = await seedWorkspace({ repoPrefix: "image-skin-", title: "Skin workspace" });
+  try {
+    await gotoAppShell(page);
+    const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${workspace.workspaceId}`);
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    await expect(background.locator("img")).toHaveCSS("opacity", "0.65");
+    await background.locator("img").evaluate((image: HTMLImageElement) => image.decode());
+    await page.screenshot({
+      path: testInfo.outputPath("image-skin-workspace.png"),
+      fullPage: true,
+    });
+  } finally {
+    await workspace.cleanup();
+  }
+  await page.goto("/settings");
+  await openSettingsSection(page, "appearance");
+  await page.reload();
+  await expect(page.getByText("Active: Mountain", { exact: true })).toBeVisible();
+  await expect(background).toBeVisible();
+  await page.getByLabel("Theme: Mountain", { exact: true }).click();
+  await page.getByRole("menuitem", { name: "Pure black", exact: true }).click();
+  await expect(background).toHaveCount(0);
+  await expect(page.getByLabel("Theme: Pure black", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Apply Mountain", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(background).toHaveCount(0);
+  await expect(page.getByLabel("Theme: Pure black", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Apply Mountain", exact: true }).click();
+  await expect(background.locator("img")).toHaveCSS("opacity", "0.65");
+  await expect(page.getByLabel("Theme: Mountain", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("skin-theme-picker.png"), fullPage: true });
+  await page.getByRole("button", { name: "Restore default", exact: true }).click();
+  await expect(background).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Apply Mountain", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Apply Ocean", exact: true }).click();
+  await page.getByRole("button", { name: "Remove skin", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Apply Ocean", exact: true })).toHaveCount(0);
+  await expect(background).toHaveCount(0);
+});
+
+test("image skin import errors remain visible and allow retry", async ({ page }) => {
+  await page.goto("/settings");
+  await openSettingsSection(page, "appearance");
+  await page.getByTestId("skin-file-input").setInputFiles({
+    name: "invalid.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from("not a zip"),
+  });
+  await expect(page.getByRole("alert").filter({ hasText: "Could not apply skin" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Import theme ZIP", exact: true })).toBeEnabled();
+  await expect(page.getByTestId("skin-background")).toHaveCount(0);
+});
 
 test("shows Pure black in the appearance picker", async ({ page }, testInfo) => {
   await page.goto("/settings");

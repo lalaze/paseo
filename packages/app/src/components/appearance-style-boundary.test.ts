@@ -5,6 +5,13 @@ import { darkTheme } from "@/styles/theme";
 import { appearanceStyleBoundaryKey } from "./appearance-style-boundary";
 
 describe("appearanceStyleBoundaryKey", () => {
+  it("refreshes parsed message surfaces when a skin changes only its material", () => {
+    const glassTheme = {
+      ...darkTheme,
+      conversation: { ...darkTheme.conversation, textShadow: "0 1px 3px rgba(0, 0, 0, 0.8)" },
+    };
+    expect(appearanceStyleBoundaryKey(glassTheme)).not.toBe(appearanceStyleBoundaryKey(darkTheme));
+  });
   it("changes when content size changes without any other appearance token changing", () => {
     const contentOnlyChange = {
       ...darkTheme,

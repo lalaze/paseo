@@ -1,9 +1,10 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Text, View, type PressableStateCallbackType } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import { ChevronDown, Monitor, Moon, Sun } from "lucide-react-native";
+import { ChevronDown, Image as ImageIcon, Monitor, Moon, Sun } from "lucide-react-native";
 import {
   SYNTAX_THEME_OPTIONS,
   type SyntaxThemeId,
@@ -47,6 +48,9 @@ import type { PluginThemeOption } from "@/plugins/themes";
 import { settingsStyles } from "@/styles/settings";
 import { AppearancePreview } from "./appearance-preview";
 import { SidebarNavSection } from "./sidebar-nav-section";
+import { ImageSkinsSection } from "@/appearance/skins/section";
+import { deactivateSkin, useSkinLibrary } from "@/appearance/skins/use-library";
+import { SKIN_LIBRARY_KEY } from "@/appearance/skins/model";
 
 // ---------------------------------------------------------------------------
 // Theme-reactive leaf icons (withUnistyles + uniProps color mapping — no
@@ -55,6 +59,7 @@ import { SidebarNavSection } from "./sidebar-nav-section";
 // ---------------------------------------------------------------------------
 
 const ThemedSun = withUnistyles(Sun);
+const ThemedImage = withUnistyles(ImageIcon);
 const ThemedMoon = withUnistyles(Moon);
 const ThemedMonitor = withUnistyles(Monitor);
 const ThemedChevronDown = withUnistyles(ChevronDown);
@@ -155,6 +160,8 @@ function PluginThemeMenuItem({ option, selected, onSelect }: PluginThemeMenuItem
 }
 
 interface ThemeRowProps {
+  activeSkinName: string | null;
+  disabled: boolean;
   value: AppSettings["theme"];
   pluginThemes: PluginThemeOption[];
   selectedPluginTheme: PluginThemeOption | null;
@@ -163,6 +170,8 @@ interface ThemeRowProps {
 }
 
 function ThemeRow({
+  activeSkinName,
+  disabled,
   value,
   pluginThemes,
   selectedPluginTheme,
@@ -172,9 +181,16 @@ function ThemeRow({
   const { t } = useTranslation();
   // A selected contribution that is no longer installed shows the fallback the app renders.
   const builtInValue = value === PLUGIN_THEME_PREFERENCE ? DEFAULT_THEME_PREFERENCE : value;
-  const selectedLabel = selectedPluginTheme
-    ? selectedPluginTheme.name
-    : getThemeLabel(t, builtInValue);
+  const selectedLabel =
+    activeSkinName ?? selectedPluginTheme?.name ?? getThemeLabel(t, builtInValue);
+  let leading: ReactNode;
+  if (activeSkinName) {
+    leading = <ThemedImage size={ICON_SIZE.md} uniProps={mutedColorMapping} />;
+  } else if (selectedPluginTheme) {
+    leading = <ThemeSwatch color={selectedPluginTheme.swatch} />;
+  } else {
+    leading = <ThemeLeading themeValue={builtInValue} />;
+  }
   return (
     <View style={settingsStyles.row}>
       <View style={settingsStyles.rowContent}>
@@ -183,16 +199,15 @@ function ThemeRow({
       <DropdownMenu>
         <DropdownMenuTrigger
           style={dropdownTriggerStyle}
+          disabled={disabled}
           accessibilityLabel={t("settings.appearance.theme.accessibilityLabel", {
             value: selectedLabel,
           })}
         >
-          {selectedPluginTheme ? (
-            <ThemeSwatch color={selectedPluginTheme.swatch} />
-          ) : (
-            <ThemeLeading themeValue={builtInValue} />
-          )}
-          <Text style={styles.triggerText}>{selectedLabel}</Text>
+          {leading}
+          <Text style={[styles.triggerText, styles.themeLabel]} numberOfLines={1}>
+            {selectedLabel}
+          </Text>
           <ThemedChevronDown size={ICON_SIZE.sm} uniProps={mutedColorMapping} />
         </DropdownMenuTrigger>
         <DropdownMenuContent side="bottom" align="end" width={200}>
@@ -205,7 +220,9 @@ function ThemeRow({
                 ) : null}
                 <ThemeMenuItem
                   themeValue={option.name}
-                  selected={selectedPluginTheme === null && builtInValue === option.name}
+                  selected={
+                    !activeSkinName && selectedPluginTheme === null && builtInValue === option.name
+                  }
                   onChange={onChange}
                 />
               </Fragment>
@@ -216,7 +233,7 @@ function ThemeRow({
             <PluginThemeMenuItem
               key={option.id}
               option={option}
-              selected={selectedPluginTheme?.id === option.id}
+              selected={!activeSkinName && selectedPluginTheme?.id === option.id}
               onSelect={onSelectPluginTheme}
             />
           ))}
@@ -508,6 +525,16 @@ function SyntaxRow({ value, onChange }: SyntaxRowProps) {
 
 export function AppearanceSection() {
   const { t } = useTranslation();
+  const { data: skinLibrary } = useSkinLibrary();
+  const queryClient = useQueryClient();
+  const themeMutation = useMutation({
+    mutationFn: async (select: () => Promise<void>) => {
+      await select();
+      if (skinLibrary?.active) await deactivateSkin();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: SKIN_LIBRARY_KEY }),
+  });
+  const { mutate: changeTheme } = themeMutation;
   const { settings, updateSettings } = useAppSettings();
   const {
     options: pluginThemes,
@@ -537,16 +564,16 @@ export function AppearanceSection() {
 
   const handleThemeChange = useCallback(
     (theme: BuiltInThemePreference) => {
-      void updateSettings({ theme });
+      changeTheme(() => updateSettings({ theme }));
     },
-    [updateSettings],
+    [changeTheme, updateSettings],
   );
 
   const handlePluginThemeChange = useCallback(
     (option: PluginThemeOption) => {
-      selectPluginTheme(option);
+      changeTheme(() => selectPluginTheme(option));
     },
-    [selectPluginTheme],
+    [changeTheme, selectPluginTheme],
   );
 
   const handleSyntaxThemeChange = useCallback(
@@ -672,6 +699,8 @@ export function AppearanceSection() {
       <SettingsSection title={t("settings.appearance.theme.title")}>
         <View style={settingsStyles.card}>
           <ThemeRow
+            activeSkinName={skinLibrary?.active?.name ?? null}
+            disabled={themeMutation.isPending}
             value={settings.theme}
             pluginThemes={pluginThemes}
             selectedPluginTheme={selectedPluginTheme}
@@ -679,7 +708,13 @@ export function AppearanceSection() {
             onSelectPluginTheme={handlePluginThemeChange}
           />
         </View>
+        {themeMutation.isError ? (
+          <Text role="alert" style={styles.themeError}>
+            {themeMutation.error.message}
+          </Text>
+        ) : null}
       </SettingsSection>
+      <ImageSkinsSection />
       <SettingsSection title={t("settings.appearance.detailLevel.title")}>
         <SettingsCard>
           <AutoExpandReasoningRow
@@ -765,6 +800,8 @@ export function AppearanceSection() {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  themeLabel: { maxWidth: 240, flexShrink: 1 },
+  themeError: { color: theme.colors.statusDanger, fontSize: theme.fontSize.sm },
   preview: {
     marginTop: theme.spacing[4],
   },

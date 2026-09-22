@@ -2161,6 +2161,23 @@ export const ar: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "مظاهر بالصور",
+        description:
+          "استورد صور وألوان ملف ZIP من Dream Skin. لا تُطبّق أنماط CSS الخاصة بـ Codex. تُحفظ المظاهر على هذا الجهاز.",
+        import: "استيراد ZIP",
+        gallery: "تصفح Dream Skin",
+        restore: "استعادة الافتراضي",
+        pending: "جارٍ تطبيق المظهر…",
+        failed: "تعذر تطبيق المظهر: {{reason}}",
+        retry: "إعادة تحميل المظاهر",
+        empty: "نزّل مظهراً من Dream Skin ثم استورد ملف ZIP هنا.",
+        apply: "تطبيق {{name}}",
+        active: "الحالي: {{name}}",
+        strength: "شدة الخلفية",
+        author: "بواسطة {{name}}",
+        remove: "حذف المظهر",
+      },
       theme: {
         title: "سمة",
         accessibilityLabel: "الموضوع:{{value}}",

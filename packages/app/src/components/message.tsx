@@ -346,7 +346,10 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
     marginBottom: theme.spacing[4],
   },
   bubble: {
-    backgroundColor: theme.colors.surface3,
+    backgroundColor: theme.conversation.userBackground,
+    borderWidth: theme.conversation.borderWidth,
+    borderColor: theme.conversation.border,
+    _web: { backdropFilter: theme.conversation.blur, boxShadow: theme.conversation.shadow },
     borderRadius: theme.borderRadius["2xl"],
     borderTopRightRadius: theme.borderRadius.sm,
     paddingHorizontal: theme.spacing[4],
@@ -510,7 +513,7 @@ export const UserMessage = memo(function UserMessage({
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
       >
-        <View style={userMessageStylesheet.bubble}>
+        <View style={userMessageStylesheet.bubble} testID="user-message-surface">
           {hasImages ? (
             <View style={imagePreviewContainerStyle}>
               {images.map((image) => (
@@ -763,6 +766,7 @@ export const assistantMessageStylesheet = StyleSheet.create((theme) => ({
   container: {
     paddingVertical: theme.spacing[3],
     ...(isWeb ? { userSelect: "text" as const } : {}),
+    _web: { textShadow: theme.conversation.textShadow },
   },
   containerCompactTop: {
     paddingTop: 0,
@@ -1103,6 +1107,7 @@ export const TurnCopyButton = memo(function TurnCopyButton({
 const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   container: {
     marginHorizontal: -13,
+    _web: { textShadow: theme.conversation.textShadow },
   },
   containerSpacing: {
     marginBottom: theme.spacing[1],
@@ -1141,7 +1146,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     backgroundColor: "transparent",
   },
   label: {
-    color: theme.colors.foregroundMuted,
+    color: theme.conversation.toolForeground,
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     flexShrink: 0,
@@ -1156,7 +1161,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
   secondaryLabel: {
     flexShrink: 1,
     minWidth: 0,
-    color: theme.colors.foregroundMuted,
+    color: theme.conversation.toolForeground,
     fontSize: theme.fontSize.base,
     fontWeight: theme.fontWeight.normal,
     marginLeft: theme.spacing[2],
@@ -1199,7 +1204,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     ...(isWeb ? { cursor: "auto" as const, userSelect: "text" as const } : {}),
   },
   pressableExpanded: {
-    backgroundColor: theme.colors.surface1,
+    backgroundColor: theme.conversation.toolExpandedBackground,
   },
   pressableExpandedAttached: {
     borderColor: theme.colors.border,

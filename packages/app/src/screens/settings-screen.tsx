@@ -1708,7 +1708,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
 const styles = StyleSheet.create((theme) => ({
   loadingContainer: {
     flex: 1,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.colors.surfaceCanvas,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1718,7 +1718,7 @@ const styles = StyleSheet.create((theme) => ({
   },
   container: {
     flex: 1,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.colors.surfaceCanvas,
   },
   scrollView: {
     flex: 1,
@@ -1804,10 +1804,11 @@ const desktopStyles = StyleSheet.create((theme) => ({
 
 const sidebarStyles = StyleSheet.create((theme) => ({
   desktopContainer: {
+    _web: { backdropFilter: theme.conversation.blur },
     width: SETTINGS_DESKTOP_SIDEBAR_WIDTH,
     borderRightWidth: 1,
     borderRightColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceSidebar,
+    backgroundColor: theme.colors.surfaceSidebarCanvas,
   },
   scrollBody: {
     flex: 1,

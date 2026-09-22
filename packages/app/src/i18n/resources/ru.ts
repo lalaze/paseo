@@ -2200,6 +2200,23 @@ export const ru: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "Темы с изображениями",
+        description:
+          "Импорт изображений и цветов из ZIP Dream Skin. CSS для Codex не применяется. Темы хранятся на этом устройстве.",
+        import: "Импорт ZIP",
+        gallery: "Открыть Dream Skin",
+        restore: "Восстановить вид",
+        pending: "Применение темы…",
+        failed: "Не удалось применить тему: {{reason}}",
+        retry: "Повторить загрузку",
+        empty: "Скачайте тему Dream Skin и импортируйте её ZIP здесь.",
+        apply: "Применить {{name}}",
+        active: "Активна: {{name}}",
+        strength: "Интенсивность фона",
+        author: "Автор: {{name}}",
+        remove: "Удалить тему",
+      },
       theme: {
         title: "Тема",
         accessibilityLabel: "Тема: {{value}}",

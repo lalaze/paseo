@@ -247,12 +247,14 @@ const lightTerminalAnsi = {
 export function buildLightSemanticColors(tint: LightThemeConfig) {
   return {
     surface0: tint.surface0,
+    surfaceCanvas: tint.surface0,
     surface1: tint.surface1,
     surface2: tint.surface2,
     surface3: tint.surface3,
     surface4: tint.surface4,
     surfaceDiffEmpty: tint.surfaceDiffEmpty,
     surfaceSidebar: tint.surfaceSidebar,
+    surfaceSidebarCanvas: tint.surfaceSidebar,
     surfaceSidebarHover: tint.surface1,
     surfaceSidebarSelected: tint.surface3,
     surfaceWorkspace: tint.surface0,
@@ -377,12 +379,14 @@ export function buildDarkSemanticColors(tint: DarkThemeConfig) {
   const ring = tint.ring ?? "#d4d4d8";
   return {
     surface0: tint.surface0,
+    surfaceCanvas: tint.surface0,
     surface1: tint.surface1,
     surface2: tint.surface2,
     surface3: tint.surface3,
     surface4: tint.surface4,
     surfaceDiffEmpty: tint.surfaceDiffEmpty,
     surfaceSidebar: tint.surfaceSidebar,
+    surfaceSidebarCanvas: tint.surfaceSidebar,
     surfaceSidebarHover: tint.surface1,
     surfaceSidebarSelected: tint.surface2,
     surfaceWorkspace: tint.surface1,
@@ -675,6 +679,40 @@ const darkShadow = {
   },
 } as const;
 
+export interface ConversationMaterial {
+  userBackground: string;
+  textShadow: string;
+  toolForeground: string;
+  toolExpandedBackground: string;
+  composerBackground: string;
+  chromeBackground: string;
+  border: string;
+  borderWidth: number;
+  blur: string;
+  shadow: string;
+}
+
+function conversationMaterial(colors: {
+  surface0: string;
+  surface1: string;
+  surface3: string;
+  borderAccent: string;
+  foregroundMuted: string;
+}): ConversationMaterial {
+  return {
+    userBackground: colors.surface3,
+    textShadow: "none",
+    toolForeground: colors.foregroundMuted,
+    toolExpandedBackground: colors.surface1,
+    composerBackground: colors.surface1,
+    chromeBackground: colors.surface0,
+    border: colors.borderAccent,
+    borderWidth: 0,
+    blur: "none",
+    shadow: "none",
+  };
+}
+
 export function buildDarkTheme(semanticColors: ReturnType<typeof buildDarkSemanticColors>) {
   return {
     colorScheme: "dark" as const,
@@ -684,6 +722,7 @@ export function buildDarkTheme(semanticColors: ReturnType<typeof buildDarkSemant
       syntax: darkHighlightColors,
     },
     shadow: darkShadow,
+    conversation: conversationMaterial(semanticColors),
     ...commonTheme,
   } as const;
 }
@@ -746,6 +785,7 @@ export function buildLightTheme(semanticColors: ReturnType<typeof buildLightSema
       syntax: lightHighlightColors,
     },
     shadow: lightShadow,
+    conversation: conversationMaterial(semanticColors),
     ...commonTheme,
   } as const;
 }
@@ -814,6 +854,8 @@ export const PLUGIN_THEME_NAMES = {
   dark: "pluginDark",
 } as const;
 
+export const SKIN_THEME_NAMES = { light: "skinLight", dark: "skinDark" } as const;
+
 export type ThemePreference =
   | (typeof THEME_OPTIONS)[number]["name"]
   | typeof PLUGIN_THEME_PREFERENCE;
@@ -838,6 +880,8 @@ type RegisteredThemes = {
 } & {
   pluginLight: typeof lightTheme;
   pluginDark: typeof darkTheme;
+  skinLight: typeof lightTheme;
+  skinDark: typeof darkTheme;
 };
 
 export const THEME_TO_UNISTYLES = Object.fromEntries(
@@ -854,6 +898,8 @@ export const REGISTERED_THEMES = {
   ),
   [PLUGIN_THEME_NAMES.light]: lightTheme,
   [PLUGIN_THEME_NAMES.dark]: darkTheme,
+  [SKIN_THEME_NAMES.light]: lightTheme,
+  [SKIN_THEME_NAMES.dark]: darkTheme,
 } as RegisteredThemes;
 
 export function getNextThemePreference(current: ThemePreference): ThemePreference {

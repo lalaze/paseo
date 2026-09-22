@@ -25,6 +25,21 @@ describe("Typography scale", () => {
 });
 
 describe("Theme catalog", () => {
+  it.each([darkTheme, lightTheme, darkPureBlackTheme])(
+    "keeps built-in conversation surfaces unchanged ($colorScheme)",
+    (builtIn) => {
+      expect(builtIn.conversation).toMatchObject({
+        userBackground: builtIn.colors.surface3,
+        composerBackground: builtIn.colors.surface1,
+        chromeBackground: builtIn.colors.surface0,
+        textShadow: "none",
+        toolForeground: builtIn.colors.foregroundMuted,
+        toolExpandedBackground: builtIn.colors.surface1,
+        borderWidth: 0,
+        blur: "none",
+      });
+    },
+  );
   it("owns the picker and shortcut order", () => {
     expect(THEME_OPTIONS.map((option) => option.name)).toEqual([
       "light",

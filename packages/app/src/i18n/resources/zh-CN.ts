@@ -2137,6 +2137,23 @@ export const zhCN: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "图片皮肤",
+        description:
+          "导入 Dream Skin ZIP，使用其中的背景图与配色。Codex 专用 CSS 不会应用。皮肤仅保存在当前设备。",
+        import: "导入主题 ZIP",
+        gallery: "浏览 Dream Skin",
+        restore: "恢复默认",
+        pending: "正在应用皮肤…",
+        failed: "无法应用皮肤：{{reason}}",
+        retry: "重新加载皮肤",
+        empty: "从 Dream Skin 下载主题，再在这里导入 ZIP。",
+        apply: "应用 {{name}}",
+        active: "当前皮肤：{{name}}",
+        strength: "背景强度",
+        author: "作者：{{name}}",
+        remove: "删除皮肤",
+      },
       theme: {
         title: "主题",
         accessibilityLabel: "主题：{{value}}",

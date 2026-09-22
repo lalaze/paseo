@@ -14,13 +14,22 @@ import {
   usePluginThemeCatalog,
   type PluginThemeOption,
 } from "@/plugins/themes";
-import { PLUGIN_THEME_NAMES, PLUGIN_THEME_PREFERENCE, THEME_TO_UNISTYLES } from "@/styles/theme";
+import {
+  PLUGIN_THEME_NAMES,
+  PLUGIN_THEME_PREFERENCE,
+  SKIN_THEME_NAMES,
+  THEME_TO_UNISTYLES,
+} from "@/styles/theme";
 import { applyAppearance } from "./apply";
+import { useSkinLibrary } from "./skins/use-library";
+import { buildSkinTheme } from "./skins/theme";
+import { SkinBackground } from "./skins/background";
+import { NavigationThemeProvider } from "@/navigation/theme-provider";
 
 interface ContributedThemes {
   options: PluginThemeOption[];
   selected: PluginThemeOption | null;
-  select: (option: PluginThemeOption) => void;
+  select: (option: PluginThemeOption) => Promise<void>;
 }
 
 interface ApplyThemeInput {
@@ -54,14 +63,24 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { settings, updateSettings, isLoading } = useAppSettings();
   const [hasAppliedAppearance, setHasAppliedAppearance] = useState(false);
   const options = usePluginThemeCatalog();
+  const skinLibrary = useSkinLibrary();
+  const activeSkin = skinLibrary.data?.active;
+  const skinTheme = useMemo(() => (activeSkin ? buildSkinTheme(activeSkin) : null), [activeSkin]);
   const selected = useMemo(() => {
     if (settings.theme !== PLUGIN_THEME_PREFERENCE) return null;
     return options.find((option) => option.id === settings.pluginThemeId) ?? null;
   }, [options, settings.pluginThemeId, settings.theme]);
 
   useEffect(() => {
-    if (isLoading) return;
-    applyTheme({ preference: settings.theme, contributedTheme: selected });
+    if (isLoading || skinLibrary.isPending) return;
+    if (skinTheme) {
+      const name = SKIN_THEME_NAMES[skinTheme.colorScheme];
+      UnistylesRuntime.updateTheme(name, () => skinTheme);
+      UnistylesRuntime.setAdaptiveThemes(false);
+      UnistylesRuntime.setTheme(name);
+    } else {
+      applyTheme({ preference: settings.theme, contributedTheme: selected });
+    }
     applyAppearance({
       uiFontFamily: settings.uiFontFamily,
       monoFontFamily: settings.monoFontFamily,
@@ -73,6 +92,8 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     setHasAppliedAppearance(true);
   }, [
     isLoading,
+    skinLibrary.isPending,
+    skinTheme,
     selected,
     settings.theme,
     settings.uiFontFamily,
@@ -86,7 +107,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const select = useCallback(
     (option: PluginThemeOption) => {
       rememberPluginThemeHost(option);
-      void updateSettings({
+      return updateSettings({
         theme: PLUGIN_THEME_PREFERENCE,
         pluginThemeId: option.id,
       });
@@ -100,7 +121,10 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   if (!hasAppliedAppearance) return null;
 
   return (
-    <ContributedThemesContext.Provider value={value}>{children}</ContributedThemesContext.Provider>
+    <ContributedThemesContext.Provider value={value}>
+      <SkinBackground />
+      <NavigationThemeProvider>{children}</NavigationThemeProvider>
+    </ContributedThemesContext.Provider>
   );
 }
 

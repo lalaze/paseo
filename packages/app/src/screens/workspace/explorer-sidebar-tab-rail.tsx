@@ -394,7 +394,7 @@ const styles = StyleSheet.create((theme) => ({
   track: {
     minWidth: 0,
     height: WORKSPACE_SECONDARY_HEADER_HEIGHT,
-    backgroundColor: theme.colors.surfaceSidebar,
+    backgroundColor: theme.colors.surfaceSidebarCanvas,
     flexDirection: "row",
     alignItems: "center",
   },

@@ -49,5 +49,5 @@ function ThemedStackBase({
 }
 
 export const ThemedStack = withUnistyles(ThemedStackBase, (theme) => ({
-  backgroundColor: theme.colors.surface0,
+  backgroundColor: theme.colors.surfaceCanvas,
 }));

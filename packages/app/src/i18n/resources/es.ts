@@ -2214,6 +2214,23 @@ export const es: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "Aspectos con imágenes",
+        description:
+          "Importa las imágenes y colores de un ZIP de Dream Skin. No se aplica el CSS exclusivo de Codex. Se guardan en este dispositivo.",
+        import: "Importar ZIP",
+        gallery: "Explorar Dream Skin",
+        restore: "Restaurar apariencia",
+        pending: "Aplicando aspecto…",
+        failed: "No se pudo aplicar: {{reason}}",
+        retry: "Reintentar carga",
+        empty: "Descarga un tema de Dream Skin e importa su ZIP aquí.",
+        apply: "Aplicar {{name}}",
+        active: "Activo: {{name}}",
+        strength: "Intensidad del fondo",
+        author: "Por {{name}}",
+        remove: "Eliminar aspecto",
+      },
       theme: {
         title: "Tema",
         accessibilityLabel: "Tema:{{value}}",

@@ -2172,6 +2172,23 @@ export const ko: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "이미지 스킨",
+        description:
+          "Dream Skin ZIP의 이미지와 색상을 가져옵니다. Codex 전용 CSS는 적용하지 않습니다. 스킨은 이 기기에 저장됩니다.",
+        import: "테마 ZIP 가져오기",
+        gallery: "Dream Skin 둘러보기",
+        restore: "기본값 복원",
+        pending: "스킨 적용 중…",
+        failed: "스킨을 적용할 수 없습니다: {{reason}}",
+        retry: "스킨 다시 불러오기",
+        empty: "Dream Skin에서 테마를 다운로드한 후 ZIP을 가져오세요.",
+        apply: "{{name}} 적용",
+        active: "사용 중: {{name}}",
+        strength: "배경 강도",
+        author: "제작: {{name}}",
+        remove: "스킨 삭제",
+      },
       theme: {
         title: "테마",
         accessibilityLabel: "테마: {{value}}",

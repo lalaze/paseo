@@ -69,7 +69,8 @@ export function ScreenHeader({
 
 const styles = StyleSheet.create((theme) => ({
   header: {
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.conversation.chromeBackground,
+    _web: { backdropFilter: theme.conversation.blur },
   },
   inner: {},
   row: {

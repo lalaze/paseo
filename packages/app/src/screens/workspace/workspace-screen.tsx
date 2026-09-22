@@ -4152,7 +4152,7 @@ function WorkspaceScreenContent({
 const styles = StyleSheet.create((theme) => ({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.colors.surfaceCanvas,
   },
   containerWorkspaceBackground: {
     backgroundColor: theme.colors.surfaceWorkspace,
@@ -4284,7 +4284,8 @@ const styles = StyleSheet.create((theme) => ({
   },
   newTabTooltipShortcut: {},
   mobileTabsRow: {
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.conversation.chromeBackground,
+    _web: { backdropFilter: theme.conversation.blur },
     borderBottomWidth: theme.borderWidth[1],
     borderBottomColor: theme.colors.border,
   },
@@ -4321,7 +4322,8 @@ const styles = StyleSheet.create((theme) => ({
   tabsContainer: {
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.conversation.chromeBackground,
+    _web: { backdropFilter: theme.conversation.blur },
     flexDirection: "row",
     alignItems: "center",
   },
@@ -4405,7 +4407,7 @@ const styles = StyleSheet.create((theme) => ({
   content: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.colors.surfaceCanvas,
     position: "relative",
   },
   mobileMountedTabSlot: {
@@ -4414,7 +4416,7 @@ const styles = StyleSheet.create((theme) => ({
   contentPlaceholder: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.colors.surfaceCanvas,
   },
   emptyState: {
     flex: 1,

@@ -2218,6 +2218,23 @@ export const fr: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "Habillages illustrés",
+        description:
+          "Importez les images et couleurs d’un ZIP Dream Skin. Le CSS propre à Codex n’est pas appliqué. Les habillages restent sur cet appareil.",
+        import: "Importer un ZIP",
+        gallery: "Parcourir Dream Skin",
+        restore: "Rétablir l’apparence",
+        pending: "Application en cours…",
+        failed: "Impossible d’appliquer l’habillage : {{reason}}",
+        retry: "Réessayer le chargement",
+        empty: "Téléchargez un thème Dream Skin, puis importez son ZIP ici.",
+        apply: "Appliquer {{name}}",
+        active: "Actif : {{name}}",
+        strength: "Intensité du fond",
+        author: "Par {{name}}",
+        remove: "Supprimer l’habillage",
+      },
       theme: {
         title: "Thème",
         accessibilityLabel: "Thème:{{value}}",

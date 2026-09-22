@@ -2181,6 +2181,23 @@ export const ja: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "画像スキン",
+        description:
+          "Dream Skin ZIP の画像と配色を読み込みます。Codex 専用 CSS は適用されません。この端末に保存されます。",
+        import: "テーマ ZIP を読み込む",
+        gallery: "Dream Skin を見る",
+        restore: "既定に戻す",
+        pending: "スキンを適用中…",
+        failed: "スキンを適用できません：{{reason}}",
+        retry: "読み込みを再試行",
+        empty: "Dream Skin からテーマをダウンロードし、ZIP を読み込んでください。",
+        apply: "{{name}} を適用",
+        active: "適用中：{{name}}",
+        strength: "背景の濃さ",
+        author: "作者：{{name}}",
+        remove: "スキンを削除",
+      },
       theme: {
         title: "テーマ",
         accessibilityLabel: "テーマ: {{value}}",

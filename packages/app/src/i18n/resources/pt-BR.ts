@@ -2197,6 +2197,23 @@ export const ptBR: TranslationResources = {
       },
     },
     appearance: {
+      skins: {
+        title: "Temas com imagens",
+        description:
+          "Importe as imagens e cores de um ZIP do Dream Skin. O CSS específico do Codex não é aplicado. Os temas ficam neste dispositivo.",
+        import: "Importar ZIP",
+        gallery: "Explorar Dream Skin",
+        restore: "Restaurar padrão",
+        pending: "Aplicando tema…",
+        failed: "Não foi possível aplicar: {{reason}}",
+        retry: "Tentar carregar novamente",
+        empty: "Baixe um tema do Dream Skin e importe o ZIP aqui.",
+        apply: "Aplicar {{name}}",
+        active: "Ativo: {{name}}",
+        strength: "Intensidade do fundo",
+        author: "Por {{name}}",
+        remove: "Remover tema",
+      },
       theme: {
         title: "Tema",
         accessibilityLabel: "Tema: {{value}}",
