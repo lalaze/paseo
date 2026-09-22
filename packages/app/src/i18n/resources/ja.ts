@@ -504,6 +504,7 @@ export const ja: TranslationResources = {
         destination: "{{directory}} にファイルをアップロード",
       },
       sort: {
+        manual: "手動",
         name: "名前",
         modified: "更新日時",
         size: "サイズ",

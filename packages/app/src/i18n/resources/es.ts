@@ -504,6 +504,7 @@ export const es: TranslationResources = {
         destination: "Subir archivos a {{directory}}",
       },
       sort: {
+        manual: "Manual",
         name: "Nombre",
         modified: "Modificado",
         size: "Tamaño",

@@ -6,6 +6,7 @@ import { transformTimelineItem } from "./model";
 function plugin(input: {
   id: string;
   transform: InstalledPlugin["timelineTransformers"][number]["transform"];
+  placement?: "replace" | "after";
 }): InstalledPlugin {
   return {
     id: input.id,
@@ -25,6 +26,7 @@ function plugin(input: {
     timelineTransformers: [
       {
         id: "report",
+        placement: input.placement,
         query: { itemType: "tool_call" },
         transform: input.transform as Extract<
           InstalledPlugin["timelineTransformers"][number],
@@ -180,7 +182,7 @@ describe("plugin timeline transforms", () => {
     });
 
     data.passed = 0;
-    expect(transformed?.[0]?.data).toEqual({ passed: 4 });
+    expect(transformed?.[0]).toMatchObject({ data: { passed: 4 } });
   });
 
   it("passes phase and preserves explicit output identity", () => {
@@ -207,6 +209,61 @@ describe("plugin timeline transforms", () => {
       item: { ...toolCall, status: "running" },
       phase: "streaming",
     });
-    expect(transformed?.[0]?.id).toBe("summary");
+    expect(transformed?.[0]).toMatchObject({ id: "summary" });
+  });
+});
+
+describe("timeline additions", () => {
+  const row = { type: "plugin" as const, kind: "translation", version: 1, data: { text: "hello" } };
+  function project(plugins: InstalledPlugin[]) {
+    return transformTimelineItem({
+      item: toolCall,
+      phase: "complete",
+      sourceId: "reply-1",
+      plugins,
+    });
+  }
+  it("preserves the original before appended controls and namespaces their identities", () => {
+    const result = project([
+      plugin({ id: "translate", placement: "after", transform: () => ({ items: [row] }) }),
+    ]);
+    expect(result).toEqual([
+      { type: "original" },
+      { ...row, id: "reply-1/report/0", pluginId: "translate" },
+    ]);
+  });
+  it("combines additions with the first replacement in either installation order", () => {
+    const addition = plugin({
+      id: "translate",
+      placement: "after",
+      transform: () => ({ items: [row] }),
+    });
+    const replacement = plugin({
+      id: "director",
+      transform: () => ({ items: [{ ...row, kind: "director-reply" }] }),
+    });
+    const ignored = vi.fn(() => ({ items: [] }));
+    for (const plugins of [
+      [addition, replacement],
+      [replacement, addition],
+    ]) {
+      expect(
+        project([...plugins, plugin({ id: "ignored", transform: ignored })])?.map((item) =>
+          item.type === "plugin" ? item.kind : item.type,
+        ),
+      ).toEqual(["director-reply", "translation"]);
+    }
+    expect(ignored).not.toHaveBeenCalled();
+  });
+  it("keeps explicit removal separate from an empty addition", () => {
+    expect(
+      project([plugin({ id: "translate", placement: "after", transform: () => ({ items: [] }) })]),
+    ).toBeUndefined();
+    expect(
+      project([
+        plugin({ id: "hidden", transform: () => ({ items: [] }) }),
+        plugin({ id: "translate", placement: "after", transform: () => ({ items: [row] }) }),
+      ]),
+    ).toEqual([{ ...row, id: "reply-1/report/0", pluginId: "translate" }]);
   });
 });

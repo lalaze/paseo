@@ -1,5 +1,6 @@
 import type { ExplorerDirectory, ExplorerEntry } from "@/stores/session-store";
 import type { SortOption } from "@/stores/panel-store/state";
+import { parentExplorerPath } from "@/utils/explorer-paths";
 import { filterVisibleExplorerEntries } from "./visibility";
 
 export const MAX_AUTO_EXPANDED_DIRECTORY_DEPTH = 5;
@@ -14,6 +15,7 @@ interface FlattenExplorerTreeInput {
   expandedPaths: ReadonlySet<string>;
   sortOption: SortOption;
   showHiddenFiles: boolean;
+  manualOrder?: Readonly<Record<string, readonly string[]>>;
 }
 
 interface RestoreExpandedDirectoriesInput {
@@ -47,6 +49,7 @@ export function flattenExplorerTree({
   expandedPaths,
   sortOption,
   showHiddenFiles,
+  manualOrder = {},
 }: FlattenExplorerTreeInput): ExplorerTreeRow[] {
   const root = directories.get(".");
   if (!root) {
@@ -54,7 +57,13 @@ export function flattenExplorerTree({
   }
 
   const rows: ExplorerTreeRow[] = [];
-  const pending = rowsForDirectory(root, 0, sortOption, showHiddenFiles).toReversed();
+  const pending = rowsForDirectory(
+    root,
+    0,
+    sortOption,
+    showHiddenFiles,
+    manualOrder[root.path],
+  ).toReversed();
 
   while (pending.length > 0) {
     const row = pending.pop();
@@ -71,7 +80,13 @@ export function flattenExplorerTree({
     if (!childDirectory) {
       continue;
     }
-    const childRows = rowsForDirectory(childDirectory, row.depth + 1, sortOption, showHiddenFiles);
+    const childRows = rowsForDirectory(
+      childDirectory,
+      row.depth + 1,
+      sortOption,
+      showHiddenFiles,
+      manualOrder[childDirectory.path],
+    );
     for (let index = childRows.length - 1; index >= 0; index -= 1) {
       pending.push(childRows[index]);
     }
@@ -178,19 +193,31 @@ function rowsForDirectory(
   depth: number,
   sortOption: SortOption,
   showHiddenFiles: boolean,
+  manualOrder: readonly string[] = [],
 ): ExplorerTreeRow[] {
   const visibleEntries = filterVisibleExplorerEntries(directory.entries, showHiddenFiles);
-  const sortedEntries = sortExplorerEntries(visibleEntries, sortOption);
+  const sortedEntries = sortExplorerEntries(visibleEntries, sortOption, manualOrder);
   return sortedEntries.map((entry) => ({ entry, depth }));
 }
 
-function sortExplorerEntries(entries: ExplorerEntry[], sortOption: SortOption): ExplorerEntry[] {
+export function sortExplorerEntries(
+  entries: ExplorerEntry[],
+  sortOption: SortOption,
+  manualOrder: readonly string[] = [],
+): ExplorerEntry[] {
   const sorted = [...entries];
+  const positions = new Map(manualOrder.map((path, index) => [path, index]));
   sorted.sort((a, b) => {
+    if (sortOption === "manual") {
+      const positionA = positions.get(a.path) ?? Infinity;
+      const positionB = positions.get(b.path) ?? Infinity;
+      if (positionA !== positionB) return positionA - positionB;
+    }
     if (a.kind !== b.kind) {
       return a.kind === "directory" ? -1 : 1;
     }
     switch (sortOption) {
+      case "manual":
       case "name":
         return a.name.localeCompare(b.name);
       case "modified":
@@ -200,4 +227,23 @@ function sortExplorerEntries(entries: ExplorerEntry[], sortOption: SortOption): 
     }
   });
   return sorted;
+}
+
+export interface ExplorerReorder {
+  source: string;
+  target: string;
+  position: "before" | "after";
+}
+
+export function reorderExplorerEntries(
+  paths: readonly string[],
+  { source, target, position }: ExplorerReorder,
+): string[] | null {
+  const sameDirectory = parentExplorerPath(source) === parentExplorerPath(target);
+  if (!sameDirectory || source === target || !paths.includes(source) || !paths.includes(target))
+    return null;
+  const reordered = paths.filter((path) => path !== source);
+  const targetIndex = reordered.indexOf(target);
+  reordered.splice(targetIndex + (position === "after" ? 1 : 0), 0, source);
+  return reordered;
 }

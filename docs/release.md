@@ -2,6 +2,47 @@
 
 All workspaces share one version and release together.
 
+## Fork npm packages
+
+Use the fork pipeline to distribute the daemon under `@lalaze/paseo-cli`. Build from an isolated
+checkout containing only the changes you intend to publish. Choose a new version for every release;
+for example, `0.9.0-beta.2.lalaze.1` identifies our first build from upstream beta 2.
+
+```bash
+npm run build:server
+npm run build:daemon-web-ui
+node scripts/fork-npm.mjs @lalaze 0.9.0-beta.2.lalaze.1 artifacts/npm-release
+node scripts/verify-fork-npm.mjs artifacts/npm-release
+node scripts/publish-fork-npm.mjs artifacts/npm-release
+```
+
+Preparation requires a new output directory and never publishes. Verification runs on macOS or
+Linux: it installs the exact tarballs into a temporary global prefix, starts an isolated daemon,
+checks binary uploads and the bundled web UI, and stops that daemon. Publishing checks the verified
+tarball hashes and the npm account, publishes dependencies before the CLI, and uses `beta` for
+prereleases. A retry skips an existing version only when its registry integrity matches.
+
+The fork packages use npm dependency aliases to preserve `@getpaseo/*` imports, including the
+plugin SDK's external import names. Do not globally replace those strings. Four compiled package
+identity sites are rewritten during packing so startup, version detection, and npm update identity
+use the fork. A changed site fails preparation and needs review. The release retains the upstream
+Apache license. Build scripts and development dependencies are excluded from the fork manifests.
+
+On another host, stop the existing daemon, remove the old CLI to release the `paseo` executable,
+and install the fork. Keep the same home to retain configuration and stored sessions:
+
+```bash
+paseo daemon stop --home "$HOME/.paseo"
+npm uninstall -g @getpaseo/cli
+npm install -g @lalaze/paseo-cli@0.9.0-beta.2.lalaze.1
+paseo daemon start --home "$HOME/.paseo"
+paseo daemon status --home "$HOME/.paseo"
+```
+
+For subsequent updates, stop, install the new fork version, and start. Restarting a worker alone
+keeps the old supervisor code loaded. Prereleases require an explicit version or `@beta`; the
+in-app npm self-update action follows the fork's `latest` tag when a stable release exists.
+
 ## Self-use macOS builds
 
 For a fork you install manually, run `npm run build:desktop:mac:self` on your Mac.

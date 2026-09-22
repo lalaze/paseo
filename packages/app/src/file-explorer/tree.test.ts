@@ -3,6 +3,8 @@ import type { ExplorerEntry } from "@/stores/session-store";
 import {
   MAX_AUTO_EXPANDED_DIRECTORY_DEPTH,
   flattenExplorerTree,
+  reorderExplorerEntries,
+  sortExplorerEntries,
   reconcileRestoredExpandedPaths,
   restoreExpandedDirectories,
   setExpandedDirectoryPath,
@@ -193,5 +195,65 @@ describe("file explorer tree", () => {
     expect(hiddenFilesAreShown).toBe(true);
     resolveDirectory({ path: ".hidden", entries: [] });
     await expect(restoration).resolves.toEqual([".", ".hidden"]);
+  });
+});
+
+describe("manual explorer order", () => {
+  const folder = makeDirectoryEntry("folder", "folder");
+  const files: ExplorerEntry[] = ["a.txt", ".hidden", "b.txt"].map((name) => ({
+    name,
+    path: name,
+    kind: "file",
+    size: 1,
+    modifiedAt: "2026-01-01T00:00:00.000Z",
+  }));
+
+  it("moves before and after siblings without losing hidden files", () => {
+    const paths = ["folder", ".hidden", "a.txt", "b.txt"];
+    expect(
+      reorderExplorerEntries(paths, { source: "b.txt", target: "folder", position: "before" }),
+    ).toEqual(["b.txt", "folder", ".hidden", "a.txt"]);
+    expect(
+      reorderExplorerEntries(paths, { source: "folder", target: "b.txt", position: "after" }),
+    ).toEqual([".hidden", "a.txt", "b.txt", "folder"]);
+    expect(paths).toEqual(["folder", ".hidden", "a.txt", "b.txt"]);
+  });
+
+  it("rejects cross-directory, self, and stale drops", () => {
+    const paths = ["a.txt", "folder/b.txt"];
+    expect(
+      reorderExplorerEntries(paths, {
+        source: "a.txt",
+        target: "folder/b.txt",
+        position: "before",
+      }),
+    ).toBeNull();
+    expect(
+      reorderExplorerEntries(paths, { source: "a.txt", target: "a.txt", position: "after" }),
+    ).toBeNull();
+    expect(
+      reorderExplorerEntries(paths, { source: "missing.txt", target: "a.txt", position: "before" }),
+    ).toBeNull();
+  });
+
+  it("retains directory subtrees, hides hidden entries, and appends newly discovered files", () => {
+    const child: ExplorerEntry = { ...files[0], path: "folder/a.txt" };
+    const directories = new Map([
+      [".", { path: ".", entries: [folder, ...files] }],
+      ["folder", { path: "folder", entries: [child] }],
+    ]);
+    const rows = flattenExplorerTree({
+      directories,
+      expandedPaths: new Set(["folder"]),
+      sortOption: "manual",
+      showHiddenFiles: false,
+      manualOrder: { ".": [".hidden", "b.txt", "folder", "deleted.txt"] },
+    });
+    expect(rows.map((row) => row.entry.path)).toEqual(["b.txt", "folder", "folder/a.txt", "a.txt"]);
+    expect(
+      sortExplorerEntries([folder, ...files], "name", ["b.txt", "folder"]).map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["folder", ".hidden", "a.txt", "b.txt"]);
   });
 });

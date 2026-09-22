@@ -498,6 +498,7 @@ export const ar: TranslationResources = {
         destination: "رفع ملفات إلى {{directory}}",
       },
       sort: {
+        manual: "يدوي",
         name: "اسم",
         modified: "معدل",
         size: "مقاس",

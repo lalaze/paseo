@@ -317,8 +317,16 @@ export function runPluginClientBundle(
       themeIds.add(normalizedId);
       return register(collector.themes, theme, () => themeIds.delete(normalizedId));
     },
+    supportsTimelineAfter: true,
     addTimelineTransformer(contribution: PluginTimelineTransformerContribution) {
       const normalizedId = requireId(contribution.id, "timeline transformer id");
+      if (
+        contribution.placement !== undefined &&
+        contribution.placement !== "replace" &&
+        contribution.placement !== "after"
+      ) {
+        throw new Error(`Invalid timeline transformer placement: ${contribution.placement}`);
+      }
       if (timelineTransformerIds.has(normalizedId)) {
         throw new Error(`Duplicate timeline transformer: ${normalizedId}`);
       }

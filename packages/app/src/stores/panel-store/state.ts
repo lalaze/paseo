@@ -19,7 +19,7 @@ export interface DesktopSidebarState {
   focusModeEnabled: boolean;
 }
 
-export type SortOption = "name" | "modified" | "size";
+export type SortOption = "name" | "modified" | "size" | "manual";
 
 export const DEFAULT_SIDEBAR_WIDTH = 320;
 export const MIN_SIDEBAR_WIDTH = 200;
@@ -139,6 +139,9 @@ export const PanelPersistedStateSchema = z.strictObject({
   desktop: DesktopSidebarStorageSchema.optional(),
   explorerTab: ExplorerTabSchema.optional(),
   explorerTabByCheckout: z.record(z.string(), ExplorerTabSchema).optional(),
+  explorerOrderByWorkspace: z
+    .record(z.string(), z.record(z.string(), z.array(z.string())))
+    .optional(),
   expandedPathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
   // Accepted only so migration can discard the former per-file diff expansion state.
   diffExpandedPathsByWorkspace: z.record(z.string(), z.array(z.string())).optional(),
@@ -147,7 +150,7 @@ export const PanelPersistedStateSchema = z.strictObject({
   sidebarWidth: z.number().optional(),
   // Accepted only so migration can discard the former docked explorer sidebar width.
   explorerWidth: z.number().optional(),
-  explorerSortOption: z.enum(["name", "modified", "size"]).optional(),
+  explorerSortOption: z.enum(["name", "modified", "size", "manual"]).optional(),
   explorerShowHiddenFiles: z.boolean().optional(),
   explorerFilesSplitRatio: z.number().optional(),
   treeRailWidth: z.number().optional(),

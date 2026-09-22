@@ -85,6 +85,8 @@ export interface PluginClientOpenPanelOptions extends PluginOpenPanelOptions {
 }
 
 export interface PluginClientContext extends PluginCommandCapabilities {
+  /** Whether timeline transformers can append UI while preserving the source row. */
+  readonly supportsTimelineAfter?: true;
   addSettingsScreen(contribution: PluginSettingsScreenContribution): PluginCleanup;
   addSurface(id: string, Component: ComponentType<PluginSurfaceProps>): PluginCleanup;
   addSidebarItem(contribution: PluginSidebarContribution): PluginCleanup;
@@ -140,6 +142,8 @@ export type PluginTimelineTransformerContribution<
 > = ItemType extends AgentTimelineItem["type"]
   ? {
       id: string;
+      /** Defaults to replacement. Check supportsTimelineAfter before using after. */
+      placement?: "replace" | "after";
       query: {
         itemType: ItemType;
       };

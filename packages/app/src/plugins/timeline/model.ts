@@ -19,7 +19,7 @@ export interface TimelineItemTransformInput {
 
 export type TimelineItemTransform = (
   input: TimelineItemTransformInput,
-) => InstalledPluginTimelineItem[] | undefined;
+) => (InstalledPluginTimelineItem | { type: "original" })[] | undefined;
 
 function isTimelineData(value: unknown, ancestors: Set<object>): value is PluginTimelineData {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
@@ -73,10 +73,14 @@ function parseTransformResult(value: unknown): PluginTimelineTransformResult {
 
 export function transformTimelineItem(
   input: TimelineItemTransformInput & { plugins: readonly InstalledPlugin[] },
-): InstalledPluginTimelineItem[] | undefined {
+): ReturnType<TimelineItemTransform> {
+  let replacement: InstalledPluginTimelineItem[] | undefined;
+  const after: InstalledPluginTimelineItem[] = [];
   for (const plugin of input.plugins) {
     for (const transformer of plugin.timelineTransformers) {
       if (transformer.query.itemType !== input.item.type) continue;
+      const append = transformer.placement === "after";
+      if (!append && replacement !== undefined) continue;
       try {
         const transform = transformer.transform as (input: {
           item: AgentTimelineItem;
@@ -85,14 +89,18 @@ export function transformTimelineItem(
         const output = transform({ item: input.item, phase: input.phase });
         if (output === undefined) continue;
         const parsed = parseTransformResult(output);
-        return parsed.items.map((transformedItem, index) => ({
+        const items: InstalledPluginTimelineItem[] = parsed.items.map((transformedItem, index) => ({
           type: "plugin",
-          id: transformedItem.id ?? `${input.sourceId}/${index}`,
+          id: append
+            ? `${input.sourceId}/${transformer.id}/${transformedItem.id ?? index}`
+            : (transformedItem.id ?? `${input.sourceId}/${index}`),
           kind: transformedItem.kind,
           version: transformedItem.version,
           data: JSON.parse(JSON.stringify(transformedItem.data)) as PluginTimelineData,
           pluginId: plugin.id,
         }));
+        if (append) after.push(...items);
+        else replacement = items;
       } catch (error) {
         console.warn(
           `[Plugins] Timeline transformer failed: ${plugin.id}/${transformer.id}`,
@@ -101,5 +109,6 @@ export function transformTimelineItem(
       }
     }
   }
-  return undefined;
+  if (after.length === 0) return replacement;
+  return [...(replacement ?? [{ type: "original" as const }]), ...after];
 }

@@ -499,6 +499,7 @@ export const ko: TranslationResources = {
         destination: "{{directory}}에 파일 업로드",
       },
       sort: {
+        manual: "수동",
         name: "이름",
         modified: "수정일",
         size: "크기",

@@ -503,6 +503,7 @@ export const ru: TranslationResources = {
         destination: "Загрузить файлы в {{directory}}",
       },
       sort: {
+        manual: "Вручную",
         name: "Имя",
         modified: "Дата изменения",
         size: "Размер",

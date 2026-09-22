@@ -495,6 +495,7 @@ export const en = {
         destination: "Upload files to {{directory}}",
       },
       sort: {
+        manual: "Manual",
         name: "Name",
         modified: "Modified",
         size: "Size",

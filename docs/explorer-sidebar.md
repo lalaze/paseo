@@ -24,6 +24,11 @@ File transfers belong to Files and do not require a plugin. Uploads use the daem
 transfer channel with a workspace destination; attachments keep their separate upload storage.
 Gate workspace uploads on `workspaceFileUpload` so an older daemon cannot silently store the file
 as an attachment instead. Downloads use the existing file action and download queue.
+Keep an unavailable-upload explanation visible when the connected host lacks that capability;
+discarding a drop silently makes an older host look like a broken client.
+
+Manual Files ordering is a per-device, per-workspace display preference. Reordering siblings must
+not move or rename entries on disk. Keep expanded children attached to their parent when ordering.
 
 The browser's DevTools button opens its inspector as an Explorer tab alongside Files and Changes.
 Pressing it also moves an existing inspector into the dock. Inspectors keep the source page in

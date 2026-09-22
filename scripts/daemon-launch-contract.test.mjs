@@ -80,3 +80,38 @@ test("every executable daemon entrypoint enters the supervisor", async () => {
   assert.doesNotMatch(nixModule, /\bNODE_ENV\b\s*=/);
   assert.doesNotMatch(nixModule, /\bPASEO_NODE_ENV\b/);
 });
+
+test("fork packages retain SDK imports and pin every internal dependency to the fork", async () => {
+  const { forkManifest } = await import("./fork-npm.mjs");
+  const original = {
+    name: "@getpaseo/plugin",
+    version: "0.9.0-beta.2",
+    dependencies: { zod: "^4", "@getpaseo/client": "0.9.0-beta.2" },
+    peerDependencies: { "@getpaseo/protocol": "0.9.0-beta.2", react: "~19.1.0" },
+    scripts: { prepack: "build" },
+    devDependencies: { typescript: "^5" },
+  };
+  const result = forkManifest(original, { scope: "@lalaze", version: "0.9.0-beta.2.lalaze.1" });
+  assert.equal(result.name, "@lalaze/paseo-plugin");
+  assert.equal(
+    result.dependencies["@getpaseo/client"],
+    "npm:@lalaze/paseo-client@0.9.0-beta.2.lalaze.1",
+  );
+  assert.equal(
+    result.dependencies["@getpaseo/protocol"],
+    "npm:@lalaze/paseo-protocol@0.9.0-beta.2.lalaze.1",
+  );
+  assert.deepEqual(result.peerDependencies, { react: "~19.1.0" });
+  assert.equal(result.dependencies.zod, "^4");
+  assert.equal(result.scripts, undefined);
+  assert.equal(result.devDependencies, undefined);
+  assert.equal(original.dependencies["@getpaseo/client"], "0.9.0-beta.2");
+});
+
+test("fork identity rewrites fail when build output changes and reject the upstream scope", async () => {
+  const { replaceArtifactIdentity, forkPackageName } = await import("./fork-npm.mjs");
+  assert.equal(replaceArtifactIdentity('name === "old"', '"old"', '"new"'), 'name === "new"');
+  assert.throws(() => replaceArtifactIdentity("missing", "old", "new"), /exactly one/);
+  assert.throws(() => replaceArtifactIdentity("old old", "old", "new"), /exactly one/);
+  assert.throws(() => forkPackageName("@getpaseo", "cli"), /own npm scope/);
+});

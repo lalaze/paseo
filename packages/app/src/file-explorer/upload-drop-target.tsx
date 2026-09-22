@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import { View } from "react-native";
+import type { ExplorerReorder } from "./tree";
 import type { SelectedFile } from "@/attachments/selected-file";
 
 export interface UploadDropTargetProps {
   children: ReactNode;
   disabled: boolean;
+  unavailableReason: string | null;
+  onReorder(reorder: ExplorerReorder): void;
   onDrop(files: SelectedFile[], directory: string): void;
   onReject(message: string): void;
 }

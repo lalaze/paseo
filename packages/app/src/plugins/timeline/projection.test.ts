@@ -152,3 +152,34 @@ describe("plugin timeline projection", () => {
     expect(filtered).toEqual([]);
   });
 });
+
+it("retains native reply identity, metadata and Markdown before a plugin addition", () => {
+  const source: StreamItem = {
+    kind: "assistant_message",
+    id: "reply",
+    text: "**bold**\n```ts\n1\n```",
+    timestamp: new Date(),
+    turnId: "turn",
+    timelineCursor: { epoch: "epoch", seq: 1 },
+  };
+  const transform: TimelineItemTransform = () => [
+    { type: "original" },
+    {
+      type: "plugin",
+      id: "reply/translate/0",
+      pluginId: "translate",
+      kind: "translation",
+      version: 1,
+      data: { text: source.text },
+    },
+  ];
+  const result = projectPluginTimelineItems([source], transform);
+  expect(result[0]).toBe(source);
+  expect(result[1]).toMatchObject({
+    kind: "plugin",
+    id: "translate/reply/translate/0",
+    turnId: "turn",
+    timelineCursor: { epoch: "epoch", seq: 1 },
+  });
+  expect(projectPluginTimelineItems([source], transform)[1]).toBe(result[1]);
+});

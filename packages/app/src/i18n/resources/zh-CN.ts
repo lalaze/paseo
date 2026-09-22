@@ -498,6 +498,7 @@ export const zhCN: TranslationResources = {
         destination: "上传文件到 {{directory}}",
       },
       sort: {
+        manual: "手动排序",
         name: "名称",
         modified: "修改时间",
         size: "大小",

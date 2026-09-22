@@ -101,6 +101,7 @@ function transformSourceItem(
   });
   if (transformed === undefined) return [item];
   return transformed.map((pluginItem) => {
+    if (pluginItem.type === "original") return item;
     const projected: PluginTimelineStreamItem = {
       kind: "plugin",
       id: `${pluginItem.pluginId}/${pluginItem.id}`,

@@ -64,6 +64,7 @@ async function hideContextActionCapabilities(page: Page): Promise<void> {
       ) {
         envelope.message.payload.features = {
           ...envelope.message.payload.features,
+          workspaceFileUpload: false,
           fsEntryOps: false,
           fsEntryDuplicate: false,
           checkoutDiscardChanges: false,
@@ -529,4 +530,80 @@ test("drops uploads into folders and the containing directory of file rows", asy
     await readFile(path.join(workspace.repoPath, "upload-folder", "sibling.txt"), "utf8"),
   ).toBe("sibling");
   await page.screenshot({ path: testInfo.outputPath("built-in-file-upload.png") });
+});
+
+test("reorders sibling files and folders, retains the order after reload, and keeps files on disk", async ({
+  page,
+}) => {
+  await mkdir(path.join(workspace.repoPath, "order-folder"));
+  await writeFile(path.join(workspace.repoPath, "order-folder", "child.txt"), "child");
+  await writeFile(path.join(workspace.repoPath, "order-a.txt"), "a");
+  await writeFile(path.join(workspace.repoPath, "order-b.txt"), "b");
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  const tree = page.getByTestId("file-explorer-tree-scroll");
+  const row = (name: string) => tree.locator(`[data-explorer-path="${name}"]`);
+  const visibleOrder = () =>
+    tree
+      .locator("[data-explorer-path]")
+      .evaluateAll((rows) =>
+        rows
+          .map((element) => element.getAttribute("data-explorer-path"))
+          .filter((entry) => entry?.startsWith("order-")),
+      );
+  await row("order-folder").click();
+  await expect(row("order-folder/child.txt")).toBeVisible();
+  await row("order-b.txt")
+    .locator("[draggable=true]")
+    .first()
+    .dragTo(row("order-a.txt"), { targetPosition: { x: 25, y: 2 } });
+  await expect(page.getByTestId("files-sort-label")).toHaveText("Manual");
+  await expect
+    .poll(visibleOrder)
+    .toEqual(["order-folder", "order-folder/child.txt", "order-b.txt", "order-a.txt"]);
+  await row("order-folder")
+    .locator("[draggable=true]")
+    .first()
+    .dragTo(row("order-a.txt"), { targetPosition: { x: 25, y: 25 } });
+  await expect
+    .poll(visibleOrder)
+    .toEqual(["order-b.txt", "order-a.txt", "order-folder", "order-folder/child.txt"]);
+  await page.reload();
+  await openFileExplorer(page);
+  await expect
+    .poll(visibleOrder)
+    .toEqual(["order-b.txt", "order-a.txt", "order-folder", "order-folder/child.txt"]);
+  expect(await readFile(path.join(workspace.repoPath, "order-a.txt"), "utf8")).toBe("a");
+  expect(await readFile(path.join(workspace.repoPath, "order-folder", "child.txt"), "utf8")).toBe(
+    "child",
+  );
+  // Return from manual order to the default alphabetical view.
+  await page.getByTestId("files-sort-trigger").click();
+  await expect(page.getByTestId("files-sort-label")).toHaveText("Name");
+  await expect
+    .poll(visibleOrder)
+    .toEqual(["order-folder", "order-folder/child.txt", "order-a.txt", "order-b.txt"]);
+});
+
+test("explains unavailable uploads on an older host for both dropping and picking", async ({
+  page,
+}) => {
+  await hideContextActionCapabilities(page);
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  const message = "Update the host to upload files into this workspace.";
+  await expect(page.getByTestId("files-upload-unavailable")).toHaveText(message);
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(["content"], "unsupported-upload.txt", { type: "text/plain" }));
+    return data;
+  });
+  const tree = page.getByTestId("file-explorer-tree-scroll");
+  await tree.dispatchEvent("dragover", { dataTransfer: transfer });
+  await expect(page.getByText(message).last()).toBeVisible();
+  await tree.dispatchEvent("drop", { dataTransfer: transfer });
+  await transfer.dispose();
+  await expect(page.getByTestId("files-upload-status")).toContainText(message);
+  await page.getByTestId("files-upload").click();
+  await expect(page.getByTestId("files-upload-status")).toContainText(message);
 });

@@ -73,10 +73,14 @@ import { buildWorkspaceExplorerStateKey } from "@/hooks/use-file-explorer-action
 import { usePanelStore, type ExpandedPathsUpdate, type SortOption } from "@/stores/panel-store";
 import { buildAbsoluteExplorerPath, parentExplorerPath } from "@/utils/explorer-paths";
 import { useUpload } from "@/file-explorer/use-upload";
+import { EntryDragSource } from "@/file-explorer/entry-drag-source";
 import { UploadDropTarget } from "@/file-explorer/upload-drop-target";
 import { isHiddenExplorerPath } from "@/file-explorer/visibility";
 import {
   flattenExplorerTree,
+  sortExplorerEntries,
+  reorderExplorerEntries,
+  type ExplorerReorder,
   reconcileRestoredExpandedPaths,
   restoreExpandedDirectories,
   setExpandedDirectoryPath,
@@ -93,6 +97,7 @@ const SORT_OPTIONS: { value: SortOption }[] = [
   { value: "name" },
   { value: "modified" },
   { value: "size" },
+  { value: "manual" },
 ];
 
 const ThemedLoadingSpinner = withUnistyles(LoadingSpinner);
@@ -269,7 +274,10 @@ function TreeRowItem({
   const hideNameHover = useCallback(() => setIsHovered(false), []);
   const isDirectory = entry.kind === "directory";
   const uploadDataSet = useMemo(
-    () => ({ uploadDirectory: isDirectory ? entry.path : parentExplorerPath(entry.path) }),
+    () => ({
+      explorerPath: entry.path,
+      uploadDirectory: isDirectory ? entry.path : parentExplorerPath(entry.path),
+    }),
     [entry.path, isDirectory],
   );
   const dragSourceRef = useWorkspaceFileDragSource({
@@ -367,26 +375,28 @@ function TreeRowItem({
         testID={testID}
         dataSet={uploadDataSet}
       >
-        <View ref={dragSourceRef} style={styles.entryInfo}>
-          <View style={styles.entryIcon}>
-            {isDirectory ? (
-              <DirectoryChevronIcon loading={loading} expanded={isExpanded} />
-            ) : (
-              <MaterialFileIcon fileName={entry.name} size={WORKSPACE_TREE_ICON_SIZE} />
-            )}
+        <EntryDragSource>
+          <View ref={dragSourceRef} style={styles.entryInfo}>
+            <View style={styles.entryIcon}>
+              {isDirectory ? (
+                <DirectoryChevronIcon loading={loading} expanded={isExpanded} />
+              ) : (
+                <MaterialFileIcon fileName={entry.name} size={WORKSPACE_TREE_ICON_SIZE} />
+              )}
+            </View>
+            <Text
+              style={[
+                styles.entryName,
+                workspaceTreeRowStyles.name,
+                isHovered && workspaceTreeRowStyles.nameHovered,
+              ]}
+              numberOfLines={1}
+              testID={testID ? `${testID}-name` : undefined}
+            >
+              {entry.name}
+            </Text>
           </View>
-          <Text
-            style={[
-              styles.entryName,
-              workspaceTreeRowStyles.name,
-              isHovered && workspaceTreeRowStyles.nameHovered,
-            ]}
-            numberOfLines={1}
-            testID={testID ? `${testID}-name` : undefined}
-          >
-            {entry.name}
-          </Text>
-        </View>
+        </EntryDragSource>
       </ContextMenuTrigger>
       <FileActionsContextMenuContent
         fileKind={entry.kind}
@@ -484,6 +494,9 @@ export function FileExplorerPane({
     workspaceRoot: normalizedWorkspaceRoot,
   });
   const sortOption = usePanelStore((state) => state.explorerSortOption);
+  const orderKey = JSON.stringify([serverId, workspaceStateKey]);
+  const manualOrder = usePanelStore((state) => state.explorerOrderByWorkspace[orderKey]);
+  const setDirectoryOrder = usePanelStore((state) => state.setExplorerDirectoryOrder);
   const showHiddenFiles = usePanelStore((state) => state.explorerShowHiddenFiles);
   const setSortOption = usePanelStore((state) => state.setExplorerSortOption);
   const toggleExplorerShowHiddenFiles = usePanelStore(
@@ -930,14 +943,29 @@ export function FileExplorerPane({
       name: t("workspace.fileExplorer.sort.name"),
       modified: t("workspace.fileExplorer.sort.modified"),
       size: t("workspace.fileExplorer.sort.size"),
+      manual: t("workspace.fileExplorer.sort.manual"),
     }),
     [t],
   );
   const currentSortLabel = resolveCurrentSortLabel(sortOption, sortLabels);
 
   const treeRows = useMemo(
-    () => flattenExplorerTree({ directories, expandedPaths, sortOption, showHiddenFiles }),
-    [directories, expandedPaths, showHiddenFiles, sortOption],
+    () =>
+      flattenExplorerTree({ directories, expandedPaths, sortOption, showHiddenFiles, manualOrder }),
+    [directories, expandedPaths, showHiddenFiles, sortOption, manualOrder],
+  );
+
+  const handleReorder = useCallback(
+    (reorder: ExplorerReorder) => {
+      const directory = parentExplorerPath(reorder.source);
+      const listing = directories.get(directory);
+      if (!listing) return;
+      const entries = sortExplorerEntries(listing.entries, sortOption, manualOrder?.[directory]);
+      const paths = entries.map((entry) => entry.path);
+      const reordered = reorderExplorerEntries(paths, reorder);
+      if (reordered) setDirectoryOrder(orderKey, directory, reordered);
+    },
+    [directories, sortOption, manualOrder, setDirectoryOrder, orderKey],
   );
 
   const listRows = useMemo<ExplorerListRow[]>(() => {
@@ -1090,10 +1118,19 @@ export function FileExplorerPane({
       style={styles.container}
     >
       <UploadDropTarget
-        disabled={upload.busy || !upload.supported}
+        disabled={upload.busy}
+        unavailableReason={upload.supported ? null : t("workspace.fileExplorer.upload.updateHost")}
         onDrop={upload.drop}
         onReject={upload.reject}
+        onReorder={handleReorder}
       >
+        {!upload.supported ? (
+          <View style={styles.uploadStatus} testID="files-upload-unavailable">
+            <Text style={styles.errorText} accessibilityRole="alert">
+              {t("workspace.fileExplorer.upload.updateHost")}
+            </Text>
+          </View>
+        ) : null}
         <FileExplorerPaneContent
           upload={upload}
           uploadDirectory={uploadDirectory}

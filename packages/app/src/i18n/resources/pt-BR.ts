@@ -503,6 +503,7 @@ export const ptBR: TranslationResources = {
         destination: "Enviar arquivos para {{directory}}",
       },
       sort: {
+        manual: "Manual",
         name: "Nome",
         modified: "Modificado",
         size: "Tamanho",

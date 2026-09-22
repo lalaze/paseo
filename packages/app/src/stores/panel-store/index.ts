@@ -65,6 +65,7 @@ export interface PanelState {
   // File explorer settings (shared between mobile/desktop)
   explorerTab: ExplorerTab;
   explorerTabByCheckout: Record<string, ExplorerTab>;
+  explorerOrderByWorkspace: Record<string, Record<string, string[]>>;
   expandedPathsByWorkspace: Record<string, string[]>;
   // Changes-view folder tree. Inverted semantics vs the fields above:
   // this stores COLLAPSED directory paths (empty = all folders expanded), keyed
@@ -103,6 +104,7 @@ export interface PanelState {
   setCollapsedFilePathsForWorkspace: (workspaceKey: string, paths: string[]) => void;
   activateExplorerTabForCheckout: (checkout: ExplorerCheckoutContext) => void;
   setSidebarWidth: (width: number) => void;
+  setExplorerDirectoryOrder: (workspaceKey: string, directory: string, paths: string[]) => void;
   setExplorerSortOption: (option: SortOption) => void;
   toggleExplorerShowHiddenFiles: () => void;
   setTreeRailWidth: (width: number) => void;
@@ -135,6 +137,7 @@ export const usePanelStore = create<PanelState>()(
       explorerTab: "changes",
       explorerTabByCheckout: {},
       expandedPathsByWorkspace: {},
+      explorerOrderByWorkspace: {},
       diffCollapsedFoldersByWorkspace: {},
       collapsedFilePathsByWorkspace: {},
       sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
@@ -279,6 +282,17 @@ export const usePanelStore = create<PanelState>()(
           }),
         })),
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
+      setExplorerDirectoryOrder: (workspaceKey, directory, paths) =>
+        set((state) => ({
+          explorerSortOption: "manual",
+          explorerOrderByWorkspace: {
+            ...state.explorerOrderByWorkspace,
+            [workspaceKey]: {
+              ...state.explorerOrderByWorkspace[workspaceKey],
+              [directory]: paths,
+            },
+          },
+        })),
       setExplorerSortOption: (option) => set({ explorerSortOption: option }),
       toggleExplorerShowHiddenFiles: () =>
         set((state) => ({ explorerShowHiddenFiles: !state.explorerShowHiddenFiles })),
@@ -295,6 +309,7 @@ export const usePanelStore = create<PanelState>()(
         explorerTab: state.explorerTab,
         explorerTabByCheckout: state.explorerTabByCheckout,
         expandedPathsByWorkspace: state.expandedPathsByWorkspace,
+        explorerOrderByWorkspace: state.explorerOrderByWorkspace,
         diffCollapsedFoldersByWorkspace: state.diffCollapsedFoldersByWorkspace,
         collapsedFilePathsByWorkspace: state.collapsedFilePathsByWorkspace,
         sidebarWidth: state.sidebarWidth,

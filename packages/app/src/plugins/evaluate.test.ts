@@ -638,3 +638,27 @@ it("binds imported getters to each originating installation across delayed callb
   await first.cleanup();
   await second.cleanup();
 });
+
+it("advertises and registers timeline additions with cleanup", async () => {
+  const plugin = evaluatePluginClientBundle(
+    "translate",
+    bundle(`
+    if (plugin.supportsTimelineAfter !== true) throw new Error("Missing capability");
+    plugin.addTimelineTransformer({ id: "reply", placement: "after", query: { itemType: "assistant_message" }, transform() { return { items: [] }; } });
+  `),
+  );
+  expect(plugin.timelineTransformers[0].placement).toBe("after");
+  await plugin.cleanup();
+  expect(plugin.timelineTransformers).toEqual([]);
+});
+
+it("rejects unknown timeline placement", () => {
+  expect(() =>
+    evaluatePluginClientBundle(
+      "translate",
+      bundle(`
+    plugin.addTimelineTransformer({ id: "reply", placement: "before", query: { itemType: "assistant_message" }, transform() {} });
+  `),
+    ),
+  ).toThrow("Invalid timeline transformer placement");
+});

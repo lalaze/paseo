@@ -937,7 +937,12 @@ export default function contribute(client: PluginClientContext) {
 
 `query.itemType` is the stable, coarse selector. Inspect the selected item inside `transform` for
 provider- or tool-specific recognition. Returning `undefined` keeps the original entry. Returning
-`items` replaces it; an empty array removes it. Item `data` must be JSON-compatible. The `phase`
+`items` replaces it; an empty array removes it. To keep the native row and append plugin UI,
+check `client.supportsTimelineAfter === true` before registering a transformer with
+`placement: "after"`. An empty result from an `after` transformer adds nothing. Additions
+run alongside the first replacement transformer and follow its output, independent of
+plugin installation order. Older clients do not support this placement and would replace
+the source row if the capability check were omitted. Item `data` must be JSON-compatible. The `phase`
 input is `"streaming"` for the live assistant message, running tool calls, and loading reasoning;
 it is `"complete"` for committed or fetched messages and finished tools or reasoning.
 Assistant and reasoning callbacks receive the full accumulated text on each update, including
