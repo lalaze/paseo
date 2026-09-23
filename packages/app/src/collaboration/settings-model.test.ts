@@ -13,6 +13,45 @@ const profiles = [
   },
 ];
 
+test("launch directs missing configuration to settings and locks actions while submitting", async () => {
+  const model = openCollaborationLaunch({ settings: null, supportsExecuteReview: true });
+  expect(model.getState().primaryAction).toBe("configure");
+  model.selectMode("execute_review");
+  expect(model.getState().primaryAction).toBe("configure");
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "one", label: "One", provider: "codex/model" }],
+    directorProfileId: "one",
+    workerProfileId: "one",
+  });
+  model.applySnapshot({ settings, supportsExecuteReview: true });
+  expect(model.getState().primaryAction).toBe("configureReviewer");
+  model.applySnapshot({
+    settings: { ...settings, reviewerProfileId: "one" },
+    supportsExecuteReview: true,
+  });
+  expect(model.getState().primaryAction).toBe("continue");
+  let finish = () => {};
+  let starts = 0;
+  const pending = model.start(() => {
+    starts++;
+    return new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  });
+  expect(model.getState().pending).toBe(true);
+  expect(model.getState().canContinue).toBe(false);
+  model.selectMode("full");
+  await model.start(async () => {
+    starts++;
+  });
+  expect(starts).toBe(1);
+  expect(model.getState().mode).toBe("execute_review");
+  finish();
+  await pending;
+  expect(model.getState().canContinue).toBe(true);
+  model.close();
+});
+
 test("launch mode survives configuration and retries without starting before explicit continuation", async () => {
   const settings = SettingsSchema.parse({
     profiles: [{ id: "one", label: "One", provider: "codex/model" }],

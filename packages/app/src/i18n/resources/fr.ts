@@ -23,14 +23,25 @@ export const fr: TranslationResources = {
       },
     },
     chooseMode: "Choisir le mode de collaboration",
+    launch: {
+      subtitle: "Pour cette tâche uniquement",
+      agents: "Agents de collaboration",
+      manage: "Gérer les profils",
+      worker: "Exécution",
+      reviewer: "Révision",
+      unconfigured: "Non configuré",
+      reviewerHint:
+        "Choisissez un agent de révision indépendant. Il peut utiliser le même modèle que l’exécutant.",
+      configureReviewer: "Configurer la révision",
+      goal: "Objectif de la tâche",
+    },
     modes: {
       full: "Parcours complet",
       execute_review: "Réalisation + vérification",
     },
     modeDescriptions: {
-      full: "Conception → réalisation → vérification → votre validation.",
-      execute_review:
-        "Un agent réalise → vérification indépendante → votre validation. Sans étape de conception.",
+      full: "Conception → exécution → révision → votre validation",
+      execute_review: "Un exécutant, avec une révision indépendante avant votre validation",
     },
     modeLocked:
       "Le mode de cette tâche est fixé. Ouvrez une nouvelle conversation pour changer de mode.",

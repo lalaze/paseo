@@ -23,13 +23,25 @@ export const ja: TranslationResources = {
       },
     },
     chooseMode: "協働モードを選択",
+    launch: {
+      subtitle: "このタスクにのみ適用",
+      agents: "協働エージェント",
+      manage: "設定を管理",
+      worker: "実行",
+      reviewer: "レビュー",
+      unconfigured: "未設定",
+      reviewerHint:
+        "独立したレビューエージェントを設定してください。実行担当と同じモデルを使用できます。",
+      configureReviewer: "レビュー担当を設定",
+      goal: "タスクの目標",
+    },
     modes: {
       full: "全工程",
       execute_review: "実装＋レビュー",
     },
     modeDescriptions: {
-      full: "設計 → 実装 → レビュー → ユーザー承認。",
-      execute_review: "実装担当1人 → 独立レビュー → ユーザー承認。設計工程を省略。",
+      full: "設計 → 実行 → レビュー → あなたの承認",
+      execute_review: "1つの実行エージェントが実装し、独立レビュー後にあなたが承認",
     },
     modeLocked:
       "このタスクのモードは固定されています。別のモードには新しい会話を開始してください。",

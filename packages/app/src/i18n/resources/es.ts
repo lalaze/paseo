@@ -23,14 +23,25 @@ export const es: TranslationResources = {
       },
     },
     chooseMode: "Elegir modo de colaboración",
+    launch: {
+      subtitle: "Solo para esta tarea",
+      agents: "Agentes de colaboración",
+      manage: "Gestionar perfiles",
+      worker: "Ejecución",
+      reviewer: "Revisión",
+      unconfigured: "Sin configurar",
+      reviewerHint:
+        "Elige un agente de revisión independiente. Puede usar el mismo modelo que el ejecutor.",
+      configureReviewer: "Configurar revisor",
+      goal: "Objetivo de la tarea",
+    },
     modes: {
       full: "Flujo completo",
       execute_review: "Implementación + revisión",
     },
     modeDescriptions: {
-      full: "Diseño → implementación → revisión → tu aprobación.",
-      execute_review:
-        "Un agente implementa → revisión independiente → tu aprobación. Sin fase de diseño.",
+      full: "Diseño → ejecución → revisión → tu aprobación",
+      execute_review: "Un ejecutor, con revisión independiente antes de tu aprobación",
     },
     modeLocked: "El modo de esta tarea está fijado. Inicia otra conversación para cambiarlo.",
     continue: "Continuar a la conversación",

@@ -55,7 +55,11 @@ export function createBottomSheetVisibilityTracker(opts: {
     syncDesired(next) {
       visible = next.visible;
       isEnabled = next.isEnabled;
-      if (isEnabled === false) return;
+      if (isEnabled === false) {
+        phase = "closed";
+        hasNotifiedClose = false;
+        return;
+      }
       if (visible) {
         present();
         return;
@@ -79,7 +83,7 @@ export function createBottomSheetVisibilityTracker(opts: {
       }
     },
     handleSheetDismiss() {
-      if (visible) {
+      if (visible && isEnabled !== false) {
         phase = "dismissing";
         notifyClose();
         return;

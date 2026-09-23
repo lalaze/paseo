@@ -24,18 +24,22 @@ export function openCollaborationLaunch(initial: LaunchSnapshot, selected?: Coll
     let blocked: "configure" | "reviewerRequired" | "updateHost" | null = null;
     if (!snapshot.settings) blocked = "configure";
     if (mode === "execute_review") {
-      if (!snapshot.settings?.reviewerProfileId) blocked = "reviewerRequired";
+      if (snapshot.settings && !snapshot.settings.reviewerProfileId) blocked = "reviewerRequired";
       if (!snapshot.supportsExecuteReview) blocked = "updateHost";
     }
     // Reopening an existing task does not create a new run or change its saved profiles.
     if (locked) blocked = null;
     const settings = snapshot.settings;
+    let primaryAction: "configure" | "configureReviewer" | "continue" = "continue";
+    if (blocked === "configure") primaryAction = "configure";
+    if (blocked === "reviewerRequired") primaryAction = "configureReviewer";
     return {
       mode,
       locked,
       pending,
       error,
       blocked,
+      primaryAction,
       canContinue: !pending && blocked === null,
       supportsExecuteReview: snapshot.supportsExecuteReview,
       worker: settings?.profiles.find((p) => p.id === settings.workerProfileId)?.label,

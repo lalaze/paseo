@@ -68,6 +68,11 @@ describe("resolveKeyboardFocusScope", () => {
     expect(scope).toBe("terminal");
   });
 
+  it("keeps radio keyboard input out of app-wide shortcuts", () => {
+    globalRef.document = { activeElement: new FakeElement({ selectors: ['[role="radio"]'] }) };
+    expect(resolveKeyboardFocusScope({ target: null, commandCenterOpen: false })).toBe("editable");
+  });
+
   it("detects editable scope from activeElement fallback", () => {
     const activeElement = new FakeElement({ tagName: "input" });
     globalRef.document = { activeElement };

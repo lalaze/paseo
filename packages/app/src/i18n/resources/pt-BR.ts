@@ -23,14 +23,25 @@ export const ptBR: TranslationResources = {
       },
     },
     chooseMode: "Escolher modo de colaboração",
+    launch: {
+      subtitle: "Somente para esta tarefa",
+      agents: "Agentes de colaboração",
+      manage: "Gerenciar perfis",
+      worker: "Execução",
+      reviewer: "Revisão",
+      unconfigured: "Não configurado",
+      reviewerHint:
+        "Escolha um agente de revisão independente. Ele pode usar o mesmo modelo do executor.",
+      configureReviewer: "Configurar revisor",
+      goal: "Objetivo da tarefa",
+    },
     modes: {
       full: "Fluxo completo",
       execute_review: "Implementação + revisão",
     },
     modeDescriptions: {
-      full: "Planejamento → implementação → revisão → sua aprovação.",
-      execute_review:
-        "Um agente implementa → revisão independente → sua aprovação. Sem etapa de planejamento.",
+      full: "Planejamento → execução → revisão → sua aprovação",
+      execute_review: "Um executor, com revisão independente antes da sua aprovação",
     },
     modeLocked: "O modo desta tarefa está fixado. Inicie outra conversa para mudar de modo.",
     continue: "Continuar para a conversa",

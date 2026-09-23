@@ -107,15 +107,15 @@ test("choose execution-review, configure its reviewer, cancel, and enable withou
     await page.getByTestId("composer-collaboration").click();
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("collaboration-mode-full")).toHaveAttribute(
-      "aria-selected",
+      "aria-checked",
       "true",
     );
     await page.getByTestId("collaboration-mode-execute-review").click();
-    await expect(
-      page.getByText("Choose an independent review agent in collaboration settings."),
-    ).toBeVisible();
-    await expect(page.getByTestId("collaboration-continue")).toBeDisabled();
-    await page.getByRole("button", { name: "Configure agents", exact: true }).click();
+    await expect(page.getByTestId("collaboration-launch-reviewer")).toContainText("Not configured");
+    await expect(page.getByTestId("collaboration-continue")).toHaveCount(0);
+    await expect(page.getByTestId("collaboration-configure")).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath("reviewer-missing-desktop.png") });
+    await page.getByTestId("collaboration-configure").click();
     await expect(page).toHaveURL(/\/collaboration$/);
     await page.getByTestId("collaboration-role-reviewerProfileId").click();
     await page
@@ -125,7 +125,7 @@ test("choose execution-review, configure its reviewer, cancel, and enable withou
     await page.getByRole("button", { name: "Save collaboration settings", exact: true }).click();
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("collaboration-mode-execute-review")).toHaveAttribute(
-      "aria-selected",
+      "aria-checked",
       "true",
     );
     await expect(page.getByTestId("collaboration-continue")).toBeEnabled();
@@ -136,19 +136,19 @@ test("choose execution-review, configure its reviewer, cancel, and enable withou
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByTestId("collaboration-continue")).toBeVisible();
     await expect(page.getByTestId("collaboration-mode-execute-review")).toHaveAttribute(
-      "aria-selected",
+      "aria-checked",
       "true",
     );
     await page.getByTestId("collaboration-continue").click({ trial: true });
     await page.screenshot({
       path: testInfo.outputPath("execution-review-phone.png"),
     });
-    await page.getByRole("button", { name: "Configure agents", exact: true }).click();
+    await page.getByTestId("collaboration-manage-profiles").click();
     await expect(page).toHaveURL(/\/collaboration$/);
     await page.getByRole("button", { name: "Back", exact: true }).click();
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("collaboration-mode-execute-review")).toHaveAttribute(
-      "aria-selected",
+      "aria-checked",
       "true",
     );
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -307,17 +307,17 @@ test("keep a slash-command goal through configuration and create a new conversat
     const goal = "Review keyboard navigation and preserve the current layout";
     await composerLocator(page).fill(`/director ${goal}`);
     await page.getByRole("button", { name: "Send message", exact: true }).click();
-    await expect(page.getByText(goal, { exact: true })).toBeVisible();
+    await expect(page.getByTestId("collaboration-launch-goal")).toBeVisible();
     await page.getByTestId("collaboration-mode-execute-review").click();
-    await page.getByRole("button", { name: "Configure agents", exact: true }).click();
+    await page.getByTestId("collaboration-manage-profiles").click();
     await page
       .getByTestId("settings-detail-pane")
       .getByRole("button", { name: "Continue to conversation", exact: true })
       .click();
     await expect(page).toHaveURL(chatUrl);
-    await expect(page.getByText(goal, { exact: true })).toBeVisible();
+    await expect(page.getByTestId("collaboration-launch-goal")).toBeVisible();
     await expect(page.getByTestId("collaboration-mode-execute-review")).toHaveAttribute(
-      "aria-selected",
+      "aria-checked",
       "true",
     );
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -331,7 +331,7 @@ test("keep a slash-command goal through configuration and create a new conversat
     await palette.getByText("New collaboration conversation", { exact: true }).click();
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("collaboration-mode-full")).toHaveAttribute(
-      "aria-selected",
+      "aria-checked",
       "true",
     );
     await page.getByTestId("collaboration-continue").click();
@@ -350,3 +350,163 @@ test("keep a slash-command goal through configuration and create a new conversat
     await session.cleanup();
   }
 });
+
+for (const theme of ["dark", "light", "skin"] as const) {
+  test(`mode picker visual states and keyboard navigation in ${theme}`, async ({
+    page,
+  }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.addInitScript(
+      (appearance) => {
+        localStorage.setItem(
+          "@paseo:app-settings",
+          JSON.stringify({ theme: appearance, language: "zh-CN" }),
+        );
+      },
+      theme === "skin" ? "dark" : theme,
+    );
+    const session = await seedMockAgentWorkspace({
+      repoPrefix: "picker-design-",
+      title: "协作弹窗",
+    });
+    const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "picker-design" });
+    const saveProfiles = async (label: string, review: boolean) => {
+      const current = await client.collaborationCommand("status");
+      await client.collaborationCommand("settings.save", {
+        base: current.settings,
+        settings: {
+          profiles: [
+            {
+              id: "collaboration-test",
+              label,
+              provider: "mock/e2e-fast-stream",
+              modeId: "load-test",
+            },
+          ],
+          directorProfileId: "collaboration-test",
+          workerProfileId: "collaboration-test",
+          reviewerProfileId: review ? "collaboration-test" : undefined,
+        },
+      });
+    };
+    try {
+      await saveProfiles("执行 AI", false);
+      if (theme === "skin") {
+        const { strToU8, zipSync } = await import("fflate");
+        const { readFile } = await import("node:fs/promises");
+        await page.goto("/settings/appearance");
+        const buffer = process.env.PASEO_SKIN_QA_ZIP
+          ? await readFile(process.env.PASEO_SKIN_QA_ZIP)
+          : Buffer.from(
+              zipSync({
+                "theme.json": strToU8(
+                  JSON.stringify({
+                    schemaVersion: 1,
+                    id: "picker-qa",
+                    name: "Picker QA",
+                    image: "background.png",
+                    appearance: "dark",
+                    colors: {
+                      background: "#0d0d0e",
+                      panel: "#171513",
+                      panelAlt: "#211d18",
+                      accent: "#c8a55a",
+                      accentAlt: "#e3c27a",
+                      text: "#f3ead7",
+                      muted: "#b5a386",
+                      line: "rgba(200,165,90,.28)",
+                    },
+                  }),
+                ),
+                "background.png": await readFile("assets/images/icon.png"),
+              }),
+            );
+        await page
+          .getByTestId("skin-file-input")
+          .setInputFiles({ name: "picker-qa.zip", mimeType: "application/zip", buffer });
+        await expect(page.getByTestId("skin-background")).toBeVisible();
+      }
+      await openAgentRoute(page, session);
+      await page.getByTestId("composer-collaboration").click();
+      const full = page.getByTestId("collaboration-mode-full");
+      const light = page.getByTestId("collaboration-mode-execute-review");
+      await expect(full).toHaveAttribute("role", "radio");
+      await full.focus();
+      await page.keyboard.press("ArrowDown");
+      await expect(light).toHaveAttribute("aria-checked", "true");
+      await expect(light).toBeFocused();
+      await expect(light).toHaveCSS("outline-width", "2px");
+      await full.focus();
+      await page.keyboard.press("Space");
+      await expect(full).toHaveAttribute("aria-checked", "true");
+      await page.keyboard.press("ArrowRight");
+      await expect(light).toHaveAttribute("aria-checked", "true");
+      await page.keyboard.press("Home");
+      await expect(full).toHaveAttribute("aria-checked", "true");
+      await page.keyboard.press("End");
+      await expect(light).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByTestId("collaboration-manage-profiles")).toBeFocused();
+      await page.getByTestId("collaboration-configure").focus();
+      await expect(page.getByTestId("collaboration-configure")).toHaveText("配置审核 Agent");
+      await page.mouse.move(10, 10);
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-missing-desktop.png`) });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByTestId("collaboration-configure").click({ trial: true });
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-missing-phone.png`) });
+      for (const element of [
+        full,
+        light,
+        page.getByTestId("collaboration-configure"),
+        page.getByTestId("collaboration-launch-cancel"),
+      ]) {
+        expect((await element.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      }
+      await page.getByTestId("collaboration-launch-cancel").click();
+      const label = "协作执行与独立审核 · 长配置名称与跨平台验证 · GPT-6 多语言和键盘交互检查";
+      await saveProfiles(label, true);
+      const goal =
+        "检查桌面和手机的协作流程，保留现有目标和原会话。验证模式选择、配置返回、取消、失败重试与键盘导航。请完整记录测试结果。".repeat(
+          8,
+        );
+      await page
+        .getByRole("textbox", { name: "给 Agent 发消息...", exact: true })
+        .fill(`/director ${goal}`);
+      await page.getByRole("button", { name: "发送消息", exact: true }).click();
+      await expect(page.getByTestId("collaboration-launch-worker")).toContainText(label);
+      const toggle = page.getByTestId("collaboration-goal-toggle");
+      await expect(toggle).toBeVisible();
+      await expect(page.getByTestId("collaboration-launch-goal")).toHaveCSS(
+        "-webkit-line-clamp",
+        "3",
+      );
+      await page.getByTestId("collaboration-continue").click({ trial: true });
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-long-phone.png`) });
+      await page.getByTestId("collaboration-launch-reviewer").scrollIntoViewIfNeeded();
+      await page.getByTestId("collaboration-continue").click({ trial: true });
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-long-profiles-phone.png`) });
+      await toggle.scrollIntoViewIfNeeded();
+      expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await page.getByTestId("collaboration-continue").click({ trial: true });
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-expanded-phone.png`) });
+      await page.setViewportSize({ width: 320, height: 640 });
+      await page.getByTestId("collaboration-continue").click({ trial: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        320,
+      );
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.getByTestId("collaboration-continue").click({ trial: true, timeout: 10_000 });
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-long-desktop.png`) });
+      await page.getByTestId("collaboration-launch-reviewer").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`${theme}-long-profiles-desktop.png`) });
+      await page.getByTestId("collaboration-launch-cancel").click();
+      expect(errors).toEqual([]);
+    } finally {
+      await client.close();
+      await session.cleanup();
+    }
+  });
+}

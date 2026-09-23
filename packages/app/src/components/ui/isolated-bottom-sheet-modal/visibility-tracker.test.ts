@@ -70,6 +70,22 @@ describe("bottom sheet visibility tracker", () => {
     expect(sheet.events).toEqual([]);
   });
 
+  it("keeps the parent open during a layout switch and presents again on return", () => {
+    const { sheet, tracker, closeCount } = setup();
+    tracker.attachController(sheet);
+    tracker.syncDesired({ visible: true, isEnabled: true });
+    tracker.handleSheetIndexChange(0);
+    tracker.syncDesired({ visible: true, isEnabled: false });
+    tracker.attachController(null);
+    tracker.handleSheetDismiss();
+    expect(closeCount()).toBe(0);
+    tracker.attachController(sheet);
+    tracker.syncDesired({ visible: true, isEnabled: true });
+    expect(sheet.events).toEqual([{ type: "present" }, { type: "present" }]);
+    tracker.handleSheetDismiss();
+    expect(closeCount()).toBe(1);
+  });
+
   it("does not treat index -1 as a close because stacked sheets can be hidden without dismissing", () => {
     const { sheet, tracker, closeCount } = setup();
     tracker.attachController(sheet);

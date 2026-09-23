@@ -67,7 +67,8 @@ export function resolveKeyboardFocusScope(input: {
   if (
     candidates.some((element) => {
       const editable = element as HTMLElement;
-      if (editable.isContentEditable) {
+      // Custom radios own Space just like native form inputs; do not route it to voice mute.
+      if (editable.isContentEditable || element.closest('[role="radio"]')) {
         return true;
       }
       const tag = element.tagName.toLowerCase();

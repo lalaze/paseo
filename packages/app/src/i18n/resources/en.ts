@@ -20,13 +20,25 @@ export const en = {
       },
     },
     chooseMode: "Choose collaboration mode",
+    launch: {
+      subtitle: "For this task only",
+      agents: "Collaboration agents",
+      manage: "Manage profiles",
+      worker: "Execution",
+      reviewer: "Review",
+      unconfigured: "Not configured",
+      reviewerHint:
+        "Choose an independent review agent. It can use the same model as the implementer.",
+      configureReviewer: "Configure review agent",
+      goal: "Task goal",
+    },
     modes: {
       full: "Full workflow",
       execute_review: "Execution + review",
     },
     modeDescriptions: {
-      full: "Plan → implement → review → your acceptance.",
-      execute_review: "One implementer → independent review → your acceptance. No planning step.",
+      full: "Plan → implement → review → your acceptance",
+      execute_review: "One implementer, independently reviewed before your acceptance",
     },
     modeLocked: "This task’s mode is fixed. Start a new conversation to use another mode.",
     continue: "Continue to conversation",
