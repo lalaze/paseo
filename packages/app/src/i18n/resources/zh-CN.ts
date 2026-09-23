@@ -3,6 +3,42 @@ import { pluginSettings } from "./plugin-settings";
 
 export const zhCN: TranslationResources = {
   collaboration: {
+    history: {
+      title: "会话历史",
+      back: "返回协作设置",
+      actions: "会话操作",
+      expand: "展开详情",
+      collapse: "收起详情",
+      progress: "任务 {{done}}/{{total}}",
+      status: {
+        ready: "待开始",
+        running: "进行中",
+        paused: "已暂停",
+        waitingPermission: "等待授权",
+        needsAttention: "需要处理",
+        canceling: "正在停止",
+        canceled: "已停止",
+        completed: "已完成",
+        awaitingAcceptance: "待用户验收",
+      },
+    },
+    chooseMode: "选择协作模式",
+    modes: {
+      full: "完整流程",
+      execute_review: "执行＋审核",
+    },
+    modeDescriptions: {
+      full: "设计 → 执行 → 审核 → 用户验收。",
+      execute_review: "一个执行 Agent → 独立审核 → 用户验收，跳过设计步骤。",
+    },
+    modeLocked: "此任务的模式已固定。切换模式请新建协作对话。",
+    continue: "继续到对话",
+    configure: "配置 Agent",
+    launchErrors: {
+      configure: "请先保存协作设置。",
+      reviewerRequired: "请在协作设置中指定独立审核 Agent。",
+      updateHost: "请更新主机以使用执行＋审核模式。",
+    },
     categoryOverrides: "按任务类别分配",
     taskOverrides: "按任务 ID 分配",
     addRule: "添加分配",

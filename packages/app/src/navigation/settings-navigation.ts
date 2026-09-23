@@ -1,4 +1,5 @@
 import { router, type Href } from "expo-router";
+import { useCollaborationLaunchStore } from "@/collaboration/launch-store";
 import { navigateToLastWorkspace } from "@/stores/navigation-active-workspace-store";
 import {
   buildOpenProjectRoute,
@@ -11,6 +12,7 @@ import {
 } from "@/utils/host-routes";
 
 export type SettingsView =
+  | { kind: "collaboration-history"; serverId: string }
   | { kind: "plugin"; serverId: string; pluginId: string; screenId: string }
   | { kind: "root" }
   | { kind: "section"; section: SettingsSectionSlug }
@@ -26,6 +28,16 @@ export function openProjectSettings(serverId: string, projectId: string): void {
 }
 
 export function returnFromSettings(view: SettingsView): void {
+  const launch = useCollaborationLaunchStore.getState();
+  if (
+    view.kind === "host" &&
+    view.section === "collaboration" &&
+    launch.configuring &&
+    launch.request?.serverId === view.serverId
+  ) {
+    router.back();
+    return;
+  }
   if (view.kind === "root") {
     if (!navigateToLastWorkspace()) {
       router.replace(buildOpenProjectRoute());
@@ -34,6 +46,8 @@ export function returnFromSettings(view: SettingsView): void {
   }
 
   let parent: Href = buildSettingsRoute();
+  if (view.kind === "collaboration-history")
+    parent = buildSettingsHostSectionRoute(view.serverId, "collaboration");
   if (view.kind === "plugin") parent = buildSettingsHostSectionRoute(view.serverId, "plugins");
   if (view.kind === "project") parent = buildProjectsSettingsRoute(view.serverId);
   router.dismissTo(parent as Href);

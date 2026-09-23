@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SettingsSchema } from "./schema.js";
+import { CollaborationModeSchema, SettingsSchema } from "./schema.js";
 
 export const CollaborationCommandSchema = z.enum([
   "status",
@@ -25,6 +25,7 @@ export const CollaborationStateSchema = z.object({
   conversations: z.array(
     z.object({
       id: z.string(),
+      mode: CollaborationModeSchema.optional(),
       requestId: z.string().optional(),
       workspaceId: z.string(),
       agentId: z.string().optional(),
@@ -33,6 +34,7 @@ export const CollaborationStateSchema = z.object({
       run: z
         .object({
           id: z.string(),
+          mode: CollaborationModeSchema.optional(),
           phase: z.string(),
           control: z.string(),
           message: z.string(),

@@ -3,6 +3,43 @@ import { pluginSettings } from "./plugin-settings";
 
 export const ja: TranslationResources = {
   collaboration: {
+    history: {
+      title: "会話履歴",
+      back: "共同作業の設定に戻る",
+      actions: "会話の操作",
+      expand: "詳細を表示",
+      collapse: "詳細を隠す",
+      progress: "タスク {{done}}/{{total}}",
+      status: {
+        ready: "開始待ち",
+        running: "進行中",
+        paused: "一時停止中",
+        waitingPermission: "許可待ち",
+        needsAttention: "対応が必要",
+        canceling: "停止中",
+        canceled: "停止済み",
+        completed: "完了",
+        awaitingAcceptance: "ユーザーの確認待ち",
+      },
+    },
+    chooseMode: "協働モードを選択",
+    modes: {
+      full: "全工程",
+      execute_review: "実装＋レビュー",
+    },
+    modeDescriptions: {
+      full: "設計 → 実装 → レビュー → ユーザー承認。",
+      execute_review: "実装担当1人 → 独立レビュー → ユーザー承認。設計工程を省略。",
+    },
+    modeLocked:
+      "このタスクのモードは固定されています。別のモードには新しい会話を開始してください。",
+    continue: "会話へ進む",
+    configure: "エージェントを設定",
+    launchErrors: {
+      configure: "先に協働設定を保存してください。",
+      reviewerRequired: "協働設定で独立したレビューエージェントを選択してください。",
+      updateHost: "実装＋レビューを使うにはホストを更新してください。",
+    },
     categoryOverrides: "カテゴリ別の割り当て",
     taskOverrides: "タスク ID 別の割り当て",
     addRule: "割り当てを追加",

@@ -3,6 +3,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { CollaborationControl } from "@/collaboration/composer-control";
 import {
   View,
   Pressable,
@@ -315,6 +316,7 @@ function resolveContextWindowPlacement(
 }
 
 interface RenderLeftContentArgs {
+  workspaceId?: string | null;
   agentControls: DraftAgentControlsProps | undefined;
   agentId: string;
   serverId: string;
@@ -324,18 +326,23 @@ interface RenderLeftContentArgs {
 }
 
 function renderLeftContent(args: RenderLeftContentArgs): ReactElement | null {
-  const { agentControls, agentId, serverId, focusInput, isCompactLayout } = args;
+  const { agentControls, agentId, serverId, workspaceId, focusInput, isCompactLayout } = args;
   if (!args.showAgentControls) return null;
   if (resolveAgentControlsMode(agentControls) === "draft" && agentControls) {
     return <DraftAgentControls {...agentControls} isCompactLayout={isCompactLayout} />;
   }
   return (
-    <AgentControls
-      agentId={agentId}
-      serverId={serverId}
-      onDropdownClose={focusInput}
-      isCompactLayout={isCompactLayout}
-    />
+    <>
+      <AgentControls
+        agentId={agentId}
+        serverId={serverId}
+        onDropdownClose={focusInput}
+        isCompactLayout={isCompactLayout}
+      />
+      {workspaceId && (
+        <CollaborationControl serverId={serverId} workspaceId={workspaceId} agentId={agentId} />
+      )}
+    </>
   );
 }
 
@@ -2224,6 +2231,7 @@ function ComposerContentImpl({
   const leftContent = useMemo(
     () =>
       renderLeftContent({
+        workspaceId,
         agentControls,
         agentId,
         serverId,
@@ -2231,7 +2239,15 @@ function ComposerContentImpl({
         isCompactLayout,
         showAgentControls: mode.showAgentControls,
       }),
-    [agentControls, agentId, focusInput, isCompactLayout, mode.showAgentControls, serverId],
+    [
+      agentControls,
+      agentId,
+      focusInput,
+      isCompactLayout,
+      mode.showAgentControls,
+      serverId,
+      workspaceId,
+    ],
   );
 
   const handleAttachButtonRef = useCallback((node: View | null) => {

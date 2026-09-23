@@ -3,6 +3,42 @@ import { pluginSettings } from "./plugin-settings";
 
 export const ko: TranslationResources = {
   collaboration: {
+    history: {
+      title: "대화 기록",
+      back: "협업 설정으로 돌아가기",
+      actions: "대화 작업",
+      expand: "자세히 보기",
+      collapse: "간략히 보기",
+      progress: "작업 {{done}}/{{total}}",
+      status: {
+        ready: "시작 대기",
+        running: "진행 중",
+        paused: "일시 중지됨",
+        waitingPermission: "권한 대기 중",
+        needsAttention: "확인 필요",
+        canceling: "중지 중",
+        canceled: "중지됨",
+        completed: "완료됨",
+        awaitingAcceptance: "사용자 승인 대기 중",
+      },
+    },
+    chooseMode: "협업 모드 선택",
+    modes: {
+      full: "전체 과정",
+      execute_review: "구현＋검토",
+    },
+    modeDescriptions: {
+      full: "설계 → 구현 → 검토 → 사용자 승인.",
+      execute_review: "구현 담당 하나 → 독립 검토 → 사용자 승인. 설계 단계를 건너뜁니다.",
+    },
+    modeLocked: "이 작업의 모드는 고정되어 있습니다. 다른 모드는 새 대화에서 선택하세요.",
+    continue: "대화로 계속",
+    configure: "에이전트 설정",
+    launchErrors: {
+      configure: "먼저 협업 설정을 저장하세요.",
+      reviewerRequired: "협업 설정에서 독립 검토 에이전트를 선택하세요.",
+      updateHost: "구현＋검토를 사용하려면 호스트를 업데이트하세요.",
+    },
     categoryOverrides: "범주별 배정",
     taskOverrides: "작업 ID별 배정",
     addRule: "배정 추가",

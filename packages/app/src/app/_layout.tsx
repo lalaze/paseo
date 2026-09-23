@@ -21,6 +21,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { AppearanceProvider } from "@/appearance/provider";
 import { CommandCenter } from "@/command-center/command-center";
+import { CollaborationLaunchHost } from "@/collaboration/launch-dialog";
 import { CommandCenterRootActions } from "@/command-center/root-registration";
 import { CommandCenterProvider } from "@/command-center/provider";
 import { CommandCenterWorkspaceActions } from "@/command-center/workspace-registration";
@@ -605,6 +606,7 @@ function AppContainer({ children, chromeEnabled: chromeEnabledOverride }: AppCon
         <WorkspacePinShortcutHandler />
         <WorkspaceRenameHost />
         <CommandCenter />
+        <CollaborationLaunchHost />
         <AddProjectFlowHost />
         <HostChooserModal />
         <ProviderSettingsHost />
@@ -909,6 +911,7 @@ function RootStack() {
       <Stack.Screen name="h/[serverId]" />
       <Stack.Screen name="settings/hosts/[serverId]/index" />
       <Stack.Screen name="settings/hosts/[serverId]/[hostSection]" />
+      <Stack.Screen name="settings/hosts/[serverId]/collaboration/history" />
       <Stack.Screen name="settings/hosts/[serverId]/plugins/[pluginId]/[screenId]" />
       <Stack.Screen name="settings/hosts/[serverId]/projects/index" />
       <Stack.Screen name="settings/hosts/[serverId]/projects/[projectId]" />

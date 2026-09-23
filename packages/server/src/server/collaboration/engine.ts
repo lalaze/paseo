@@ -2,6 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import {
   SettingsSchema,
+  collaborationMode,
+  requiresPlanApproval,
+  validateCollaborationMode,
   PlanSchema,
   ResultSchema,
   ReviewSchema,
@@ -23,6 +26,7 @@ import {
   type ControlAction,
   type FinalControl,
   type Evidence,
+  type CollaborationMode,
 } from "@getpaseo/protocol/collaboration/schema";
 import type { Repository } from "./repository.js";
 import { Store } from "./store.js";
@@ -78,6 +82,7 @@ export class Engine {
     settings?: Settings;
     workspaceId?: string;
     chat?: Run["chat"];
+    mode?: CollaborationMode;
   }): Promise<string> {
     // Serialize preparation so concurrent requests cannot switch one checkout
     // to different branches before either run is recorded.
@@ -85,6 +90,8 @@ export class Engine {
       const existing = this.store.findRequest(input.requestId);
       if (existing) return existing.id;
       const settings = SettingsSchema.parse(input.settings ?? this.store.settings());
+      const mode = collaborationMode(input);
+      validateCollaborationMode(mode, settings);
       const id = createHash("sha256").update(input.requestId).digest("hex").slice(0, 24);
       if (input.workspaceId) {
         const directory = await this.agents.workspaceDirectory(input.workspaceId);
@@ -115,19 +122,55 @@ export class Engine {
         revision: 0,
         goal: input.goal,
         settings,
+        mode,
         createdAt: this.now(),
         updatedAt: this.now(),
         phase: "planning",
         control: "running",
         message: `等待${operationLabel(settings, "plan")}制定计划`,
-        planApproved: !settings.requirePlanApproval,
+        planApproved: !requiresPlanApproval({ mode, settings }),
         tasks: [],
         operations: [],
         events: [],
       };
+      if (mode === "execute_review") this.initializeDirectExecution(run);
       this.store.insert(run);
       return id;
     });
+  }
+  private initializeDirectExecution(run: Run, agentId?: string) {
+    // Reuse task/evidence checkpoints without asking an AI to manufacture a design.
+    // Goals allow 32k characters; each existing criterion allows 16k. Preserve the whole goal.
+    const acceptance = ["逐项满足完整用户目标（goal）及所有仍有效的修改要求，并提供实际验证证据"];
+    for (let offset = 0; offset < run.goal.length; offset += 16000) {
+      const requirement = run.goal.slice(offset, offset + 16000).trim();
+      if (requirement) acceptance.push(requirement);
+    }
+    const feedback = run.changeRequests?.at(-1)?.feedback;
+    if (feedback) acceptance.push(feedback);
+    const spec = {
+      id: "task-1",
+      title: "执行用户目标",
+      description:
+        "直接实施 goal 中的完整要求及 userChangeRequests 中仍有效的修改要求，不拆分任务。",
+      category: "implementation",
+      files: ["."],
+      dependsOn: [],
+      acceptance,
+    };
+    run.plan = {
+      summary: "执行＋审核",
+      architecture: "由执行 Agent 在当前工作区完成目标，再交独立审核 Agent 验证。",
+      acceptance,
+      tasks: [spec],
+    };
+    run.tasks = [
+      { spec, profileId: run.settings.workerProfileId, status: "pending", reworks: 0, agentId },
+    ];
+    run.planApproved = true;
+    run.planApprovedAt = undefined;
+    run.phase = "executing";
+    this.event(run, "执行＋审核：准备直接执行用户目标");
   }
   async close() {
     this.stopped = true;
@@ -777,16 +820,21 @@ export class Engine {
     run.roundStartedAt = this.now();
     run.roundOperationOffset = run.operations.length;
     this.release(run.finalEvidence, ...run.tasks.map((candidateEntry) => candidateEntry.evidence));
+    const executionAgentId = run.tasks[0]?.agentId;
     run.plan = undefined;
     run.tasks = [];
     run.finalEvidence = undefined;
     run.finalReview = undefined;
     run.userAcceptance = undefined;
     run.dispatchOrder = [];
-    run.planApproved = !run.settings.requirePlanApproval;
+    run.planApproved = !requiresPlanApproval(run);
     run.planApprovedAt = undefined;
     run.phase = "planning";
     run.control = "running";
+    if (collaborationMode(run) === "execute_review") {
+      this.initializeDirectExecution(run, executionAgentId);
+      return;
+    }
     this.event(
       run,
       `修改意见已提交，${operationLabel(run.settings, "plan")}将安排修改；保留原目标和现有文件`,
@@ -934,15 +982,20 @@ export class Engine {
     run.goal = goal.trim();
     run.planVersion = (run.planVersion ?? 1) + 1;
     this.release(run.finalEvidence, ...run.tasks.map((candidateEntry) => candidateEntry.evidence));
+    const executionAgentId = run.tasks[0]?.agentId;
     run.plan = undefined;
     run.tasks = [];
     run.finalEvidence = undefined;
     run.finalReview = undefined;
     run.dispatchOrder = [];
-    run.planApproved = !run.settings.requirePlanApproval;
+    run.planApproved = !requiresPlanApproval(run);
     run.planApprovedAt = undefined;
     run.phase = "planning";
     run.control = "running";
+    if (collaborationMode(run) === "execute_review") {
+      this.initializeDirectExecution(run, executionAgentId);
+      return;
+    }
     this.event(run, `需求已更新为第 ${run.planVersion} 版，保留现有代码，重新设计并验收`);
   }
   private async approvePlan(run: Run) {

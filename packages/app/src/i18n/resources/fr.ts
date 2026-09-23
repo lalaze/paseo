@@ -3,6 +3,45 @@ import { pluginSettings } from "./plugin-settings";
 
 export const fr: TranslationResources = {
   collaboration: {
+    history: {
+      title: "Historique des conversations",
+      back: "Retour aux paramètres de collaboration",
+      actions: "Actions de la conversation",
+      expand: "Afficher les détails",
+      collapse: "Masquer les détails",
+      progress: "Tâches {{done}}/{{total}}",
+      status: {
+        ready: "Prêt",
+        running: "En cours",
+        paused: "En pause",
+        waitingPermission: "En attente d’autorisation",
+        needsAttention: "Intervention requise",
+        canceling: "Arrêt en cours",
+        canceled: "Arrêté",
+        completed: "Terminé",
+        awaitingAcceptance: "En attente de votre validation",
+      },
+    },
+    chooseMode: "Choisir le mode de collaboration",
+    modes: {
+      full: "Parcours complet",
+      execute_review: "Réalisation + vérification",
+    },
+    modeDescriptions: {
+      full: "Conception → réalisation → vérification → votre validation.",
+      execute_review:
+        "Un agent réalise → vérification indépendante → votre validation. Sans étape de conception.",
+    },
+    modeLocked:
+      "Le mode de cette tâche est fixé. Ouvrez une nouvelle conversation pour changer de mode.",
+    continue: "Continuer vers la conversation",
+    configure: "Configurer les agents",
+    launchErrors: {
+      configure: "Enregistrez les paramètres de collaboration avant de continuer.",
+      reviewerRequired:
+        "Choisissez un agent de vérification indépendant dans les paramètres de collaboration.",
+      updateHost: "Mettez à jour l’hôte pour utiliser réalisation + vérification.",
+    },
     categoryOverrides: "Affectations par catégorie",
     taskOverrides: "Affectations par identifiant de tâche",
     addRule: "Ajouter une affectation",

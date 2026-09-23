@@ -8,6 +8,7 @@ import {
   type Profile,
   type Evidence,
   type Plan,
+  type CollaborationMode,
 } from "@getpaseo/protocol/collaboration/schema";
 import { Engine, type AgentGateway, type AgentSnapshot } from "../engine.js";
 import { Store } from "../store.js";
@@ -168,7 +169,7 @@ export class FakeRepository implements Repository {
     };
   }
 }
-export async function harness(overrides = {}) {
+export async function harness(overrides = {}, mode?: CollaborationMode) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), "director-engine-")));
   let store = new Store(join(directory, "db.sqlite"));
   const agents = new FakeAgents(),
@@ -179,6 +180,7 @@ export async function harness(overrides = {}) {
     requestId: "request-1",
     repository: "/repo",
     goal: "实现新功能",
+    mode,
     settings: SettingsSchema.parse({ ...settings(), ...overrides }),
   });
   return {

@@ -3,6 +3,44 @@ import { pluginSettings } from "./plugin-settings";
 
 export const es: TranslationResources = {
   collaboration: {
+    history: {
+      title: "Historial de conversaciones",
+      back: "Volver a la configuración de colaboración",
+      actions: "Acciones de la conversación",
+      expand: "Mostrar detalles",
+      collapse: "Ocultar detalles",
+      progress: "Tareas {{done}}/{{total}}",
+      status: {
+        ready: "Listo",
+        running: "En curso",
+        paused: "En pausa",
+        waitingPermission: "Esperando permiso",
+        needsAttention: "Requiere atención",
+        canceling: "Deteniéndose",
+        canceled: "Detenido",
+        completed: "Completado",
+        awaitingAcceptance: "Esperando tu aceptación",
+      },
+    },
+    chooseMode: "Elegir modo de colaboración",
+    modes: {
+      full: "Flujo completo",
+      execute_review: "Implementación + revisión",
+    },
+    modeDescriptions: {
+      full: "Diseño → implementación → revisión → tu aprobación.",
+      execute_review:
+        "Un agente implementa → revisión independiente → tu aprobación. Sin fase de diseño.",
+    },
+    modeLocked: "El modo de esta tarea está fijado. Inicia otra conversación para cambiarlo.",
+    continue: "Continuar a la conversación",
+    configure: "Configurar agentes",
+    launchErrors: {
+      configure: "Guarda la configuración de colaboración antes de continuar.",
+      reviewerRequired:
+        "Elige un agente de revisión independiente en la configuración de colaboración.",
+      updateHost: "Actualiza el host para usar implementación + revisión.",
+    },
     categoryOverrides: "Asignaciones por categoría",
     taskOverrides: "Asignaciones por ID de tarea",
     addRule: "Añadir asignación",

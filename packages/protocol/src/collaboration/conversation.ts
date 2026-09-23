@@ -1,4 +1,4 @@
-import { awaitingAcceptance, type Run, type Settings } from "./schema.js";
+import { awaitingAcceptance, type CollaborationMode, type Run, type Settings } from "./schema.js";
 
 export interface Confirmation {
   key: string;
@@ -8,6 +8,7 @@ export interface Confirmation {
   planVersion?: number;
 }
 export interface Conversation {
+  mode?: CollaborationMode;
   id: string;
   requestId: string;
   workspaceId: string;
@@ -53,7 +54,7 @@ export interface Conversation {
 }
 export type ConversationSummary = Pick<
   Conversation,
-  "id" | "workspaceId" | "agentId" | "runId" | "state" | "error"
+  "id" | "workspaceId" | "agentId" | "runId" | "state" | "error" | "mode"
 > & {
   title: string;
   run?: Run;

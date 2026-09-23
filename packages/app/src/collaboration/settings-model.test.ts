@@ -1,6 +1,7 @@
 import { test, expect } from "vitest";
 import { SettingsSchema, type Settings } from "@getpaseo/protocol/collaboration/schema";
 import { openCollaborationSettings } from "./settings-model";
+import { openCollaborationLaunch } from "./launch-model";
 
 const profiles = [
   {
@@ -11,6 +12,88 @@ const profiles = [
     featureValues: { effort: "high" },
   },
 ];
+
+test("launch mode survives configuration and retries without starting before explicit continuation", async () => {
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "one", label: "One", provider: "codex/model" }],
+    directorProfileId: "one",
+    workerProfileId: "one",
+  });
+  const model = openCollaborationLaunch({ settings, supportsExecuteReview: true });
+  expect(model.getState().mode).toBe("full");
+  model.selectMode("execute_review");
+  expect(model.getState().blocked).toBe("reviewerRequired");
+  let starts = 0;
+  const launch = async (mode: string) => {
+    starts++;
+    expect(mode).toBe("execute_review");
+  };
+  await model.start(launch);
+  expect(starts).toBe(0);
+  model.applySnapshot({
+    settings: { ...settings, reviewerProfileId: "one" },
+    supportsExecuteReview: true,
+  });
+  expect(model.getState().mode).toBe("execute_review");
+  expect(starts).toBe(0);
+  await model.start(async () => {
+    throw new Error("connection lost");
+  });
+  expect(model.getState().error).toBe("connection lost");
+  await model.start(launch);
+  expect(starts).toBe(1);
+  expect(model.getState().error).toBe("");
+  model.close();
+});
+
+test("older hosts disable lightweight selection and active tasks keep their selected mode", () => {
+  const model = openCollaborationLaunch({ settings: null, supportsExecuteReview: false });
+  model.selectMode("execute_review");
+  expect(model.getState().mode).toBe("full");
+  model.applySnapshot({
+    settings: null,
+    supportsExecuteReview: true,
+    conversation: {
+      id: "chat",
+      title: "Task",
+      workspaceId: "workspace",
+      mode: "execute_review",
+      run: {
+        id: "run",
+        phase: "executing",
+        control: "running",
+        message: "Executing",
+        done: 0,
+        total: 1,
+      },
+    },
+  });
+  expect(model.getState().mode).toBe("execute_review");
+  model.selectMode("full");
+  expect(model.getState().mode).toBe("execute_review");
+  expect(model.getState().locked).toBe(true);
+  model.close();
+});
+
+test("late conversation data restores its mode without overwriting a user's selection", () => {
+  const model = openCollaborationLaunch({ settings: null, supportsExecuteReview: true });
+  const snapshot = {
+    settings: null,
+    supportsExecuteReview: true,
+    conversation: {
+      id: "chat",
+      title: "Task",
+      workspaceId: "workspace",
+      mode: "execute_review" as const,
+    },
+  };
+  model.applySnapshot(snapshot);
+  expect(model.getState().mode).toBe("execute_review");
+  model.selectMode("full");
+  model.applySnapshot(snapshot);
+  expect(model.getState().mode).toBe("full");
+  model.close();
+});
 test("late profiles preserve edits and saved commands keep literal argv", async () => {
   const model = openCollaborationSettings(null, profiles);
   model.set("rolePrompts", { plan: "Read project docs" });

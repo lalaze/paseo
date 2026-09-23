@@ -8,6 +8,9 @@ import {
 } from "@getpaseo/protocol/collaboration/conversation";
 import {
   SettingsSchema,
+  collaborationMode,
+  validateCollaborationMode,
+  type CollaborationMode,
   type ControlAction,
   type Profile,
 } from "@getpaseo/protocol/collaboration/schema";
@@ -94,6 +97,7 @@ export class Conversations {
       run = c.runId ? this.store.get(c.runId) : undefined;
     return {
       id: c.id,
+      mode: collaborationMode(c),
       agentId: c.agentId,
       workspaceId: c.workspaceId,
       runId: c.runId,
@@ -111,6 +115,7 @@ export class Conversations {
     fresh?: boolean;
     conversationId?: string;
     agentId?: string;
+    mode?: CollaborationMode;
   }) {
     if (input.agentId) return this.takeover(input as typeof input & { agentId: string });
     if (input.conversationId) {
@@ -138,7 +143,10 @@ export class Conversations {
       }
       if (!c) {
         const settings = SettingsSchema.parse(this.store.settings());
+        const mode = collaborationMode(input);
+        validateCollaborationMode(mode, settings);
         c = {
+          mode,
           id: `chat-${digest(input.requestId)}`,
           requestId: input.requestId,
           workspaceId: input.workspaceId,
@@ -152,15 +160,24 @@ export class Conversations {
         };
         this.store.saveConversation(c);
       }
+      this.selectMode(c, input.mode);
       return c.id;
     });
     return this.ensureLocked(id);
+  }
+  private selectMode(c: Conversation, mode?: CollaborationMode) {
+    if (!mode || mode === collaborationMode(c)) return;
+    if (c.runId) throw new Error("任务已开始，不能切换协作模式；请新建协作对话");
+    validateCollaborationMode(mode, c.settings);
+    c.mode = mode;
+    this.store.saveConversation(c);
   }
   private async takeover(input: {
     requestId: string;
     workspaceId: string;
     agentId: string;
     goal?: string;
+    mode?: CollaborationMode;
   }) {
     if (!this.gateway.takeoverProfile || !this.gateway.adoptConversation)
       throw new Error("当前接入不支持原地接管");
@@ -176,6 +193,8 @@ export class Conversations {
       if (c && c.workspaceId !== input.workspaceId) throw new Error("会话不属于当前工作区");
       if (!c) {
         const settings = SettingsSchema.parse(this.store.settings());
+        const mode = collaborationMode(input);
+        validateCollaborationMode(mode, settings);
         const lead = settings.profiles.find((p) => p.id === settings.directorProfileId)!;
         let profileId = "current-chat";
         while (settings.profiles.some((p) => p.id === profileId)) profileId += "-";
@@ -191,6 +210,7 @@ export class Conversations {
         });
         settings.directorProfileId = profileId;
         c = {
+          mode,
           id: `chat-${digest(input.requestId)}`,
           requestId: input.requestId,
           workspaceId: input.workspaceId,
@@ -205,6 +225,7 @@ export class Conversations {
         };
         this.store.saveConversation(c);
       }
+      this.selectMode(c, input.mode);
       // Existing main sessions can be adopted too, without changing their identity.
       if (!c.takeover) {
         c.takeover = { messages: [] };
@@ -381,7 +402,9 @@ export class Conversations {
         operation: operation && operation.agentId === c.agentId ? operation : undefined,
         toolsAvailable: true,
         confirmationInstructions:
-          "方案确认请单独回复：批准方案；最终确认请单独回复：验收通过；拒绝成果请单独回复：不采纳成果。",
+          collaborationMode(c) === "execute_review"
+            ? "最终确认请单独回复：验收通过；拒绝成果请单独回复：不采纳成果。"
+            : "方案确认请单独回复：批准方案；最终确认请单独回复：验收通过；拒绝成果请单独回复：不采纳成果。",
       };
     });
   }
@@ -400,6 +423,7 @@ export class Conversations {
         repository: c.cwd,
         goal: input.goal,
         settings: c.settings,
+        mode: collaborationMode(c),
         chat: { version: 1, conversationId: c.id, mainAgentId: c.agentId! },
       });
       c.runId = runId;

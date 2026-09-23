@@ -11,6 +11,104 @@ import {
 import { buildPrompt } from "./prompts.js";
 import { readCollaborationPrompt as readDirectorPrompt } from "@getpaseo/protocol/collaboration/presentation";
 import { harness, plan, result, review, reviewerSettings } from "./test-utils/harness.js";
+import { workflowEvidence } from "./workflow-evidence.js";
+
+test("execute-review skips planning, uses independent sessions and preserves its mode through rework and changes", async (t) => {
+  const h = await harness(
+    {
+      ...reviewerSettings(),
+      reviewerProfileId: "worker",
+      requirePlanApproval: true,
+      categoryOverrides: { implementation: "lead" },
+      taskOverrides: { "task-1": "lead" },
+    },
+    "execute_review",
+  );
+  t.onTestFinished(() => h.cleanup());
+  const execution = await h.until("execute");
+  assert.equal(execution.profileId, "worker");
+  assert.equal(h.run().tasks.length, 1);
+  assert.equal(workflowEvidence(h.run()).planApproval.required, false);
+  assert.equal(workflowEvidence(h.run()).planApproval.userApprovedAt, null);
+  assert.doesNotMatch(execution.prompt, /核对批准/);
+  await h.complete(result);
+  const audit = await h.until("final");
+  assert.equal(audit.profileId, "worker");
+  assert.notEqual(audit.agentId, execution.agentId);
+  await h.complete(review(true, "changes_requested"));
+  const rework = await h.until("execute");
+  assert.equal(rework.agentId, execution.agentId);
+  await h.complete(result);
+  await h.until("final");
+  await h.complete({
+    ...review(true),
+    criteria: finalAcceptance(h.run().plan!).map((criterion) => ({
+      criterion,
+      passed: true,
+      evidence: "实际代码和测试",
+    })),
+  });
+  assert.equal(h.run().phase, "awaiting_acceptance");
+  assert.equal(h.run().userAcceptance, undefined);
+  await h.engine.control(h.id, "request_changes", undefined, {
+    feedback: "增加输入校验",
+    artifactId: h.run().finalEvidence!.id,
+    expectedRevision: h.run().revision,
+  });
+  await h.restart();
+  const changed = await h.until("execute");
+  assert.equal(changed.agentId, execution.agentId);
+  assert.match(changed.prompt, /增加输入校验/);
+  await h.engine.control(h.id, "pause");
+  await h.engine.control(h.id, "revise", "实现新功能并增加输入校验和日志");
+  const revised = await h.until("execute");
+  assert.equal(revised.agentId, execution.agentId);
+  assert.match(revised.prompt, /输入校验和日志/);
+  assert.equal(h.run().mode, "execute_review");
+  assert.equal(
+    h.run().operations.some((op) => op.kind === "plan"),
+    false,
+  );
+  assert.equal(h.run().planApprovedAt, undefined);
+  await h.complete(result);
+  await h.until("final");
+  await h.complete({
+    ...review(true),
+    criteria: finalAcceptance(h.run().plan!).map((criterion) => ({
+      criterion,
+      passed: true,
+      evidence: "已验证更新后的输入校验和日志",
+    })),
+  });
+  const ready = h.run();
+  await h.engine.control(h.id, "accept_final", undefined, {
+    artifactId: ready.finalEvidence!.id,
+    expectedRevision: ready.revision,
+  });
+  assert.equal(h.run().phase, "completed");
+});
+
+test("execute-review rejects missing reviewers before preparing the repository", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  let prepared = false;
+  h.repository.prepare = async () => {
+    prepared = true;
+    throw new Error("must not prepare");
+  };
+  await assert.rejects(
+    h.engine.create({
+      requestId: "light",
+      repository: "/repo",
+      goal: "修复",
+      settings: h.run().settings,
+      mode: "execute_review",
+    }),
+    /独立审核/,
+  );
+  assert.equal(prepared, false);
+  assert.equal(h.store.all().length, 1);
+});
 
 const multiPlan: Plan = {
   ...plan,

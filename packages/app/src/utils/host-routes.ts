@@ -577,6 +577,10 @@ export function buildProjectsSettingsRoute(serverId: string) {
   return `/settings/hosts/${encodeSegment(normalized)}/projects` as const;
 }
 
+export function buildCollaborationHistoryRoute(serverId: string) {
+  return `${buildSettingsHostSectionRoute(serverId, "collaboration")}/history` as const;
+}
+
 export function buildProjectSettingsRoute(serverId: string, projectId: string) {
   if (!serverId.trim() || !projectId.trim()) {
     throw new Error("buildProjectSettingsRoute requires a serverId and projectId");

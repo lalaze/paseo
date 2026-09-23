@@ -1,5 +1,41 @@
 export const en = {
   collaboration: {
+    history: {
+      title: "Conversation history",
+      back: "Back to collaboration settings",
+      actions: "Conversation actions",
+      expand: "Show details",
+      collapse: "Hide details",
+      progress: "Tasks {{done}}/{{total}}",
+      status: {
+        ready: "Ready",
+        running: "In progress",
+        paused: "Paused",
+        waitingPermission: "Waiting for permission",
+        needsAttention: "Needs attention",
+        canceling: "Stopping",
+        canceled: "Stopped",
+        completed: "Completed",
+        awaitingAcceptance: "Awaiting your acceptance",
+      },
+    },
+    chooseMode: "Choose collaboration mode",
+    modes: {
+      full: "Full workflow",
+      execute_review: "Execution + review",
+    },
+    modeDescriptions: {
+      full: "Plan → implement → review → your acceptance.",
+      execute_review: "One implementer → independent review → your acceptance. No planning step.",
+    },
+    modeLocked: "This task’s mode is fixed. Start a new conversation to use another mode.",
+    continue: "Continue to conversation",
+    configure: "Configure agents",
+    launchErrors: {
+      configure: "Save collaboration settings before continuing.",
+      reviewerRequired: "Choose an independent review agent in collaboration settings.",
+      updateHost: "Update the host to use execution + review.",
+    },
     categoryOverrides: "Category assignments",
     taskOverrides: "Task ID assignments",
     addRule: "Add assignment",

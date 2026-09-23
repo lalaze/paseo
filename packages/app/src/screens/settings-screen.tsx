@@ -1,4 +1,5 @@
 import { CollaborationPage } from "@/collaboration/settings-page";
+import { CollaborationHistoryPage } from "@/collaboration/history-page";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
@@ -131,6 +132,7 @@ import {
 } from "@/desktop/hooks/use-enable-built-in-daemon-option";
 import {
   buildSettingsHostSectionRoute,
+  buildCollaborationHistoryRoute,
   buildSettingsSectionRoute,
   type HostSectionSlug,
   type SettingsSectionSlug,
@@ -1105,6 +1107,7 @@ function SettingsSidebar({
   if (view.kind === "host") selectedHostSection = view.section;
   if (view.kind === "project") selectedHostSection = "projects";
   if (view.kind === "plugin") selectedHostSection = "plugins";
+  if (view.kind === "collaboration-history") selectedHostSection = "collaboration";
 
   const sidebarBody = (
     <>
@@ -1242,10 +1245,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
   const localServerId = useLocalDaemonServerId();
   const sortedHosts = useSortedHosts(hosts, localServerId);
   const lastWorkspaceSelection = useLastWorkspaceSelection();
-  const routedSettingsHostServerId =
-    view.kind === "host" || view.kind === "project" || view.kind === "plugin"
-      ? view.serverId
-      : null;
+  const routedSettingsHostServerId = "serverId" in view ? view.serverId : null;
   const [selectedSettingsHostServerId, setSelectedSettingsHostServerId] = useState<string | null>(
     routedSettingsHostServerId ?? lastWorkspaceSelection?.serverId ?? null,
   );
@@ -1260,8 +1260,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
   // The host the four sections scope to: the host on the active view, otherwise
   // the picker choice, otherwise the connected local daemon, otherwise the first host.
   const activeHostServerId = useMemo(() => {
-    if (view.kind === "host" || view.kind === "project" || view.kind === "plugin")
-      return view.serverId;
+    if ("serverId" in view) return view.serverId;
     return resolveActiveHostServerId({
       selectedServerId: selectedSettingsHostServerId,
       localServerId,
@@ -1404,6 +1403,10 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
   const handleSelectHost = useCallback(
     (serverId: string) => {
       setSelectedSettingsHostServerId(serverId);
+      if (view.kind === "collaboration-history") {
+        router.replace(buildCollaborationHistoryRoute(serverId));
+        return;
+      }
       if (view.kind === "project") {
         const target = buildSettingsHostSectionRoute(serverId, "projects");
         if (isCompactLayout) {
@@ -1473,6 +1476,8 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
     Icon: ComponentType<{ size: number; color: string }>;
     titleAccessory?: ReactNode;
   } | null => {
+    if (view.kind === "collaboration-history")
+      return { title: t("collaboration.history.title"), Icon: Bot };
     if (view.kind === "plugin") {
       const screen = installedPlugins
         .find((plugin) => plugin.serverId === view.serverId && plugin.id === view.pluginId)
@@ -1499,7 +1504,15 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
   })();
 
   let content: ReactNode;
-  if (view.kind === "section" && view.section === "layout") {
+  if (view.kind === "collaboration-history") {
+    content = (
+      <CollaborationHistoryPage
+        serverId={view.serverId}
+        onBack={handleBackFromDetail}
+        showBack={!isCompactLayout}
+      />
+    );
+  } else if (view.kind === "section" && view.section === "layout") {
     content = isDesktopApp ? <LayoutSection /> : null;
   } else {
     content = (() => {

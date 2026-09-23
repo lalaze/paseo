@@ -1727,6 +1727,7 @@ export class VoiceAssistantWebSocketServer {
         pluginSourceInstallation: true,
         pluginSourceUpdates: true,
         collaboration: Boolean(this.collaborationService),
+        collaborationExecuteReview: Boolean(this.collaborationService),
         pluginLogs: true,
         // COMPAT(pluginThemes): added in v0.5.0, remove gate after 2027-08-20.
         pluginThemes: true,

@@ -1,6 +1,22 @@
 import { z } from "zod";
 
 export const Id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
+export const CollaborationModeSchema = z.enum(["full", "execute_review"]);
+export type CollaborationMode = z.infer<typeof CollaborationModeSchema>;
+
+export function collaborationMode(value: { mode?: CollaborationMode }): CollaborationMode {
+  // COMPAT(collaborationExecuteReview): added in v0.9.0, remove after 2027-03-23 once stored conversations and runs carry mode.
+  return value.mode ?? "full";
+}
+
+export function requiresPlanApproval(run: Pick<Run, "mode" | "settings">): boolean {
+  return collaborationMode(run) === "full" && run.settings.requirePlanApproval;
+}
+
+export function validateCollaborationMode(mode: CollaborationMode, settings: Settings): void {
+  if (mode === "execute_review" && !settings.reviewerProfileId)
+    throw new Error("执行＋审核模式需要独立审核 Agent，请先在协作设置中指定审核 Agent");
+}
 const Text = z.string().trim().min(1).max(16000);
 export const InstructionTextSchema = z.string().max(8000);
 export const RolePromptsSchema = z.object({
@@ -189,6 +205,7 @@ export type ControlAction =
   | "reject_final"
   | "request_changes";
 export interface Run {
+  mode?: CollaborationMode;
   id: string;
   requestId: string;
   revision: number;
@@ -286,12 +303,13 @@ export function canResumeRun(run: Run): boolean {
 export type RunSummary = Pick<
   Run,
   "id" | "goal" | "cwd" | "phase" | "control" | "message" | "createdAt" | "updatedAt"
-> & { done: number; total: number };
+> & { done: number; total: number; mode?: CollaborationMode };
 export function summarize(run: Run): RunSummary {
   const { id, goal, cwd, phase, control, message, createdAt, updatedAt } = run;
   const waiting = awaitingAcceptance(run);
   return {
     id,
+    mode: collaborationMode(run),
     goal,
     cwd,
     phase: waiting ? "awaiting_acceptance" : phase,

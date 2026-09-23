@@ -3,6 +3,43 @@ import { pluginSettings } from "./plugin-settings";
 
 export const ru: TranslationResources = {
   collaboration: {
+    history: {
+      title: "История бесед",
+      back: "Назад к настройкам совместной работы",
+      actions: "Действия с беседой",
+      expand: "Показать подробности",
+      collapse: "Скрыть подробности",
+      progress: "Задачи {{done}}/{{total}}",
+      status: {
+        ready: "Готово к запуску",
+        running: "В работе",
+        paused: "Приостановлено",
+        waitingPermission: "Ожидание разрешения",
+        needsAttention: "Требуется внимание",
+        canceling: "Остановка",
+        canceled: "Остановлено",
+        completed: "Завершено",
+        awaitingAcceptance: "Ожидание вашей приёмки",
+      },
+    },
+    chooseMode: "Выбрать режим совместной работы",
+    modes: {
+      full: "Полный процесс",
+      execute_review: "Реализация + проверка",
+    },
+    modeDescriptions: {
+      full: "Планирование → реализация → проверка → ваша приёмка.",
+      execute_review:
+        "Один исполнитель → независимая проверка → ваша приёмка. Без этапа планирования.",
+    },
+    modeLocked: "Режим этой задачи зафиксирован. Для другого режима начните новый диалог.",
+    continue: "Перейти к диалогу",
+    configure: "Настроить агентов",
+    launchErrors: {
+      configure: "Сначала сохраните настройки совместной работы.",
+      reviewerRequired: "Выберите независимого агента проверки в настройках совместной работы.",
+      updateHost: "Обновите хост для режима реализации и проверки.",
+    },
     categoryOverrides: "Назначения по категориям",
     taskOverrides: "Назначения по ID задач",
     addRule: "Добавить назначение",

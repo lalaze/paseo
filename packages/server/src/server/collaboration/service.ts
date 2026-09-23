@@ -12,6 +12,8 @@ import {
   ResultSchema,
   ReviewSchema,
   SettingsSchema,
+  CollaborationModeSchema,
+  collaborationMode,
   REVIEWER_ACTOR,
   operationRole,
   summarize,
@@ -30,6 +32,7 @@ const openSchema = z.object({
   agentId: z.string().optional(),
   goal: z.string().max(32000).optional(),
   fresh: z.boolean().optional(),
+  mode: CollaborationModeSchema.optional(),
 });
 const controlSchema = z.object({
   sourceMessageId: z.string(),
@@ -134,6 +137,7 @@ export class CollaborationService {
           return Object.assign(
             {
               id: candidateConversation.id,
+              mode: collaborationMode(candidateConversation),
               requestId: candidateConversation.requestId,
               workspaceId: candidateConversation.workspaceId,
               agentId: candidateConversation.agentId,

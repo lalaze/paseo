@@ -1,16 +1,25 @@
-import { ReviewSchema, type Run } from "@getpaseo/protocol/collaboration/schema";
+import {
+  ReviewSchema,
+  collaborationMode,
+  requiresPlanApproval,
+  type Run,
+} from "@getpaseo/protocol/collaboration/schema";
 
 const timestamp = (value?: number) => (value === undefined ? null : new Date(value).toISOString());
 
 /** Project scheduler-owned checkpoints; never expose prompts, MCP tokens or credentials. */
 export function workflowEvidence(run: Run) {
   const planIndex = run.operations.findLastIndex((op) => op.kind === "plan" && op.state === "done");
-  const operations = run.operations.slice(Math.max(0, planIndex));
+  const startIndex =
+    collaborationMode(run) === "execute_review"
+      ? (run.roundOperationOffset ?? 0)
+      : Math.max(0, planIndex);
+  const operations = run.operations.slice(startIndex);
   const planStartedAt = operations[0]?.createdAt ?? run.createdAt;
   const events = run.events.filter((event) => event.time >= planStartedAt);
   const legacyApproval = events.findLast((event) => event.message === "总纲已批准");
   const userApprovedAt =
-    run.settings.requirePlanApproval && run.planApproved
+    requiresPlanApproval(run) && run.planApproved
       ? (run.planApprovedAt ?? legacyApproval?.time)
       : undefined;
   let timestampSource = "unavailable";
@@ -19,9 +28,11 @@ export function workflowEvidence(run: Run) {
   return {
     source: "Paseo Director 持久化调度记录",
     runId: run.id,
+    mode: collaborationMode(run),
     planVersion: run.planVersion ?? 1,
     planApproval: {
-      required: run.settings.requirePlanApproval,
+      required: requiresPlanApproval(run),
+      applicable: collaborationMode(run) === "full",
       approved: run.planApproved,
       userApprovedAt: timestamp(userApprovedAt),
       timestampSource,

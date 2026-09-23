@@ -3,6 +3,42 @@ import { pluginSettings } from "./plugin-settings";
 
 export const ar: TranslationResources = {
   collaboration: {
+    history: {
+      title: "سجل المحادثات",
+      back: "العودة إلى إعدادات التعاون",
+      actions: "إجراءات المحادثة",
+      expand: "عرض التفاصيل",
+      collapse: "إخفاء التفاصيل",
+      progress: "المهام {{done}}/{{total}}",
+      status: {
+        ready: "جاهز",
+        running: "قيد التنفيذ",
+        paused: "متوقف مؤقتًا",
+        waitingPermission: "بانتظار الإذن",
+        needsAttention: "يتطلب الانتباه",
+        canceling: "جارٍ الإيقاف",
+        canceled: "متوقف",
+        completed: "مكتمل",
+        awaitingAcceptance: "بانتظار قبولك",
+      },
+    },
+    chooseMode: "اختيار وضع التعاون",
+    modes: {
+      full: "سير العمل الكامل",
+      execute_review: "تنفيذ + مراجعة",
+    },
+    modeDescriptions: {
+      full: "تخطيط ← تنفيذ ← مراجعة ← قبولك للنتيجة.",
+      execute_review: "منفذ واحد ← مراجعة مستقلة ← قبولك للنتيجة. دون مرحلة تخطيط.",
+    },
+    modeLocked: "وضع هذه المهمة ثابت. ابدأ محادثة جديدة لاختيار وضع آخر.",
+    continue: "المتابعة إلى المحادثة",
+    configure: "إعداد الوكلاء",
+    launchErrors: {
+      configure: "احفظ إعدادات التعاون أولاً.",
+      reviewerRequired: "اختر وكيل مراجعة مستقلاً في إعدادات التعاون.",
+      updateHost: "حدّث المضيف لاستخدام التنفيذ والمراجعة.",
+    },
     categoryOverrides: "التعيين حسب الفئة",
     taskOverrides: "التعيين حسب معرّف المهمة",
     addRule: "إضافة تعيين",

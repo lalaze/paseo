@@ -11,6 +11,7 @@ import {
   buildSettingsAddHostRoute,
   buildProjectSettingsRoute,
   buildProjectsSettingsRoute,
+  buildCollaborationHistoryRoute,
   decodeFilePathFromPathSegment,
   decodeWorkspaceIdFromPathSegment,
   encodeFilePathForPathSegment,
@@ -185,6 +186,11 @@ describe("workspace route parsing", () => {
 });
 
 describe("projects settings routes", () => {
+  it("gives collaboration history a separate host-scoped route", () => {
+    expect(buildCollaborationHistoryRoute("host a")).toBe(
+      "/settings/hosts/host%20a/collaboration/history",
+    );
+  });
   it("buildSettingsAddHostRoute opens settings with the add-host flag", () => {
     expect(buildSettingsAddHostRoute()).toBe("/settings/general?addHost=1");
   });

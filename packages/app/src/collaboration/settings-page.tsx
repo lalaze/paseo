@@ -1,17 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { useMutation } from "@tanstack/react-query";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { AgentProfile } from "@getpaseo/protocol/agent-profile";
 import type { Settings } from "@getpaseo/protocol/collaboration/schema";
-import type {
-  CollaborationCommand,
-  CollaborationState,
-} from "@getpaseo/protocol/collaboration/rpc";
-import { useFetchQuery } from "@/data/query";
-import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useAgentProfiles } from "@/agent-profiles/internal/use-agent-profiles";
 import { AgentProfilesSection } from "@/agent-profiles/settings/agent-profiles-section";
 import { Button } from "@/components/ui/button";
@@ -21,55 +14,34 @@ import { Switch } from "@/components/ui/switch";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useIsCompactFormFactor } from "@/constants/layout";
-import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { openCollaborationSettings } from "./settings-model";
-import { enableCollaboration } from "./launch";
 
-interface CommandInput {
-  name: CollaborationCommand;
-  input: unknown;
-}
+import { buildCollaborationHistoryRoute } from "@/utils/host-routes";
+import { useCollaboration } from "./use-collaboration";
+import { useCollaborationLaunchStore } from "./launch-store";
+
 type SettingsModel = ReturnType<typeof openCollaborationSettings>;
 type EditorState = ReturnType<SettingsModel["getState"]>;
 type Size = "sm" | "md";
-type Conversation = CollaborationState["conversations"][number];
 
 export function CollaborationPage({ serverId }: { serverId: string }) {
   return <CollaborationHostPage key={serverId} serverId={serverId} />;
 }
 function CollaborationHostPage({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
-  const client = useHostRuntimeClient(serverId);
+  const { client, query, command } = useCollaboration(serverId);
+  const { mutateAsync } = command;
+  const compact = useIsCompactFormFactor();
+  const openHistory = useCallback(() => {
+    router.push(buildCollaborationHistoryRoute(serverId));
+  }, [serverId]);
   const { profiles } = useAgentProfiles(serverId);
-  const params = useLocalSearchParams<{
-    workspaceId?: string;
-    agentId?: string;
-    goal?: string;
-    requestId?: string;
-  }>();
-  const query = useFetchQuery({
-    dataShape: "value",
-    staleTimeMs: 0,
-    queryKey: ["collaboration", serverId],
-    enabled: !!client,
-    queryFn: async () => {
-      if (!client) throw new Error("Host disconnected");
-      return client.collaborationCommand("status");
-    },
-    refetchInterval: 5000,
-  });
-  const {
-    mutate,
-    mutateAsync,
-    isPending,
-    error: commandError,
-  } = useMutation({
-    mutationFn: async ({ name, input }: CommandInput) => {
-      if (!client) throw new Error("Host disconnected");
-      await client.collaborationCommand(name, input);
-      await query.refetch();
-    },
-  });
+  const returningToChat = useCollaborationLaunchStore(
+    (state) => state.configuring && state.request?.serverId === serverId,
+  );
+  const returnToChat = useCallback(async () => {
+    router.back();
+  }, []);
   const retry = useCallback(() => {
     void query.refetch();
   }, [query]);
@@ -79,16 +51,6 @@ function CollaborationHostPage({ serverId }: { serverId: string }) {
     },
     [mutateAsync],
   );
-  const continueSetup = useCallback(async () => {
-    if (params.workspaceId)
-      await enableCollaboration({
-        serverId,
-        workspaceId: params.workspaceId,
-        agentId: params.agentId,
-        goal: params.goal,
-        requestId: params.requestId,
-      });
-  }, [serverId, params.workspaceId, params.agentId, params.goal, params.requestId]);
   if (!client || query.isPending || !profiles) return <CollaborationSpinner />;
   const error = query.error?.message ?? query.data?.error;
   if (error)
@@ -102,115 +64,31 @@ function CollaborationHostPage({ serverId }: { serverId: string }) {
   if (!state) return null;
   return (
     <View style={styles.section}>
+      {returningToChat && (
+        <Button onPress={returnToChat} variant="ghost">
+          {t("collaboration.continue")}
+        </Button>
+      )}
+      <Button
+        variant="outline"
+        size={compact ? "md" : "sm"}
+        onPress={openHistory}
+        testID="collaboration-open-history"
+      >
+        {t("collaboration.history.title")}
+      </Button>
       {state.settings || profiles.some((profile) => profile.model) ? (
         <SettingsEditor
           initial={state.settings}
           profiles={profiles}
           save={save}
-          afterSave={continueSetup}
+          afterSave={returningToChat ? returnToChat : undefined}
         />
       ) : (
         <Text style={styles.text}>{t("collaboration.chooseProfiles")}</Text>
       )}
       <AgentProfilesSection serverId={serverId} />
-      <SettingsSection title={t("collaboration.conversations")}>
-        {commandError && <Text style={styles.error}>{commandError.message}</Text>}
-        {!state.conversations.length && <Text style={styles.text}>{t("collaboration.empty")}</Text>}
-        {state.conversations.map((conversation) => (
-          <ConversationRow
-            key={conversation.id}
-            serverId={serverId}
-            conversation={conversation}
-            pending={isPending}
-            command={mutate}
-          />
-        ))}
-      </SettingsSection>
     </View>
-  );
-}
-function ConversationRow({
-  serverId,
-  conversation,
-  pending,
-  command,
-}: {
-  serverId: string;
-  conversation: Conversation;
-  pending: boolean;
-  command: (input: CommandInput) => void;
-}) {
-  const { t } = useTranslation();
-  const open = useCallback(() => {
-    if (conversation.agentId)
-      navigateToAgent({
-        serverId,
-        workspaceId: conversation.workspaceId,
-        agentId: conversation.agentId,
-      });
-  }, [serverId, conversation]);
-  const resync = useCallback(
-    () => command({ name: "conversation.resync", input: { id: conversation.id } }),
-    [command, conversation.id],
-  );
-  const run = conversation.run;
-  const actions = availableControls(run);
-  return (
-    <View style={styles.section}>
-      <Text style={styles.text}>{conversation.title}</Text>
-      {run && (
-        <Text style={styles.text}>
-          {run.message} · {run.done}/{run.total}
-        </Text>
-      )}
-      {conversation.error && <Text style={styles.error}>{conversation.error}</Text>}
-      <View style={styles.actions}>
-        {conversation.agentId && <Button onPress={open}>{t("collaboration.open")}</Button>}
-        <Button onPress={resync} disabled={pending}>
-          {t("collaboration.resync")}
-        </Button>
-        {run &&
-          actions.map((action) => (
-            <RunAction
-              key={action}
-              action={action}
-              id={run.id}
-              pending={pending}
-              command={command}
-            />
-          ))}
-      </View>
-    </View>
-  );
-}
-function availableControls(run: Conversation["run"]): string[] {
-  if (!run || run.phase === "completed" || run.control === "canceled") return [];
-  if (run.phase === "awaiting_acceptance") return ["cancel"];
-  if (run.control === "paused") return ["resume", "cancel"];
-  if (run.control === "needs_attention") return ["retry", "cancel"];
-  if (run.control === "canceling") return [];
-  return ["pause", "cancel"];
-}
-function RunAction({
-  action,
-  id,
-  pending,
-  command,
-}: {
-  action: string;
-  id: string;
-  pending: boolean;
-  command: (input: CommandInput) => void;
-}) {
-  const { t } = useTranslation();
-  const press = useCallback(
-    () => command({ name: "run.control", input: { id, action } }),
-    [command, id, action],
-  );
-  return (
-    <Button disabled={pending} onPress={press}>
-      {t(`collaboration.${action}`)}
-    </Button>
   );
 }
 function SettingsEditor({
@@ -222,7 +100,7 @@ function SettingsEditor({
   initial: Settings | null;
   profiles: AgentProfile[];
   save: (settings: Settings, base: Settings | null) => Promise<void>;
-  afterSave: () => Promise<void>;
+  afterSave?: () => Promise<void>;
 }) {
   const { t } = useTranslation();
   const size = useIsCompactFormFactor() ? "md" : "sm";
@@ -301,6 +179,7 @@ function RoleField({
   return (
     <SelectField
       size={size}
+      triggerTestID={`collaboration-role-${role}`}
       label={t(`collaboration.${role}`)}
       value={state.settings[role] ?? ""}
       selectedDisplay={selected}

@@ -3587,6 +3587,7 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(pluginSourceUpdates): added in v0.8.0; remove gate after 2027-03-16 once daemon floor supports reviewed updates.
         pluginSourceUpdates: z.boolean().optional(),
         collaboration: z.boolean().optional(),
+        collaborationExecuteReview: z.boolean().optional(),
         // COMPAT(pluginThemes): added in v0.5.0, remove gate after 2027-08-20.
         // A daemon that predates this flag keeps `addTheme` in the server bundle it compiles,
         // so a theme plugin cannot start there at all.

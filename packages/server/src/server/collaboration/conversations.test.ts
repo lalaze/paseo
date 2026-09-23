@@ -16,6 +16,7 @@ import {
   result,
   review,
   harness,
+  reviewerSettings,
 } from "./test-utils/harness.js";
 
 class ChatAgents extends FakeAgents implements ConversationGateway {
@@ -108,6 +109,42 @@ test("blank native conversations don't prepare a branch; duplicate creation is i
   assert.equal(again.agentId, first.agentId);
   assert.equal(h.gateway.mains.size, 1);
   assert.equal((await h.chats.open({ requestId: "open", workspaceId: "workspace" })).id, first.id);
+});
+
+test("visual mode selection persists, starts one direct task, and cannot change an active task", async (t) => {
+  const h = await fixture(t);
+  h.store.saveSettings(reviewerSettings());
+  const input = {
+    requestId: "light",
+    workspaceId: "workspace",
+    fresh: true,
+    mode: "execute_review" as const,
+  };
+  const c = await h.chats.open(input);
+  assert.equal(c.mode, "execute_review");
+  assert.equal(h.store.all().length, 0);
+  assert.equal((await h.chats.open(input)).id, c.id);
+  h.gateway.user(c.agentId!, "goal", "修复输入校验");
+  const start = { sourceMessageId: "goal", goal: "修复输入校验" };
+  const created = await h.chats.start(c.id, start);
+  assert.deepEqual(await h.chats.start(c.id, start), created);
+  const run = h.store.all()[0];
+  assert.equal(run.mode, "execute_review");
+  assert.equal(run.phase, "executing");
+  assert.equal(run.tasks.length, 1);
+  assert.equal(h.store.all().length, 1);
+  await assert.rejects(h.chats.open({ ...input, mode: "full" }), /不能切换/);
+  assert.equal((await h.chats.open(input)).mode, "execute_review");
+});
+
+test("lightweight conversations without an independent reviewer do not create sessions", async (t) => {
+  const h = await fixture(t);
+  await assert.rejects(
+    h.chats.open({ requestId: "light", workspaceId: "workspace", mode: "execute_review" }),
+    /独立审核/,
+  );
+  assert.equal(h.store.conversations().length, 0);
+  assert.equal(h.gateway.mains.size, 0);
 });
 
 test("only the latest real user message can start a task, with retries creating one run", async (t) => {
