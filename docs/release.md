@@ -8,6 +8,18 @@ Use the fork pipeline to distribute the daemon under `@lalaze/paseo-cli`. Build 
 checkout containing only the changes you intend to publish. Choose a new version for every release;
 for example, `0.9.0-beta.2.lalaze.1` identifies our first build from upstream beta 2.
 
+Configure a reusable publishing token once with `bash scripts/setup-fork-npm-token.sh`.
+Create a granular token in the npm account with read/write publishing access to the seven
+`@lalaze/paseo-*` runtime packages and Bypass 2FA enabled. Paste it into the script's hidden
+prompt. The script verifies the account and saves the token outside the checkout at
+`~/.config/paseo/npm-release.npmrc` with owner-only permissions. Publishing reads that file;
+set `PASEO_NPM_USERCONFIG` to use a different file. Renew an expired token with the same script.
+Do not use `npm login` for this flow: its interactive session requires a separate challenge
+for each package. Never commit tokens or include them in release artifacts.
+
+[npm plans to remove direct publishing with bypass-2FA tokens in January 2027](https://docs.npmjs.com/about-access-tokens/).
+Migrate this workflow to trusted or staged publishing before then.
+
 ```bash
 npm run build:server
 npm run build:daemon-web-ui

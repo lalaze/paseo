@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
+
+const userconfig =
+  process.env.PASEO_NPM_USERCONFIG ?? path.join(homedir(), ".config", "paseo", "npm-release.npmrc");
+assert.ok(
+  existsSync(userconfig),
+  "Configure the reusable publishing token with bash scripts/setup-fork-npm-token.sh first.",
+);
+process.env.npm_config_userconfig = userconfig;
 
 const directory = path.resolve(process.argv[2]);
 const release = JSON.parse(await readFile(path.join(directory, "release.json"), "utf8"));
