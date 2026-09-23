@@ -112,6 +112,57 @@ test.afterEach(async () => {
   await workspace?.cleanup();
 });
 
+test("downloads show a compact corner notification that fits narrow windows", async ({
+  page,
+}, testInfo) => {
+  const fileName = "National Anthem of Iraq - compressed-64k.mp3";
+  await writeFile(path.join(workspace.repoPath, fileName), "download notification preview");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  await page
+    .getByTestId("file-explorer-tree-scroll")
+    .getByText(fileName, { exact: true })
+    .click({ button: "right" });
+  const downloaded = page.waitForEvent("download");
+  await page.getByText("Download", { exact: true }).click();
+  const toast = page.getByTestId("download-toast");
+  await expect(toast.getByText("Download complete", { exact: true })).toBeVisible();
+  const bounds = await toast.boundingBox();
+  expect(bounds).toMatchObject({ width: 344, x: 1080 });
+  expect(bounds!.y + bounds!.height).toBe(884);
+  await page.screenshot({ path: testInfo.outputPath("download-desktop.png") });
+  await page.setViewportSize({ width: 360, height: 780 });
+  await expect(toast).toHaveCSS("width", "328px");
+  await page.screenshot({ path: testInfo.outputPath("download-compact.png") });
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toBe(fileName);
+  expect(await download.failure()).toBeNull();
+  await expect(toast).toBeHidden();
+});
+
+test("failed downloads remain readable until dismissed", async ({ page }, testInfo) => {
+  const fileName = "download-error.txt";
+  const filePath = path.join(workspace.repoPath, fileName);
+  await writeFile(filePath, "removed before the download starts");
+  await gotoWorkspace(page, workspace.workspaceId);
+  await openFileExplorer(page);
+  await page
+    .getByTestId("file-explorer-tree-scroll")
+    .getByText(fileName, { exact: true })
+    .click({ button: "right" });
+  await rm(filePath);
+  await page.getByText("Download", { exact: true }).click();
+  const toast = page.getByTestId("download-toast");
+  await expect(toast.getByText(fileName, { exact: true })).toBeVisible();
+  await expect(toast.getByText(/not found|no such file/i)).toBeVisible();
+  await page.waitForTimeout(3500);
+  await expect(toast).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("download-error.png") });
+  await toast.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(toast).toBeHidden();
+});
+
 test("creates, renames, copies, and deletes entries through the file explorer", async ({
   context,
   page,
