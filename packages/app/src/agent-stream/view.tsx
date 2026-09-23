@@ -1,3 +1,4 @@
+import { CollaborationMessage, collaborationMessageSummary } from "@/collaboration/message";
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
@@ -685,6 +686,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     const renderUserMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
+        if (collaborationMessageSummary(item)) return <CollaborationMessage item={item} />;
         return (
           <UserMessage
             serverId={resolvedServerId}

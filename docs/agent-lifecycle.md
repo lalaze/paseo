@@ -2,6 +2,8 @@
 
 How an agent is created, runs, becomes a subagent, gets archived, and disappears from the UI. The model spans the daemon (lifecycle, archive) and the client (tabs, the subagents track).
 
+[Collaboration](collaboration.md) uses this lifecycle for its main conversation and worker/review children.
+
 ## States
 
 ```

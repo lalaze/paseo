@@ -1,3 +1,7 @@
+import {
+  CollaborationStateSchema,
+  type CollaborationCommand,
+} from "@getpaseo/protocol/collaboration/rpc";
 import { subscribeTimeline, type TimelineMessage } from "./timeline-subscription/index.js";
 import { ProviderSnapshotUpdates } from "./provider-snapshots/index.js";
 import {
@@ -5848,6 +5852,16 @@ export class DaemonClient {
       },
       responseType: "schedule/create/response",
     });
+  }
+
+  async collaborationCommand(command: CollaborationCommand, input: unknown = {}) {
+    if (!this.getLastServerInfoMessage()?.features?.collaboration)
+      throw new Error("请更新主机以使用内置协作");
+    const response = await this.sendCorrelatedSessionRequest({
+      message: { type: "collaboration.command.request", command, input },
+      responseType: "collaboration.command.response",
+    });
+    return CollaborationStateSchema.parse(response.state);
   }
 
   async scheduleList(requestId?: string): Promise<ScheduleListPayload> {

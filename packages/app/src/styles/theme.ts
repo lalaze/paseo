@@ -684,6 +684,7 @@ export interface ConversationMaterial {
   textShadow: string;
   toolForeground: string;
   toolExpandedBackground: string;
+  toolDetailBorder: string;
   composerBackground: string;
   chromeBackground: string;
   border: string;
@@ -697,6 +698,7 @@ function conversationMaterial(colors: {
   surface1: string;
   surface3: string;
   borderAccent: string;
+  border: string;
   foregroundMuted: string;
 }): ConversationMaterial {
   return {
@@ -704,6 +706,7 @@ function conversationMaterial(colors: {
     textShadow: "none",
     toolForeground: colors.foregroundMuted,
     toolExpandedBackground: colors.surface1,
+    toolDetailBorder: colors.border,
     composerBackground: colors.surface1,
     chromeBackground: colors.surface0,
     border: colors.borderAccent,

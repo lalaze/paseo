@@ -11,6 +11,8 @@ text shadow instead of a card, border or extra inset. Web blur stays on the boun
 surfaces, never the whole scrolling conversation. Built-in themes retain their original surfaces.
 Tool summaries and command labels over artwork use the same text shadow and foreground as
 replies; expanding a tool group must not introduce a solid heading strip above transparent rows.
+Inline Shell output follows the transparent heading without an enclosing frame. Shell details
+opened in a sheet keep their solid surface. Check both group expansion and individual tool expansion.
 React Navigation's outer screen background must follow `surfaceCanvas` too; setting only
 the stack's `contentStyle` leaves an opaque layer over the artwork.
 The pinned Explorer dock owns its full-height sidebar fill; its content wrapper must stay

@@ -5,7 +5,8 @@ import * as Sharing from "expo-sharing";
 import type { HostProfile } from "@/types/host-connection";
 import { buildDaemonWebSocketUrl } from "@/utils/daemon-endpoints";
 import { openExternalUrl } from "@/utils/open-external-url";
-import { isWeb } from "@/constants/platform";
+import { getIsElectron, isWeb } from "@/constants/platform";
+import { downloadSshFile } from "@/desktop/daemon/file-download";
 import { i18n } from "@/i18n/i18next";
 
 interface DownloadProgress {
@@ -37,6 +38,7 @@ interface DownloadState {
     fileName: string;
     path: string;
     daemonProfile: HostProfile | undefined;
+    activeConnectionId: string | null;
     requestFileDownloadToken: (path: string) => Promise<{
       token: string | null;
       fileName: string | null;
@@ -66,6 +68,7 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
     fileName,
     path,
     daemonProfile,
+    activeConnectionId,
     requestFileDownloadToken,
   }) => {
     const id = generateDownloadId();
@@ -89,12 +92,43 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
         throw new Error(tokenResponse.error ?? i18n.t("downloads.requestTokenFailed"));
       }
 
+      const resolvedFileName = tokenResponse.fileName ?? fileName;
+      const downloadStartTime = Date.now();
+      const reportProgress = (bytesWritten: number, totalBytes: number) => {
+        if (totalBytes <= 0) return;
+        const elapsed = (Date.now() - downloadStartTime) / 1000;
+        const speed = elapsed > 0 ? bytesWritten / elapsed : 0;
+        get().updateProgress(id, {
+          percent: bytesWritten / totalBytes,
+          bytesWritten,
+          totalBytes,
+          speed,
+          eta: speed > 0 ? (totalBytes - bytesWritten) / speed : 0,
+        });
+      };
+      const activeConnection = daemonProfile?.connections.find(
+        (connection) => connection.id === activeConnectionId,
+      );
+      if (getIsElectron() && activeConnection?.type === "remoteSsh") {
+        const result = await downloadSshFile({
+          downloadId: id,
+          connection: activeConnection,
+          token: tokenResponse.token,
+          fileName: resolvedFileName,
+          onProgress: reportProgress,
+        });
+        if (result === "cancelled") {
+          throw new Error(i18n.t("downloads.cancelled"));
+        }
+        get().completeDownload(id);
+        return;
+      }
+
       const downloadTarget = resolveDaemonDownloadTarget(daemonProfile);
       if (!downloadTarget.baseUrl) {
         throw new Error(i18n.t("downloads.hostUnavailable"));
       }
 
-      const resolvedFileName = tokenResponse.fileName ?? fileName;
       const downloadUrl = buildDownloadUrl(
         downloadTarget.baseUrl,
         tokenResponse.token,
@@ -107,7 +141,6 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
         return;
       }
 
-      const downloadStartTime = Date.now();
       const targetFile = resolveDownloadTargetFile(resolvedFileName);
       const downloadResumable = LegacyFileSystem.createDownloadResumable(
         downloadUrl,
@@ -116,26 +149,7 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
           ? { headers: { Authorization: downloadTarget.authHeader } }
           : undefined,
         (data) => {
-          const now = Date.now();
-          const { totalBytesWritten, totalBytesExpectedToWrite } = data;
-
-          if (totalBytesExpectedToWrite <= 0) {
-            return;
-          }
-
-          const percent = totalBytesWritten / totalBytesExpectedToWrite;
-          const elapsed = (now - downloadStartTime) / 1000;
-          const speed = elapsed > 0 ? totalBytesWritten / elapsed : 0;
-          const remaining = totalBytesExpectedToWrite - totalBytesWritten;
-          const eta = speed > 0 ? remaining / speed : 0;
-
-          get().updateProgress(id, {
-            percent,
-            bytesWritten: totalBytesWritten,
-            totalBytes: totalBytesExpectedToWrite,
-            speed,
-            eta,
-          });
+          reportProgress(data.totalBytesWritten, data.totalBytesExpectedToWrite);
         },
       );
 
@@ -156,11 +170,6 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : i18n.t("downloads.failed");
-      if (isWeb) {
-        console.warn("[DownloadStore] Download failed:", message);
-        get().failDownload(id, message);
-        return;
-      }
       get().failDownload(id, message);
     }
   },

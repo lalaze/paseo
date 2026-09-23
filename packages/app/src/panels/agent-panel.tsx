@@ -1,3 +1,4 @@
+import { enableCollaboration } from "@/collaboration/launch";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -1580,6 +1581,10 @@ function ActiveAgentComposer({
 
   const handleClientSlashCommand = useCallback(
     async (command: ClientSlashCommand) => {
+      if (command.kind === "enable-collaboration") {
+        await enableCollaboration({ serverId, workspaceId, agentId, goal: command.args });
+        return;
+      }
       const agent = resolveChatAgentFromSession(useSessionStore.getState(), serverId, agentId);
       if (!agent) {
         throw new Error("Agent not found");

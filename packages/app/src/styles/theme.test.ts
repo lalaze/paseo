@@ -35,6 +35,7 @@ describe("Theme catalog", () => {
         textShadow: "none",
         toolForeground: builtIn.colors.foregroundMuted,
         toolExpandedBackground: builtIn.colors.surface1,
+        toolDetailBorder: builtIn.colors.border,
         borderWidth: 0,
         blur: "none",
       });

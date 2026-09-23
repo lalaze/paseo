@@ -1195,7 +1195,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     borderBottomRightRadius: theme.borderRadius.lg,
     borderWidth: theme.borderWidth[1],
     borderTopWidth: 0,
-    borderColor: theme.colors.border,
+    borderColor: theme.conversation.toolDetailBorder,
     padding: 0,
     gap: 0,
     flexShrink: 1,
@@ -1207,7 +1207,7 @@ const expandableBadgeStylesheet = StyleSheet.create((theme) => ({
     backgroundColor: theme.conversation.toolExpandedBackground,
   },
   pressableExpandedAttached: {
-    borderColor: theme.colors.border,
+    borderColor: theme.conversation.toolDetailBorder,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
   },
@@ -3163,6 +3163,7 @@ export const ToolCall = memo(function ToolCall({
     if (!shouldRenderInline) return null;
     return (
       <ToolCallDetailsContent
+        inline
         toolName={toolName}
         detail={effectiveDetail}
         errorText={presentation.errorText}

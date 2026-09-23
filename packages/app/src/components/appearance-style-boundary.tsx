@@ -37,6 +37,7 @@ export function appearanceStyleBoundaryKey(theme: Theme): string {
     theme.conversation.textShadow,
     theme.conversation.toolForeground,
     theme.conversation.toolExpandedBackground,
+    theme.conversation.toolDetailBorder,
     theme.conversation.userBackground,
     theme.conversation.composerBackground,
     theme.conversation.border,

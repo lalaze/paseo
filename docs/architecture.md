@@ -313,6 +313,11 @@ from one stable file handle. Each transfer awaits completion of its own physical
 reading the next chunk; it is scoped to the requesting physical socket and does not queue unrelated
 messages or transfers.
 
+Desktop SSH downloads use a separate, short-lived SSH tunnel to the existing tokenized HTTP
+download endpoint. The session tunnel accepts one TCP connection, already occupied by its
+WebSocket, so its loopback address cannot serve a second HTTP request. Electron streams the
+download to disk; the download owns its tunnel until completion, cancellation, or failure.
+
 ### Compatibility rules
 
 - WebSocket schemas are append-only. Add fields, do not remove fields, and never make optional fields required.

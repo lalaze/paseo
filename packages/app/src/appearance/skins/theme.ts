@@ -51,6 +51,7 @@ export function buildSkinTheme(skin: SkinMetadata): Theme {
     textShadow: light ? "0 1px 2px rgba(255, 255, 255, 0.65)" : "0 1px 3px rgba(0, 0, 0, 0.8)",
     toolForeground: themed.colors.foreground,
     toolExpandedBackground: "transparent",
+    toolDetailBorder: "transparent",
     composerBackground: translucentSkinColor(panel, light ? 0.9 : 0.74),
     chromeBackground: translucentSkinColor(panel, light ? 0.8 : 0.64),
     border: translucentSkinColor(themed.colors.accentBright, light ? 0.25 : 0.18),

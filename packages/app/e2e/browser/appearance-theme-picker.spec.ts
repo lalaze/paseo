@@ -106,6 +106,27 @@ test("image skins coordinate conversation surfaces", async ({ page }, testInfo) 
       toolGroup.getByTestId("tool-call-badge").last().locator('[dir="auto"]').first(),
     ).toHaveCSS("color", "rgb(243, 234, 215)");
     await toolGroup.screenshot({ path: testInfo.outputPath("skin-tools-expanded.png") });
+    const shell = toolGroup.getByTestId("tool-call-badge").filter({ hasText: "Shell" });
+    const shellHeading = shell.getByRole("button").first();
+    await shellHeading.click();
+    const output = shell.getByText(/\[burst\] tick 1/);
+    await expect(output).toBeVisible();
+    await page.mouse.move(1200, 100);
+    await shell.screenshot({ path: testInfo.outputPath("skin-shell-output.png") });
+    const opaqueOutputLayers = await output.evaluate((text) => {
+      const opaque: string[] = [];
+      let element: Element | null = text;
+      while (element && element.getAttribute("data-testid") !== "tool-call-badge") {
+        const color = getComputedStyle(element).backgroundColor;
+        if (color.startsWith("rgb(") || color.endsWith(", 1)")) opaque.push(color);
+        element = element.parentElement;
+      }
+      return opaque;
+    });
+    expect(opaqueOutputLayers).toEqual([]);
+    await expect(shellHeading).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+    await shellHeading.click();
+    await expect(output).toHaveCount(0);
     await toolHeading.click();
     await openFileExplorer(page);
     await expect(page.getByTestId("workspace-explorer-sidebar")).toHaveCSS(
@@ -146,6 +167,15 @@ test("image skins coordinate conversation surfaces", async ({ page }, testInfo) 
       "background-color",
       /^rgb\(/,
     );
+    const defaultGroup = page.getByTestId("tool-call-group").last();
+    await defaultGroup.getByRole("button").first().click();
+    const defaultShell = defaultGroup.getByTestId("tool-call-badge").filter({ hasText: "Shell" });
+    await defaultShell.getByRole("button").first().click();
+    await expect(defaultShell.getByTestId("shell-output-surface")).toHaveCSS(
+      "background-color",
+      /^rgb\(/,
+    );
+    await expect(defaultShell.getByRole("button").first()).toHaveCSS("border-top-color", /^rgb\(/);
   } finally {
     await agent.cleanup();
   }

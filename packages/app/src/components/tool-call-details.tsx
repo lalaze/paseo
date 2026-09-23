@@ -31,6 +31,7 @@ const ScrollView = isWeb ? RNScrollView : GHScrollView;
 // ---- Content Component ----
 
 interface ToolCallDetailsContentProps {
+  inline?: boolean;
   toolName?: string;
   detail?: ToolCallDetail;
   errorText?: string;
@@ -71,7 +72,9 @@ function useDetailStyles(
   detail: ToolCallDetail | undefined,
   resolvedMaxHeight: number | undefined,
   fillAvailableHeight: boolean,
+  inline: boolean,
 ): DetailStyles {
+  const inlineShell = inline && detail?.type === "shell";
   const isFullBleed = resolveIsFullBleed(detail);
   const shouldFill = resolveShouldFill(detail, fillAvailableHeight);
   const codeBlockStyle = isFullBleed ? styles.fullBleedBlock : styles.diffContainer;
@@ -81,8 +84,8 @@ function useDetailStyles(
     [shouldFill],
   );
   const codeBlockFillStyle = useMemo(
-    () => [codeBlockStyle, shouldFill && styles.fillHeight],
-    [codeBlockStyle, shouldFill],
+    () => [codeBlockStyle, inlineShell && styles.inlineShellBlock, shouldFill && styles.fillHeight],
+    [codeBlockStyle, inlineShell, shouldFill],
   );
   const codeVerticalScrollStyle = useMemo(
     () => [
@@ -159,7 +162,7 @@ function ShellDetailSection({ command, output, ds }: ShellDetailProps) {
   const hasOutput = commandOutput.length > 0;
   return (
     <View style={ds.sectionFillStyle}>
-      <View style={ds.codeBlockFillStyle}>
+      <View style={ds.codeBlockFillStyle} testID="shell-output-surface">
         <ScrollView
           style={ds.codeVerticalScrollStyle}
           contentContainerStyle={styles.codeVerticalContent}
@@ -781,6 +784,7 @@ function LoadingSkeleton({ containerStyle }: { containerStyle: StyleProp<ViewSty
 }
 
 export function ToolCallDetailsContent({
+  inline = false,
   toolName,
   detail,
   errorText,
@@ -790,7 +794,7 @@ export function ToolCallDetailsContent({
 }: ToolCallDetailsContentProps) {
   const { t } = useTranslation();
   const resolvedMaxHeight = fillAvailableHeight ? undefined : (maxHeight ?? 300);
-  const ds = useDetailStyles(detail, resolvedMaxHeight, fillAvailableHeight);
+  const ds = useDetailStyles(detail, resolvedMaxHeight, fillAvailableHeight, inline);
   const diffLines = useDiffLines(detail);
 
   const sections: ReactNode[] = buildDetailSections(toolName, detail, diffLines, ds, t);
@@ -914,6 +918,9 @@ const styles = StyleSheet.create((theme) => {
       borderRadius: 0,
       overflow: "hidden",
       backgroundColor: theme.colors.surface1,
+    },
+    inlineShellBlock: {
+      backgroundColor: theme.conversation.toolExpandedBackground,
     },
     codeVerticalScroll: {},
     codeVerticalContent: {

@@ -1,3 +1,6 @@
+import { CHAT_TOOLS } from "./collaboration/gateway.js";
+import { CollaborationService } from "./collaboration/service.js";
+import { isPaseoToolEnabled } from "./agent/paseo-tool-policy.js";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
 import { createServer as createHTTPServer, type IncomingMessage, type ServerResponse } from "http";
@@ -606,9 +609,14 @@ export async function createPaseoDaemon(
   });
   const browserToolsPolicy = new DaemonConfigBrowserToolsPolicy(daemonConfigStore);
   const browserToolsBroker = new BrowserToolsBroker({});
+  let collaborationService: CollaborationService | undefined;
   const pluginRuntime = new PluginService(logger, daemonConfigStore, daemonVersion, {
     managedSources: new ManagedPluginSources(config.paseoHome),
     settingsDirectory: path.join(config.paseoHome, "plugin-settings"),
+    beforeStart: (pluginId) => {
+      if (pluginId === "paseo-director" && collaborationService?.isActive())
+        throw new Error("内置协作已在运行，不能同时启动旧 Director 插件");
+    },
   });
 
   const serverId = getOrCreateServerId(config.paseoHome, { logger });
@@ -1359,6 +1367,39 @@ export async function createPaseoDaemon(
   );
   logger.info({ elapsed: elapsed() }, "Preparing voice and MCP runtime");
 
+  collaborationService = new CollaborationService(
+    {
+      agentManager,
+      agentStorage,
+      workspaceRegistry,
+      createAgent,
+      logger,
+      ensureWorkspace: (cwd) => ensureWorkspaceForCreateAndBroadcastExternal(cwd),
+      emitWorkspace: (id) => emitWorkspaceUpdatesExternal([id]),
+      assertToolsEnabled: (agentId, required = CHAT_TOOLS) => {
+        const mcp = daemonConfigStore.get().mcp;
+        if (
+          mcp?.enabled === false ||
+          mcp?.injectIntoAgents === false ||
+          !required.every((tool) =>
+            isPaseoToolEnabled(agentManager.getPaseoToolPolicy(agentId), tool),
+          )
+        ) {
+          throw new Error("请先启用此供应商的 Paseo 工具，再启用协作");
+        }
+      },
+    },
+    config.paseoHome,
+    () => {
+      const settings = daemonConfigStore.get();
+      return (
+        settings.pluginsEnabled === true &&
+        !!settings.plugins?.["paseo-director"] &&
+        settings.plugins["paseo-director"].enabled !== false
+      );
+    },
+  );
+
   const createAgentToolHostDependencies = (
     runtime: PaseoToolRuntimeContext,
   ): PaseoToolHostDependencies => ({
@@ -1367,6 +1408,7 @@ export async function createPaseoDaemon(
     terminalManager,
     getDaemonTcpPort: () => (boundListenTarget?.type === "tcp" ? boundListenTarget.port : null),
     scheduleService,
+    collaborationService,
     providerSnapshotManager,
     daemonConfigStore,
     github,
@@ -1717,9 +1759,11 @@ export async function createPaseoDaemon(
               pluginRuntime,
               orchestrationSkills,
               workspaceLabelService,
+              collaborationService,
             );
             pluginRuntime.bindPaseoSessionHost(wsServer);
             await pluginRuntime.start();
+            collaborationService?.restore();
             wsServer.beginAcceptingConnections();
             relayRuntime = createRelayRuntime({
               config: {
@@ -1783,6 +1827,7 @@ export async function createPaseoDaemon(
     scriptHealthMonitor.stop();
     // Freeze both ingress and registration before taking the agent closure snapshot.
     wsServer?.prepareForShutdown();
+    await collaborationService?.close();
     agentManager.prepareForShutdown();
     await closeAllAgents(logger, agentManager);
     await agentManager.flushForShutdown().catch(() => undefined);

@@ -66,6 +66,7 @@ describe("resolveClientSlashCommand", () => {
         command.execution,
       ]),
     ).toEqual([
+      ["director", [], "insert"],
       ["exit", ["quit", "q"], "immediate"],
       ["clear", ["new"], "immediate"],
     ]);
@@ -93,6 +94,23 @@ describe("resolveClientSlashCommand", () => {
       name: "clear",
       kind: "replace-agent-with-draft",
     });
+  });
+
+  it("enables collaboration with an optional goal only for a submitted command", () => {
+    expect(resolveClientSlashCommand({ text: "/director", hasAttachments: false })).toMatchObject({
+      kind: "enable-collaboration",
+      args: undefined,
+    });
+    expect(
+      resolveClientSlashCommand({
+        text: "/director 修复登录\n保留现有样式",
+        hasAttachments: false,
+      }),
+    ).toMatchObject({ kind: "enable-collaboration", args: "修复登录\n保留现有样式" });
+    expect(
+      resolveClientSlashCommand({ text: "/director-example", hasAttachments: false }),
+    ).toBeNull();
+    expect(resolveClientSlashCommand({ text: "/director", hasAttachments: true })).toBeNull();
   });
 
   it("leaves provider commands, arguments, ordinary messages, and attachment submits alone", () => {

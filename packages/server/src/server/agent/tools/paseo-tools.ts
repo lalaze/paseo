@@ -1,3 +1,4 @@
+import type { CollaborationService } from "../../collaboration/service.js";
 import { z } from "zod";
 import { ensureValidJson } from "../../json-utils.js";
 import type { Logger } from "pino";
@@ -96,6 +97,7 @@ import type { ProviderPaseoToolsPolicy } from "@getpaseo/protocol/provider-confi
 import { isPaseoToolEnabled } from "../paseo-tool-policy.js";
 
 export interface PaseoToolHostDependencies {
+  collaborationService?: CollaborationService;
   agentManager: AgentManager;
   agentStorage: AgentStorage;
   terminalManager?: TerminalManager | null;
@@ -3159,6 +3161,11 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
     },
   );
 
+  if (callerAgentId && options.collaborationService) {
+    for (const tool of options.collaborationService.tools(callerAgentId)) {
+      registerTool(tool.name, tool, tool.handler);
+    }
+  }
   return toCatalog();
 }
 

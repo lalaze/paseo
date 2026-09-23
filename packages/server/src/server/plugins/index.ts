@@ -47,6 +47,7 @@ interface PluginRuntimePort {
 }
 
 interface PluginServiceDependencies {
+  beforeStart?: (pluginId: string) => void;
   settingsDirectory?: string;
   runtime?: PluginRuntimePort;
   managedSources?: ManagedPluginSources;
@@ -478,6 +479,7 @@ export class PluginService {
   }
 
   private async startPlugin(pluginId: string, sourcePath: string): Promise<void> {
+    this.dependencies.beforeStart?.(pluginId);
     await this.runtime.startPlugin(pluginId, sourcePath, () => this.canPublish(pluginId));
     try {
       await this.publishProviderRegistrations(pluginId, sourcePath);

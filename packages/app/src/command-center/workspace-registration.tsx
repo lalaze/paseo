@@ -1,3 +1,4 @@
+import { useCollaborationCommands } from "@/collaboration/command-center";
 import { useCallback, useMemo, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -177,6 +178,7 @@ export function useWorkspaceCommandCenterActions(): void {
     ? collectAllTabs(layout.root).filter((tab) => focusedPane?.tabIds.includes(tab.tabId))
     : [];
   const activeTabIndex = focusedTabs.findIndex((tab) => tab.tabId === focusedPane?.focusedTabId);
+  useCollaborationCommands(serverId, workspaceId, focusedTabs[activeTabIndex]);
   const activeTabKind =
     activeTabIndex >= 0 ? (focusedTabs[activeTabIndex]?.target.kind ?? null) : null;
   // One narrow projection for the workspace management contribution fields. The registry's snapshot

@@ -138,6 +138,7 @@ describe("Dream Skin package import", () => {
     expect(adapted.colors.foreground).toBe("#112233");
     expect(adapted.conversation.toolForeground).toBe("#112233");
     expect(adapted.conversation.toolExpandedBackground).toBe("transparent");
+    expect(adapted.conversation.toolDetailBorder).toBe("transparent");
     expect(adapted.colors.popover).toBe("#f0eee6");
   });
 
