@@ -24,6 +24,18 @@ test("image skins coordinate conversation surfaces", async ({ page }, testInfo) 
   try {
     await page.goto("/settings");
     await openSettingsSection(page, "appearance");
+    const artwork = await page.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 600;
+      canvas.height = 400;
+      const context = canvas.getContext("2d")!;
+      const gradient = context.createLinearGradient(0, 0, 600, 400);
+      gradient.addColorStop(0, "#1d4ed8");
+      gradient.addColorStop(1, "#c084fc");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 600, 400);
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
     const buffer = process.env.PASEO_SKIN_QA_ZIP
       ? await readFile(process.env.PASEO_SKIN_QA_ZIP)
       : Buffer.from(
@@ -47,10 +59,7 @@ test("image skins coordinate conversation surfaces", async ({ page }, testInfo) 
                 },
               }),
             ),
-            "background.png": Buffer.from(
-              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG1sAAAAASUVORK5CYII=",
-              "base64",
-            ),
+            "background.png": Buffer.from(artwork, "base64"),
           }),
         );
     await page
@@ -61,6 +70,21 @@ test("image skins coordinate conversation surfaces", async ({ page }, testInfo) 
     await openAgentRoute(page, agent);
     await expect(page.getByTestId("assistant-message").first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("message-input-root")).toBeVisible();
+    const tabsRow = page.getByTestId("workspace-pane-main").getByTestId("workspace-tabs-row");
+    await expect(tabsRow).toBeVisible();
+    const opaqueTabLayers = await tabsRow.evaluate((row) => {
+      const opaque: string[] = [];
+      let element: Element | null = row;
+      while (element && element !== document.body) {
+        const color = getComputedStyle(element).backgroundColor;
+        if (color.startsWith("rgb(") || color.endsWith(", 1)")) {
+          opaque.push(`${element.getAttribute("data-testid") ?? element.className}: ${color}`);
+        }
+        element = element.parentElement;
+      }
+      return opaque;
+    });
+    expect(opaqueTabLayers).toEqual([]);
     await expect(page.getByText("Updating messages", { exact: true })).toHaveCount(0);
     await expect(page.getByTestId("assistant-message-surface")).toHaveCount(0);
     await expect(page.getByTestId("assistant-message").first()).toHaveCSS(
@@ -161,6 +185,7 @@ test("image skins coordinate conversation surfaces", async ({ page }, testInfo) 
     await openAgentRoute(page, agent);
     await expect(page.getByTestId("skin-background")).toHaveCount(0);
     await expect(page.getByTestId("assistant-message").first()).toHaveCSS("text-shadow", "none");
+    await expect(tabsRow).toHaveCSS("background-color", /^rgb\(/);
     await expect(page.getByTestId("message-input-surface")).toHaveCSS("backdrop-filter", "none");
     await openFileExplorer(page);
     await expect(page.getByTestId("workspace-explorer-sidebar")).toHaveCSS(
