@@ -7,6 +7,7 @@ import {
   buildProjectsSettingsRoute,
   buildSettingsHostSectionRoute,
   buildSettingsRoute,
+  buildSettingsSectionRoute,
   type HostSectionSlug,
   type SettingsSectionSlug,
 } from "@/utils/host-routes";
@@ -15,6 +16,7 @@ export type SettingsView =
   | { kind: "collaboration-history"; serverId: string }
   | { kind: "plugin"; serverId: string; pluginId: string; screenId: string }
   | { kind: "root" }
+  | { kind: "wallpapers" }
   | { kind: "section"; section: SettingsSectionSlug }
   | { kind: "host"; serverId: string; section: HostSectionSlug }
   | { kind: "project"; serverId: string; projectId: string };
@@ -46,6 +48,7 @@ export function returnFromSettings(view: SettingsView): void {
   }
 
   let parent: Href = buildSettingsRoute();
+  if (view.kind === "wallpapers") parent = buildSettingsSectionRoute("appearance");
   if (view.kind === "collaboration-history")
     parent = buildSettingsHostSectionRoute(view.serverId, "collaboration");
   if (view.kind === "plugin") parent = buildSettingsHostSectionRoute(view.serverId, "plugins");

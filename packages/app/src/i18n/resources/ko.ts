@@ -2272,7 +2272,8 @@ export const ko: TranslationResources = {
     },
     appearance: {
       bing: {
-        archive: "배경화면 보관함",
+        archive: "배경화면 라이브러리",
+        back: "모양 설정으로 돌아가기",
         archiveDescription:
           "업데이트된 이미지를 이 기기에 저장합니다. 앱 또는 사이트 데이터를 지우면 보관함도 삭제됩니다.",
         empty: "저장된 배경화면이 없습니다.",

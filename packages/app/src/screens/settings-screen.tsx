@@ -52,6 +52,7 @@ import { HostStatusDot } from "@/components/host-status-dot";
 import { ScreenTitle } from "@/components/headers/screen-title";
 import { HeaderIconBadge } from "@/components/headers/header-icon-badge";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
+import { WallpaperLibraryPage } from "@/appearance/bing/library-page";
 import { AppearanceSection } from "@/screens/settings/appearance/appearance-section";
 import { LayoutSection } from "@/screens/settings/layout/layout-section";
 import {
@@ -1102,7 +1103,8 @@ function SettingsSidebar({
     () => [{ flex: 1 }, isDesktop ? { paddingTop: insets.top } : null],
     [insets.top, isDesktop],
   );
-  const selectedSectionId = view.kind === "section" ? view.section : null;
+  let selectedSectionId = view.kind === "section" ? view.section : null;
+  if (view.kind === "wallpapers") selectedSectionId = "appearance";
   let selectedHostSection: HostSectionSlug | null = null;
   if (view.kind === "host") selectedHostSection = view.section;
   if (view.kind === "project") selectedHostSection = "projects";
@@ -1476,6 +1478,8 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
     Icon: ComponentType<{ size: number; color: string }>;
     titleAccessory?: ReactNode;
   } | null => {
+    if (view.kind === "wallpapers")
+      return { title: t("settings.appearance.bing.archive"), Icon: Palette };
     if (view.kind === "collaboration-history")
       return { title: t("collaboration.history.title"), Icon: Bot };
     if (view.kind === "plugin") {
@@ -1512,6 +1516,8 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
         showBack={!isCompactLayout}
       />
     );
+  } else if (view.kind === "wallpapers") {
+    content = <WallpaperLibraryPage onBack={handleBackFromDetail} showBack={!isCompactLayout} />;
   } else if (view.kind === "section" && view.section === "layout") {
     content = isDesktopApp ? <LayoutSection /> : null;
   } else {

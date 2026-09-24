@@ -2261,7 +2261,8 @@ export const ar: TranslationResources = {
     },
     appearance: {
       bing: {
-        archive: "أرشيف الخلفيات",
+        archive: "مكتبة الخلفيات",
+        back: "العودة إلى المظهر",
         archiveDescription:
           "تُحفظ الصور على هذا الجهاز عند تحديثها. يؤدي مسح بيانات التطبيق أو الموقع إلى حذف الأرشيف.",
         empty: "لا توجد خلفيات مؤرشفة بعد.",

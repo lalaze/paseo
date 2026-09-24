@@ -2237,7 +2237,8 @@ export const zhCN: TranslationResources = {
     },
     appearance: {
       bing: {
-        archive: "壁纸归档",
+        archive: "壁纸库",
+        back: "返回外观设置",
         archiveDescription: "更新时自动保存图片到当前设备。清除应用或网站数据会删除归档。",
         empty: "还没有归档壁纸。",
         apply: "使用 {{name}}",

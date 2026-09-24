@@ -2283,7 +2283,8 @@ export const ja: TranslationResources = {
     },
     appearance: {
       bing: {
-        archive: "壁紙アーカイブ",
+        archive: "壁紙ライブラリ",
+        back: "外観設定に戻る",
         archiveDescription:
           "更新時に画像をこの端末に保存します。アプリやサイトのデータを消去するとアーカイブも削除されます。",
         empty: "保存された壁紙はありません。",

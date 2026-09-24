@@ -479,6 +479,12 @@ test("Bing daily wallpaper is separate from image skins and survives reload", as
       { timeout: 30_000 },
     )
     .toBeGreaterThan(0);
+  await expect(page.getByTestId("bing-archive-card")).toHaveCount(0);
+  await page.getByTestId("wallpaper-library-link").click();
+  await expect(page).toHaveURL(/\/settings\/wallpapers$/);
+  await expect(
+    page.getByTestId("settings-detail-header-title").filter({ visible: true }),
+  ).toHaveText("Wallpaper library");
   const archiveCard = page.getByTestId("bing-archive-card");
   await expect(archiveCard).toHaveCount(1);
   const preview = archiveCard.getByTestId("bing-archive-preview");
@@ -489,26 +495,45 @@ test("Bing daily wallpaper is separate from image skins and survives reload", as
   try {
     await archiveCard.getByRole("button", { name: /^Apply / }).click();
     await expect(
-      page.getByText("Fixed wallpaper · new daily images will still be archived", { exact: true }),
+      page
+        .getByText("Fixed wallpaper · new daily images will still be archived", { exact: true })
+        .filter({ visible: true }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "Back to Appearance", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/appearance$/);
     await toggle.click();
     await expect(toggle).not.toBeChecked();
+    await page.getByTestId("wallpaper-library-link").click();
     await archiveCard.getByRole("button", { name: /^Apply / }).click();
-    await expect(toggle).toBeChecked();
+    await expect(
+      page
+        .getByText("Fixed wallpaper · new daily images will still be archived", { exact: true })
+        .filter({ visible: true }),
+    ).toBeVisible();
     await expect(background.locator("img")).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
   } finally {
     await page.context().setOffline(false);
   }
   await page.reload();
-  await expect(toggle).toBeChecked();
   await expect(
-    page.getByText("Fixed wallpaper · new daily images will still be archived", { exact: true }),
+    page
+      .getByText("Fixed wallpaper · new daily images will still be archived", { exact: true })
+      .filter({ visible: true }),
   ).toBeVisible();
   await expect(archiveCard).toHaveCount(1);
   await expect(background.locator("img")).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
   await page.getByRole("button", { name: "Resume daily updates", exact: true }).click();
-  await expect(page.getByText("Daily updates", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Daily updates", { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("bing-wallpaper-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(preview).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("bing-wallpaper-compact.png") });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "Back to Appearance", exact: true }).click();
+  await expect(toggle).toBeChecked();
+  await expect(page.getByTestId("bing-archive-card")).toHaveCount(0);
   await expect(page.getByLabel("Theme: System", { exact: true })).toBeVisible();
   const workspace = await seedWorkspace({ repoPrefix: "bing-wallpaper-", title: "Bing wallpaper" });
   try {

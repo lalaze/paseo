@@ -2316,7 +2316,8 @@ export const es: TranslationResources = {
     },
     appearance: {
       bing: {
-        archive: "Archivo de fondos",
+        archive: "Biblioteca de fondos",
+        back: "Volver a Apariencia",
         archiveDescription:
           "Las imágenes se guardan en este dispositivo al actualizarse. Borrar los datos de la aplicación o del sitio elimina el archivo.",
         empty: "Aún no hay fondos archivados.",

@@ -2321,7 +2321,8 @@ export const fr: TranslationResources = {
     },
     appearance: {
       bing: {
-        archive: "Archives des fonds d’écran",
+        archive: "Bibliothèque de fonds d’écran",
+        back: "Retour à Apparence",
         archiveDescription:
           "Les images sont enregistrées sur cet appareil à chaque mise à jour. Effacer les données de l’application ou du site supprime les archives.",
         empty: "Aucun fond d’écran archivé.",

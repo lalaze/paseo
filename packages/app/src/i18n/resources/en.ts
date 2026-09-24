@@ -2382,7 +2382,8 @@ export const en = {
     },
     appearance: {
       bing: {
-        archive: "Wallpaper archive",
+        archive: "Wallpaper library",
+        back: "Back to Appearance",
         archiveDescription:
           "Images are saved on this device as they update. Clearing app or site data removes the archive.",
         empty: "No archived wallpapers yet.",

@@ -2299,7 +2299,8 @@ export const ptBR: TranslationResources = {
     },
     appearance: {
       bing: {
-        archive: "Arquivo de papéis de parede",
+        archive: "Biblioteca de papéis de parede",
+        back: "Voltar para Aparência",
         archiveDescription:
           "As imagens são salvas neste dispositivo a cada atualização. Limpar os dados do aplicativo ou site remove o arquivo.",
         empty: "Nenhum papel de parede arquivado.",
