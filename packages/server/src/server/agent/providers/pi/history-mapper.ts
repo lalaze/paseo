@@ -139,12 +139,17 @@ export class PiHistoryMapper {
     this.assistantIndex += 1;
     const messageId =
       message.responseId || `${this.provider}-history-assistant-${this.assistantIndex}`;
-    for (const content of message.content) {
+    for (const [contentIndex, content] of message.content.entries()) {
       if (content.type === "text" && content.text) {
         events.push({
           type: "timeline",
           provider: this.provider,
-          item: { type: "assistant_message", text: content.text, messageId },
+          item: {
+            type: "assistant_message",
+            text: content.text,
+            messageId,
+            blockId: `${messageId}:${contentIndex}`,
+          },
         });
         continue;
       }
@@ -152,7 +157,11 @@ export class PiHistoryMapper {
         events.push({
           type: "timeline",
           provider: this.provider,
-          item: { type: "reasoning", text: content.thinking },
+          item: {
+            type: "reasoning",
+            text: content.thinking,
+            blockId: `${messageId}:${contentIndex}`,
+          },
         });
         continue;
       }

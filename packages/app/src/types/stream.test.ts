@@ -9,6 +9,7 @@ import {
   hydrateStreamState,
   mergeToolCallDetail,
   reduceStreamUpdate,
+  replaceWithCanonicalStream,
   streamTimelineItemIdentity,
   type AgentToolCallItem,
   type StreamItem,
@@ -22,6 +23,91 @@ import { buildToolCallDisplayModel } from "@getpaseo/protocol/tool-call-display"
 import { timelineItemIdentity } from "@getpaseo/protocol/timeline-identity";
 
 type CanonicalToolStatus = "running" | "completed" | "failed" | "canceled";
+
+it("retains newer thinking in its identified block when a canonical snapshot arrives", () => {
+  const canonical = hydrateStreamState([
+    {
+      event: {
+        type: "timeline",
+        provider: "pi",
+        item: { type: "reasoning", text: "Think", blockId: "response:0" },
+      },
+      timestamp: new Date(1),
+      timelineCursor: { epoch: "epoch", seq: 1 },
+    },
+  ]);
+  const live = hydrateStreamState([
+    {
+      event: {
+        type: "timeline",
+        provider: "pi",
+        item: { type: "reasoning", text: "Think.\n", blockId: "response:0" },
+      },
+      timestamp: new Date(2),
+      timelineCursor: { epoch: "epoch", seq: 2 },
+    },
+  ]);
+  const result = replaceWithCanonicalStream({
+    canonical,
+    previousTail: [],
+    previousHead: live,
+    sendingClientMessageIds: [],
+    preserveContinuity: true,
+    canonicalCoverage: { epoch: "epoch", endSeq: 1 },
+  });
+  expect([...result.tail, ...result.head]).toMatchObject([
+    { blockId: "response:0", text: "Think.\n" },
+  ]);
+  expect([...result.tail, ...result.head]).toHaveLength(1);
+});
+
+it("updates interleaved text blocks in place during streaming and canonical catch-up", () => {
+  const items: Extract<AgentStreamEventPayload, { type: "timeline" }>["item"][] = [
+    { type: "reasoning", text: "Respond in Chinese", blockId: "response:0" },
+    { type: "assistant_message", text: "莫", messageId: "response", blockId: "response:1" },
+    { type: "reasoning", text: ".\n", blockId: "response:0" },
+    { type: "assistant_message", text: "西莫西！", messageId: "response", blockId: "response:1" },
+  ];
+  let tail: StreamItem[] = [];
+  let head: StreamItem[] = [];
+  for (const [index, item] of items.entries()) {
+    ({ tail, head } = applyStreamEvent({
+      tail,
+      head,
+      event: { type: "timeline", provider: "pi", turnId: "turn", item },
+      timestamp: new Date(index),
+      timelineCursor: { epoch: "epoch", seq: index + 1 },
+    }));
+  }
+  expect([...tail, ...head].map((item) => item.kind)).toEqual(["thought", "assistant_message"]);
+  expect([...tail, ...head]).toMatchObject([
+    { text: "Respond in Chinese.\n", blockId: "response:0" },
+    { text: "莫西莫西！", blockId: "response:1" },
+  ]);
+  const ids = [...tail, ...head].map((item) => item.id);
+  ({ tail, head } = applyStreamEvent({
+    tail,
+    head,
+    source: "canonical",
+    timestamp: new Date(5),
+    event: {
+      type: "timeline",
+      provider: "pi",
+      turnId: "turn",
+      item: { type: "reasoning", text: "Respond in Chinese.\n", blockId: "response:0" },
+    },
+    timelineCursor: { epoch: "epoch", seq: 3 },
+  }));
+  ({ tail, head } = applyStreamEvent({
+    tail,
+    head,
+    timestamp: new Date(6),
+    event: { type: "turn_completed", provider: "pi", turnId: "turn" },
+  }));
+  expect(tail.map((item) => item.id)).toEqual(ids);
+  expect(tail[0]).toMatchObject({ text: "Respond in Chinese.\n", status: "ready" });
+  expect(head).toEqual([]);
+});
 
 it("updates a resolved Claude plan at its proposal position across a follow-up", () => {
   const proposal = {

@@ -3,6 +3,7 @@ import type { AgentStreamEventPayload } from "@getpaseo/protocol/messages";
 import type { AgentTimelineItem, ToolCallDetail } from "@getpaseo/protocol/agent-types";
 import {
   createUserMessage,
+  applyStreamEvent,
   hydrateStreamState,
   type AgentToolCallItem,
   type StreamItem,
@@ -329,6 +330,109 @@ const baseStreamInput: ProcessAgentStreamEventInput = {
 // ---------------------------------------------------------------------------
 
 describe("processTimelineResponse", () => {
+  it("keeps adjacent identified assistant blocks separate when paging older history", () => {
+    const current: StreamItem = {
+      kind: "assistant_message",
+      id: "assistant_message/response:2",
+      messageId: "response",
+      blockId: "response:2",
+      text: "Second block",
+      timestamp: new Date(2),
+      timelineCursor: { epoch: "epoch-1", seq: 2 },
+    };
+    const result = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail: [current],
+      currentCursor: { epoch: "epoch-1", startSeq: 2, endSeq: 2 },
+      payload: {
+        ...baseTimelineInput.payload,
+        direction: "before",
+        window: { minSeq: 1, maxSeq: 2, nextSeq: 3 },
+        startCursor: { seq: 1 },
+        endCursor: { seq: 1 },
+        hasNewer: true,
+        entries: [
+          {
+            seqStart: 1,
+            seqEnd: 1,
+            provider: "pi",
+            timestamp: new Date(1).toISOString(),
+            item: {
+              type: "assistant_message",
+              text: "First block",
+              messageId: "response",
+              blockId: "response:1",
+            },
+          },
+        ],
+      },
+    });
+    expect(result.tail).toHaveLength(2);
+    expect(result.tail).toMatchObject([
+      { text: "First block", blockId: "response:1" },
+      { text: "Second block", blockId: "response:2" },
+    ]);
+  });
+
+  it("reconciles interleaved content blocks across a gap without moving or duplicating them", () => {
+    let tail: StreamItem[] = [];
+    let head: StreamItem[] = [];
+    const partials: AgentTimelineItem[] = [
+      { type: "reasoning", text: "Think", blockId: "response:0" },
+      { type: "assistant_message", text: "莫", messageId: "response", blockId: "response:1" },
+    ];
+    partials.forEach((item, index) => {
+      ({ tail, head } = applyStreamEvent({
+        tail,
+        head,
+        timestamp: new Date(index),
+        event: { type: "timeline", provider: "pi", turnId: "turn", item },
+        timelineCursor: { epoch: "epoch-1", seq: index + 1 },
+      }));
+    });
+    const ids = [...tail, ...head].map((item) => item.id);
+    const complete: AgentTimelineItem[] = [
+      { type: "reasoning", text: "Think.\n", blockId: "response:0" },
+      {
+        type: "assistant_message",
+        text: "莫西莫西！",
+        messageId: "response",
+        blockId: "response:1",
+      },
+    ];
+    const entries = complete.map((item, index) => ({
+      seqStart: index + 1,
+      seqEnd: index + 3,
+      provider: "pi",
+      turnId: "turn",
+      item,
+      sourceSeqRanges: [
+        { startSeq: index + 1, endSeq: index + 1 },
+        { startSeq: index + 3, endSeq: index + 3 },
+      ],
+      timestamp: new Date(index + 3).toISOString(),
+    }));
+    const result = processTimelineResponse({
+      ...baseTimelineInput,
+      currentTail: tail,
+      currentHead: head,
+      currentCursor: { epoch: "epoch-1", startSeq: 1, endSeq: 2 },
+      payload: {
+        ...baseTimelineInput.payload,
+        entries,
+        window: { minSeq: 1, maxSeq: 4, nextSeq: 5 },
+        startCursor: { seq: 1 },
+        endCursor: { seq: 4 },
+      },
+    });
+    expect([...result.tail, ...result.head].map((item) => item.id)).toEqual(ids);
+    expect([...result.tail, ...result.head]).toMatchObject([
+      { kind: "thought", text: "Think.\n" },
+      { kind: "assistant_message", text: "莫西莫西！" },
+    ]);
+    expect(result.cursor?.endSeq).toBe(4);
+  });
+
   it("discards an unchanged resume tail without replacing timeline state", () => {
     const canonical = createUserMessage({
       id: "canonical-prompt",

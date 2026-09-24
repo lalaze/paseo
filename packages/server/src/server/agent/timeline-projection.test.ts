@@ -3,11 +3,60 @@ import { describe, expect, test } from "vitest";
 import type { AgentTimelineRow } from "./agent-manager.js";
 import {
   projectTimelineRows,
+  TimelineProjection,
   selectProjectedTimelinePage,
   selectTimelineWindowByProjectedLimit,
 } from "./timeline-projection.js";
 
 describe("projectTimelineRows", () => {
+  test("retains content block positions and sequence coverage across interleaved deltas", () => {
+    const rows: AgentTimelineRow[] = [
+      {
+        seq: 1,
+        timestamp: "2026-09-24T00:00:00Z",
+        item: { type: "reasoning", blockId: "a:0", text: "Think" },
+      },
+      {
+        seq: 2,
+        timestamp: "2026-09-24T00:00:01Z",
+        item: { type: "assistant_message", blockId: "a:1", messageId: "a", text: "莫" },
+      },
+      {
+        seq: 3,
+        timestamp: "2026-09-24T00:00:02Z",
+        item: { type: "reasoning", blockId: "a:0", text: ".\n" },
+      },
+      {
+        seq: 4,
+        timestamp: "2026-09-24T00:00:03Z",
+        item: { type: "assistant_message", blockId: "a:1", messageId: "a", text: "西莫西" },
+      },
+      {
+        seq: 5,
+        timestamp: "2026-09-24T00:00:04Z",
+        item: { type: "assistant_message", blockId: "a:2", messageId: "a", text: "Separate block" },
+      },
+    ];
+    const projection = new TimelineProjection();
+    rows.forEach((row) => projection.append(row));
+    const incremental = projection.getRows();
+    const replayed = projectTimelineRows({ rows, mode: "projected" });
+    expect(incremental.map(({ seq: _, ...row }) => row)).toEqual(replayed);
+    expect(replayed.map((row) => row.item)).toEqual([
+      { type: "reasoning", blockId: "a:0", text: "Think.\n" },
+      { type: "assistant_message", blockId: "a:1", messageId: "a", text: "莫西莫西" },
+      rows[4].item,
+    ]);
+    expect(replayed[0].sourceSeqRanges).toEqual([
+      { startSeq: 1, endSeq: 1 },
+      { startSeq: 3, endSeq: 3 },
+    ]);
+    expect(replayed[1].sourceSeqRanges).toEqual([
+      { startSeq: 2, endSeq: 2 },
+      { startSeq: 4, endSeq: 4 },
+    ]);
+  });
+
   test("merges adjacent assistant chunks in projected mode", () => {
     const rows: AgentTimelineRow[] = [
       {

@@ -440,12 +440,33 @@ function removeUserMessageAt(items: UserMessageItem[], index: number): UserMessa
   return [...items.slice(0, index), ...items.slice(index + 1)];
 }
 
+function mergeRetainedTextBlock(
+  tail: StreamItem[],
+  retained: AssistantMessageItem | ThoughtItem,
+): StreamItem[] | null {
+  const identity = streamTimelineItemIdentity(retained);
+  if (identity === null) return null;
+  const index = findExistingTimelineIdentityIndex(tail, identity);
+  const existing = tail[index];
+  if (!existing || (existing.kind !== "assistant_message" && existing.kind !== "thought"))
+    return null;
+  const text = retained.text.startsWith(existing.text)
+    ? retained.text
+    : existing.text + retained.text;
+  const next = [...tail];
+  next[index] = { ...retained, id: existing.id, text };
+  return next;
+}
+
 function mergeRetainedLifecycleItem(tail: StreamItem[], retained: StreamItem): StreamItem[] | null {
   if (retained.kind === "plugin") {
     return replaceTimelineIdentityItem(tail, retained);
   }
   if (!retained.timelineCursor) {
     return null;
+  }
+  if (retained.kind === "assistant_message" || retained.kind === "thought") {
+    return mergeRetainedTextBlock(tail, retained);
   }
   if (isAgentToolCallItem(retained)) {
     const identity = agentToolCallIdentity({
@@ -579,7 +600,8 @@ function preserveReplacementHead(
   if (
     liveAssistant.kind !== "assistant_message" ||
     !tailAssistant ||
-    tailAssistant.kind !== "assistant_message"
+    tailAssistant.kind !== "assistant_message" ||
+    liveAssistant.blockId !== tailAssistant.blockId
   ) {
     return { tail: reconciledTail, head: unreconciledHead, acknowledgedClientMessageIds: [] };
   }
@@ -703,6 +725,7 @@ export function replaceWithCanonicalStream(
 }
 
 export interface AssistantMessageItem {
+  blockId?: string;
   kind: "assistant_message";
   id: string;
   messageId?: string;
@@ -723,6 +746,7 @@ export interface TimelinePosition {
 export type ThoughtStatus = "loading" | "ready";
 
 export interface ThoughtItem {
+  blockId?: string;
   kind: "thought";
   id: string;
   timelineCursor?: TimelinePosition;
@@ -927,6 +951,7 @@ function appendAssistantMessage(
   const shouldAppendToLast =
     last &&
     last.kind === "assistant_message" &&
+    last.blockId === undefined &&
     (messageId === undefined || last.messageId === messageId);
   if (shouldAppendToLast) {
     const updated: AssistantMessageItem = {
@@ -985,7 +1010,7 @@ function appendThought(
   }
 
   const last = state[state.length - 1];
-  if (last && last.kind === "thought") {
+  if (last && last.kind === "thought" && last.blockId === undefined) {
     const updated: ThoughtItem = {
       ...last,
       ...(timelineCursor ? { timelineCursor } : {}),
@@ -1026,6 +1051,13 @@ function finalizeActiveThoughts(state: StreamItem[]): StreamItem[] {
 }
 
 export function streamTimelineItemIdentity(item: StreamItem): string | null {
+  if (
+    (item.kind === "assistant_message" || item.kind === "thought") &&
+    item.blockId !== undefined
+  ) {
+    const type = item.kind === "thought" ? "reasoning" : "assistant_message";
+    return `${type}/${item.blockId}`;
+  }
   if (isAgentToolCallItem(item)) {
     return agentToolCallIdentity({
       callId: item.payload.data.callId,
@@ -1491,6 +1523,51 @@ function reduceTimelineCompaction(
   return [...state, compaction];
 }
 
+interface AppendTextBlockInput {
+  state: StreamItem[];
+  item: Extract<AgentTimelineItem, { type: "assistant_message" | "reasoning" }>;
+  blockId: string;
+  timestamp: Date;
+  source: StreamUpdateSource;
+  timelineCursor?: TimelinePosition;
+}
+
+function appendTextBlock(input: AppendTextBlockInput): StreamItem[] {
+  const { state, item, blockId, timestamp, source, timelineCursor } = input;
+  if (!item.text) return state;
+  const identity = `${item.type}/${blockId}`;
+  const index = findExistingTimelineIdentityIndex(state, identity);
+  const existing = state[index];
+  if (existing?.kind === "assistant_message" || existing?.kind === "thought") {
+    const next = [...state];
+    next[index] = {
+      ...existing,
+      text: source === "canonical" ? item.text : existing.text + item.text,
+      timestamp,
+      ...(timelineCursor ? { timelineCursor } : {}),
+    };
+    return next;
+  }
+  const common = {
+    id: identity,
+    blockId,
+    text: item.text,
+    timestamp,
+    ...(timelineCursor ? { timelineCursor } : {}),
+  };
+  if (item.type === "reasoning") {
+    return [...state, { ...common, kind: "thought", status: "loading" }];
+  }
+  return [
+    ...state,
+    {
+      ...common,
+      kind: "assistant_message",
+      ...(item.messageId !== undefined ? { messageId: item.messageId } : {}),
+    },
+  ];
+}
+
 function reduceTimelineEvent(
   state: StreamItem[],
   event: Extract<AgentStreamEventPayload, { type: "timeline" }>,
@@ -1500,6 +1577,20 @@ function reduceTimelineEvent(
   timelineCursor?: TimelinePosition,
 ): StreamItem[] {
   const item = event.item;
+  if (
+    (item.type === "assistant_message" || item.type === "reasoning") &&
+    item.blockId !== undefined
+  ) {
+    const next = appendTextBlock({
+      state,
+      item,
+      blockId: item.blockId,
+      timestamp,
+      source,
+      timelineCursor,
+    });
+    return item.type === "assistant_message" ? finalizeActiveThoughts(next) : next;
+  }
   switch (item.type) {
     case "user_message":
       return finalizeActiveThoughts(
@@ -1629,7 +1720,12 @@ function applyTimelineTurnId(
   }
 
   if (!event.turnId || items.length === 0) return items;
-  const index = items.length - 1;
+  const isTextBlock =
+    (event.item.type === "assistant_message" || event.item.type === "reasoning") &&
+    event.item.blockId !== undefined;
+  const identity = isTextBlock ? timelineItemIdentity(event.item) : null;
+  const index =
+    identity === null ? items.length - 1 : findExistingTimelineIdentityIndex(items, identity);
   const last = items[index];
   if (!last || last.turnId === event.turnId) return items;
   return [
@@ -1778,6 +1874,12 @@ function getTailAssistantToResume(params: {
   if (params.tailAssistant?.kind !== "assistant_message") {
     return null;
   }
+  if (
+    params.event.type === "timeline" &&
+    params.event.item.type === "assistant_message" &&
+    params.event.item.blockId !== params.tailAssistant.blockId
+  )
+    return null;
   const incomingMessageId = getIncomingAssistantMessageId(params.event);
   if (incomingMessageId !== undefined && params.tailAssistant.messageId !== incomingMessageId) {
     return null;
@@ -1999,6 +2101,31 @@ export function applyStreamEvent(params: {
   }
 
   const incomingKind = getEventItemKind(event);
+
+  // A late delta can extend a committed block while a different block is streaming.
+  if (
+    event.type === "timeline" &&
+    (event.item.type === "assistant_message" || event.item.type === "reasoning") &&
+    event.item.blockId !== undefined
+  ) {
+    const identity = timelineItemIdentity(event.item);
+    if (
+      identity !== null &&
+      findExistingTimelineIdentityIndex(nextHead, identity) < 0 &&
+      findExistingTimelineIdentityIndex(nextTail, identity) >= 0
+    ) {
+      const reduced = reduceStreamUpdate(nextTail, event, timestamp, {
+        source,
+        timelineCursor: params.timelineCursor,
+      });
+      return {
+        tail: reduced,
+        head: nextHead,
+        changedTail: reduced !== nextTail,
+        changedHead: false,
+      };
+    }
+  }
 
   // Check if we need to flush head before processing this event
   if (

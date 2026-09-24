@@ -169,7 +169,7 @@ function workspacePayload(): WorkspaceDescriptorPayload {
   };
 }
 
-function timelineItem(text = "Cached"): StreamItem {
+function timelineItem(text = "Cached"): Extract<StreamItem, { kind: "assistant_message" }> {
   return {
     kind: "assistant_message",
     id: "message-1",
@@ -247,6 +247,24 @@ function deleteDirectory(cache: ReplicaCache, serverId: string): void {
 }
 
 describe("ReplicaCache", () => {
+  it("preserves text block identity through a persisted timeline", async () => {
+    const storage = new MemoryStorage();
+    const writer = createCache(storage);
+    const items: StreamItem[] = [
+      {
+        ...timelineItem("Thinking"),
+        kind: "thought",
+        status: "ready",
+        id: "thought-1",
+        blockId: "response:0",
+      },
+      { ...timelineItem("Answer"), blockId: "response:1" },
+    ];
+    writer.commitTimeline(SERVER_ID, "agent-1", { ...timeline(), items });
+    await writer.flush();
+    expect((await createCache(storage).readTimeline(SERVER_ID, "agent-1"))?.items).toEqual(items);
+  });
+
   it("does nothing until an owner explicitly commits data", async () => {
     const storage = new MemoryStorage();
     const cache = createCache(storage);

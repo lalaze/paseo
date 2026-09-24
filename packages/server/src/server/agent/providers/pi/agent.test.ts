@@ -25,6 +25,7 @@ import {
 } from "./agent.js";
 import { FakePi } from "./test-utils/fake-pi.js";
 import type { PiUsagePollScheduler } from "./usage-poller.js";
+import { TimelineProjection } from "../../timeline-projection.js";
 
 const ONE_BY_ONE_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -588,6 +589,43 @@ describe("PiRpcAgentSession", () => {
       { type: "notification", level: "error", message: "Turn running notice" },
     ]);
 
+    await session.close();
+  });
+
+  test("keeps interleaved Pi content blocks together in the projected timeline", async () => {
+    const { pi, session, events } = await createSession();
+    const fakeSession = pi.latestSession();
+    await session.startTurn("莫西莫西");
+    fakeSession.emit({
+      type: "message_start",
+      message: { role: "assistant", content: [], responseId: "response-mixed" },
+    });
+    for (const assistantMessageEvent of [
+      { type: "thinking_delta", contentIndex: 0, delta: "Respond in Chinese" },
+      { type: "text_delta", contentIndex: 1, delta: "莫" },
+      { type: "thinking_delta", contentIndex: 0, delta: ".\n" },
+      { type: "text_delta", contentIndex: 1, delta: "西莫西！" },
+    ] as const) {
+      fakeSession.emit({ type: "message_update", assistantMessageEvent });
+    }
+    const projection = new TimelineProjection();
+    events.timelineItems().forEach((item, index) => {
+      projection.append({
+        item,
+        seq: index + 1,
+        turnId: "turn-1",
+        timestamp: new Date(index).toISOString(),
+      });
+    });
+    expect(projection.getRows().map((row) => row.item)).toEqual([
+      { type: "reasoning", text: "Respond in Chinese.\n", blockId: "response-mixed:0" },
+      {
+        type: "assistant_message",
+        text: "莫西莫西！",
+        messageId: "response-mixed",
+        blockId: "response-mixed:1",
+      },
+    ]);
     await session.close();
   });
 

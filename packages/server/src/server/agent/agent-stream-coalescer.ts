@@ -76,7 +76,7 @@ function isTerminalToolCall(item: CoalescableTimelineItem): boolean {
 }
 
 function isSameTextStream(previous: PendingTextEntry, next: PendingTextEntry): boolean {
-  if (previous.item.type !== next.item.type) {
+  if (previous.item.type !== next.item.type || previous.item.blockId !== next.item.blockId) {
     return false;
   }
   if (previous.item.type === "assistant_message" && next.item.type === "assistant_message") {

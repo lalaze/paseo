@@ -695,6 +695,9 @@ function mergePrependedCanonicalTail(olderTail: StreamItem[], currentTail: Strea
   if (olderLast?.kind !== "assistant_message" || currentFirst?.kind !== "assistant_message") {
     return [...olderTail, ...currentTail];
   }
+  if (olderLast.blockId !== undefined || currentFirst.blockId !== undefined) {
+    return [...olderTail, ...currentTail];
+  }
 
   const mergedAssistant: AssistantMessageItem = {
     ...currentFirst,
@@ -717,6 +720,12 @@ function mergeTimelineIdentityBoundary(
   const olderIdentity = streamTimelineItemIdentity(olderLast);
   if (olderIdentity === null || olderIdentity !== streamTimelineItemIdentity(currentFirst)) {
     return null;
+  }
+  if (
+    (olderLast.kind === "assistant_message" && currentFirst.kind === "assistant_message") ||
+    (olderLast.kind === "thought" && currentFirst.kind === "thought")
+  ) {
+    return [...olderTail.slice(0, -1), currentFirst, ...currentTail.slice(1)];
   }
   if (olderLast.kind === "plugin" && currentFirst.kind === "plugin") {
     return [...olderTail.slice(0, -1), currentFirst, ...currentTail.slice(1)];
@@ -790,6 +799,7 @@ function reconcileOverlappingProjectedAssistant(params: {
   if (
     unit.event.type !== "timeline" ||
     unit.event.item.type !== "assistant_message" ||
+    unit.event.item.blockId !== undefined ||
     !unit.sourceSeqRanges.some(
       (range) => range.startSeq <= params.currentEndSeq && range.endSeq > params.currentEndSeq,
     )
@@ -856,6 +866,7 @@ function reconcileOverlappingProjectedReasoning(params: {
   if (
     unit.event.type !== "timeline" ||
     unit.event.item.type !== "reasoning" ||
+    unit.event.item.blockId !== undefined ||
     !unit.sourceSeqRanges.some(
       (range) => range.startSeq <= params.currentEndSeq && range.endSeq > params.currentEndSeq,
     )
@@ -931,7 +942,11 @@ function applyCanonicalForwardUnit(params: {
 }): { tail: StreamItem[]; head: StreamItem[]; acknowledgedClientMessageIds: string[] } {
   const { event, timestamp, seqEnd } = params.unit;
   const timelineCursor = { epoch: params.epoch, seq: seqEnd };
-  if (event.type === "timeline" && event.item.type === "user_message") {
+  const isIdentifiedText =
+    event.type === "timeline" &&
+    (event.item.type === "assistant_message" || event.item.type === "reasoning") &&
+    event.item.blockId !== undefined;
+  if (isIdentifiedText || (event.type === "timeline" && event.item.type === "user_message")) {
     const applied = applyStreamEvent({
       tail: params.tail,
       head: params.head,

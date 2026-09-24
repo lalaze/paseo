@@ -25,6 +25,29 @@ function createHarness(windowMs?: number) {
   return { coalescer, flushes };
 }
 
+test("coalescing preserves distinct content blocks within one assistant message", () => {
+  const { coalescer, flushes } = createHarness();
+  primeLeadingEdge(coalescer, flushes);
+  coalescer.handle("agent-1", timeline({ type: "reasoning", text: "First", blockId: "a:0" }));
+  coalescer.handle("agent-1", timeline({ type: "reasoning", text: " thought", blockId: "a:0" }));
+  coalescer.handle("agent-1", timeline({ type: "reasoning", text: "Second", blockId: "a:1" }));
+  coalescer.handle(
+    "agent-1",
+    timeline({ type: "assistant_message", text: "One", messageId: "a", blockId: "a:2" }),
+  );
+  coalescer.handle(
+    "agent-1",
+    timeline({ type: "assistant_message", text: "Two", messageId: "a", blockId: "a:3" }),
+  );
+  coalescer.flushAndDiscard("agent-1");
+  expect(flushes.map((flush) => flush.item)).toEqual([
+    { type: "reasoning", text: "First thought", blockId: "a:0" },
+    { type: "reasoning", text: "Second", blockId: "a:1" },
+    { type: "assistant_message", text: "One", messageId: "a", blockId: "a:2" },
+    { type: "assistant_message", text: "Two", messageId: "a", blockId: "a:3" },
+  ]);
+});
+
 // Consume the leading-edge flush for an agent and clear it from the record, so a
 // test can assert trailing-window batching on its own. Leaves the coalescer
 // inside the window, which is where the trailing timer governs.

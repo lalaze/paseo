@@ -146,6 +146,20 @@ function mergeIdentityMetadata(
 
 function mergeIdentityEntries(existing: WorkingEntry, entry: WorkingEntry): WorkingEntry | null {
   switch (entry.item.type) {
+    case "assistant_message":
+    case "reasoning":
+      if (existing.item.type !== entry.item.type || existing.turnId !== entry.turnId) return null;
+      return {
+        ...existing,
+        item: { ...entry.item, text: existing.item.text + entry.item.text },
+        timestamp: entry.timestamp,
+        seqEnd: Math.max(existing.seqEnd, entry.seqEnd),
+        ...mergeIdentityMetadata(
+          existing,
+          entry,
+          entry.item.type === "reasoning" ? "reasoning_merge" : "assistant_merge",
+        ),
+      };
     case "tool_call":
       if (existing.item.type !== "tool_call" || existing.turnId !== entry.turnId) return null;
       return {
@@ -207,6 +221,8 @@ function mergeReasoningChunks(entries: readonly WorkingEntry[]): WorkingEntry[] 
       previous &&
       previous.item.type === "reasoning" &&
       entry.item.type === "reasoning" &&
+      previous.item.blockId === undefined &&
+      entry.item.blockId === undefined &&
       previous.seqEnd + 1 === entry.seqStart &&
       previous.turnId === entry.turnId;
 
@@ -248,6 +264,8 @@ function mergeAssistantChunks(entries: readonly WorkingEntry[]): WorkingEntry[] 
       previous &&
       previous.item.type === "assistant_message" &&
       entry.item.type === "assistant_message" &&
+      previous.item.blockId === undefined &&
+      entry.item.blockId === undefined &&
       previous.seqEnd + 1 === entry.seqStart &&
       previous.turnId === entry.turnId;
 

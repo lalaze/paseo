@@ -151,8 +151,8 @@ export interface PiRpcResponse {
 }
 
 export type PiAssistantMessageEvent =
-  | { type: "text_delta"; delta?: string }
-  | { type: "thinking_delta"; delta?: string }
+  | { type: "text_delta"; delta?: string; contentIndex?: number }
+  | { type: "thinking_delta"; delta?: string; contentIndex?: number }
   | { type: "start" | "text_start" | "text_end" | "thinking_start" | "thinking_end" | "done" };
 
 export type PiAgentSessionEvent =

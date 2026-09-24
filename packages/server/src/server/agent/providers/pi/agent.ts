@@ -2360,9 +2360,17 @@ export class PiRpcAgentSession implements AgentSession {
     if (event.message && event.message.role !== "assistant") {
       return;
     }
+    const update = event.assistantMessageEvent;
+    if (update.type !== "text_delta" && update.type !== "thinking_delta") {
+      return;
+    }
+    // Pi can revisit a thinking block after text has started (mixed SSE deltas).
+    this.activeAssistantMessageId ??= event.message?.responseId || randomUUID();
+    const block =
+      update.contentIndex === undefined
+        ? {}
+        : { blockId: `${this.activeAssistantMessageId}:${update.contentIndex}` };
     if (event.assistantMessageEvent.type === "text_delta") {
-      // Pi-compatible runtimes may emit updates without a preceding message_start.
-      this.activeAssistantMessageId ??= event.message?.responseId || randomUUID();
       this.emit({
         type: "timeline",
         provider: this.provider,
@@ -2371,6 +2379,7 @@ export class PiRpcAgentSession implements AgentSession {
           type: "assistant_message",
           text: event.assistantMessageEvent.delta ?? "",
           messageId: this.activeAssistantMessageId,
+          ...block,
         },
       });
       return;
@@ -2383,6 +2392,7 @@ export class PiRpcAgentSession implements AgentSession {
         item: {
           type: "reasoning",
           text: event.assistantMessageEvent.delta ?? "",
+          ...block,
         },
       });
     }

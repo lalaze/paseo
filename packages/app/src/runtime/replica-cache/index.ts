@@ -122,6 +122,7 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...TimelineItemBaseShape,
     kind: z.literal("assistant_message"),
+    blockId: z.string().optional(),
     messageId: z.string().optional(),
     text: z.string(),
     // Reject old caches containing display fragments; refetch the complete source text.
@@ -129,6 +130,7 @@ const StoredTimelineItemSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     ...TimelineItemBaseShape,
     kind: z.literal("thought"),
+    blockId: z.string().optional(),
     text: z.string(),
     status: z.enum(["loading", "ready"]),
   }),
@@ -431,12 +433,19 @@ function serializeTimelineItem(item: StreamItem): StoredTimelineItem | null {
     case "assistant_message":
       return {
         ...base,
+        ...(item.blockId !== undefined ? { blockId: item.blockId } : {}),
         kind: item.kind,
         ...(item.messageId ? { messageId: item.messageId } : {}),
         text: item.text,
       };
     case "thought":
-      return { ...base, kind: item.kind, text: item.text, status: item.status };
+      return {
+        ...base,
+        kind: item.kind,
+        text: item.text,
+        status: item.status,
+        ...(item.blockId !== undefined ? { blockId: item.blockId } : {}),
+      };
     case "todo_list":
       return {
         ...base,
@@ -521,12 +530,19 @@ function deserializeBuiltinTimelineItem(
     case "assistant_message":
       return {
         ...base,
+        ...(item.blockId !== undefined ? { blockId: item.blockId } : {}),
         kind: item.kind,
         ...(item.messageId ? { messageId: item.messageId } : {}),
         text: item.text,
       };
     case "thought":
-      return { ...base, kind: item.kind, text: item.text, status: item.status };
+      return {
+        ...base,
+        kind: item.kind,
+        text: item.text,
+        status: item.status,
+        ...(item.blockId !== undefined ? { blockId: item.blockId } : {}),
+      };
     case "todo_list":
       return {
         ...base,
