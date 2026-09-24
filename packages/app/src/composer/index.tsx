@@ -329,7 +329,12 @@ function renderLeftContent(args: RenderLeftContentArgs): ReactElement | null {
   const { agentControls, agentId, serverId, workspaceId, focusInput, isCompactLayout } = args;
   if (!args.showAgentControls) return null;
   if (resolveAgentControlsMode(agentControls) === "draft" && agentControls) {
-    return <DraftAgentControls {...agentControls} isCompactLayout={isCompactLayout} />;
+    return (
+      <>
+        <DraftAgentControls {...agentControls} isCompactLayout={isCompactLayout} />
+        {workspaceId && <CollaborationControl serverId={serverId} workspaceId={workspaceId} />}
+      </>
+    );
   }
   return (
     <>

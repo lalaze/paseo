@@ -7,7 +7,7 @@ import { enableCollaboration } from "./launch";
 interface CollaborationControlProps {
   serverId: string;
   workspaceId: string;
-  agentId: string;
+  agentId?: string;
 }
 
 export function CollaborationControl({

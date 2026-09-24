@@ -2,6 +2,90 @@
 
 All workspaces share one version and release together.
 
+## Personal source deployment
+
+For this Mac and the SSH host `code`, deploy both from this checkout with:
+
+```bash
+npm run deploy:all             # prepare both, then switch code followed by this Mac
+npm run deploy:all -- prepare  # prepare both without interrupting running agents
+npm run deploy:all -- activate # switch the exact pair from the last successful preparation
+```
+
+Run the switching commands from an independent terminal: restarting the local daemon can
+terminate its agents. Both hosts use their own `~/.paseo`. The first migration discovers the
+existing `@lalaze/paseo-cli` automatically; subsequent runs use the saved deployment state.
+Use `--host <ssh-alias>` to change the remote target. SSH must work without interactive prompts.
+
+The command sends tracked and non-ignored new source files, including uncommitted edits, with
+rsync. It does not send local dependencies, build outputs, ignored credentials, or daemon state.
+The remote owns a dedicated `~/.local/share/paseo-personal/source` directory; it never overwrites
+an existing development checkout. Removed source files are deleted only if a previous sync
+recorded them. Remote Node resolves through nvm when installed. Dependencies are installed on
+the remote when the lockfile, workspace manifests, patches, install script, or Node version
+changes. Local dependencies must already be installed.
+
+Each host builds for its own OS and CPU. Both runtime directories must pass isolated daemon
+checks and match the same source fingerprint before either live daemon switches. Source edits
+during the local build abort the deployment. The verified pair is saved in
+`artifacts/personal/targets-prepared.json`; activation pins those directories even if another
+build has since been prepared. Remote activation happens first. If it fails, the local daemon
+stays running. If local activation fails after remote success, local recovery runs and the
+command reports the partial deployment; the remote remains on its new build.
+
+Local runtime storage is `artifacts/personal`; remote runtime storage is
+`~/.local/share/paseo-personal/runtime`. Remote updates use the same single-host deployer below.
+An interrupted two-host command may leave `.targets-lock` in either deployment root; confirm
+that no deployment is running before removing it.
+
+For a single host, use `npm run deploy:personal` in its checkout after installing dependencies.
+It builds the current working tree, including uncommitted edits, copies the
+daemon/CLI runtime and Web UI into `artifacts/personal/releases/`, and verifies a temporary
+daemon with its own home and port. It does not stop your running daemon or change npm packages.
+
+The runtime uses the same dependency trace as the Nix build. It copies installed dependencies;
+it does not reinstall them on each deployment. Run `npm ci` when the lockfile changes.
+Build on the target OS and architecture because terminal and speech dependencies are native.
+The release metadata records the source commit and whether the working tree was dirty;
+the package version stays unchanged. Keep the deployment directory outside disposable
+checkouts with `--root /path/to/personal-runtime` when needed, using the same root every time.
+
+First prepare, then migrate from the npm fork when you can interrupt running agents:
+
+```bash
+npm run deploy:personal
+npm run deploy:personal -- activate --home "$HOME/.paseo" \
+  --previous-cli "$(npm root -g)/@lalaze/paseo-cli/dist/index.js"
+```
+
+`activate` uses the already verified runtime. It stops the full supervisor, starts the new
+one against the same home, checks the connection, then switches the `current` symlink.
+If startup or the connection check fails, it stops the new daemon and restarts the previous
+one. A failed shutdown aborts without launching a replacement. Desktop-managed daemons are
+not supported. Back up your home before changes that alter persisted data; rollback restores
+code, not data.
+
+The stable CLI is `artifacts/personal/bin/paseo`. Use this path for future starts and service
+definitions, or add its absolute directory to PATH before the npm bin directory. The script
+does not replace existing `paseo` wrappers or run their custom patch hooks: apply any required
+local patches to the source before preparing a runtime. The original npm installation stays
+available for recovery.
+
+After the first migration, build and activate with one command:
+
+```bash
+npm run deploy:personal -- deploy --home "$HOME/.paseo"
+npm run deploy:personal -- rollback --home "$HOME/.paseo" # previous personal runtime, no build
+```
+
+Use `prepare` (the default) while agents are working, then `activate` from an independent
+terminal when they can be interrupted. Do not run a restart from an agent hosted by that
+daemon. For the first migration back to npm, stop with the personal CLI and start with the
+original npm CLI. Subsequent personal deployments keep the previous runtime for `rollback`.
+Older release directories remain until you remove them; retain those referenced by
+`prepared.json`, `deployment.json`, and `current`. If an interrupted deployment leaves
+`.deploy-lock`, confirm its process has exited before removing that lock directory.
+
 ## Fork npm packages
 
 Use the fork pipeline to distribute the daemon under `@lalaze/paseo-cli`. Build from an isolated

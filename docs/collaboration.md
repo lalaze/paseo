@@ -3,9 +3,14 @@
 Use **Collaboration** beside the Agent conversation's input, the workspace command palette, or
 type `/director`. All three open the same mode dialog over the current workspace (a bottom sheet
 on phones). Choose a mode before continuing; canceling preserves the conversation and draft.
-`/director <goal>` also supplies the first request. Host settings → Collaboration
-selects the lead, implementation and optional review profiles. With no separate reviewer, the lead
-performs the final review. Configure native agent profiles first.
+`/director <goal>` also supplies the first request. Select each role’s provider and model directly
+in the dialog; you do not need saved Agent profiles. New Full workflow conversations also select
+a lead. Enabling collaboration in an existing chat retains that chat’s lead. With no separate
+reviewer in Full workflow, the lead performs the final review.
+
+Host settings → Collaboration contains role instructions and conversation history. Instructions
+can be saved before choosing any models. New tasks use the built-in limits and verification
+defaults; legacy advanced settings are retained for existing conversations.
 
 Open **Conversation history** from the top of host collaboration settings to see each task's
 status, mode and progress on a separate page. Its Back action returns to that host's collaboration
@@ -25,17 +30,17 @@ defaults. A conversation holds one task; start another conversation to use a dif
 execution has started.
 
 Execution + review sends the complete goal to one implementer without a design or plan approval
-step. Configure a review agent before continuing. Review always uses a separate session, even
+step. Select a review provider and model in the dialog before continuing. Review always uses a separate session, even
 when implementation and review use the same profile. Category and task assignments do not apply.
 Rework and user-requested changes return to the implementer and then independent review; final
 user acceptance is still required. The main conversation handles communication and dispatch.
 
-The mode picker shows the implementation and review profiles. **Configure agents** opens host
-settings and preserves your goal and selection. Save or return from settings to reopen the picker
-over the original conversation. Saving settings does not start a task: continue in the picker
-afterward. With no goal, enabling collaboration
-waits for your next implementation request. Update older hosts to use Execution + review; existing
-tasks and requests without a mode retain Full workflow.
+The mode picker’s **Instructions** action opens host settings and preserves the goal, mode and
+model selections. Save or return from settings to reopen the picker over the original conversation.
+Saving instructions does not start a task. Continue in the picker afterward. With no goal, enabling
+collaboration waits for your next implementation request. Update older hosts to select models in
+the dialog. Existing conversations keep their saved models and instructions, even before a task
+starts; create another conversation to change them.
 
 ## Execution and confirmation
 
@@ -66,5 +71,5 @@ native-tool handoff. Inspect the task before resuming; uncertain sends require r
 loopback Director MCP configuration is removed when the corresponding idle session is resumed.
 No separate Director listener or file bridge is started.
 
-Settings changes apply to future conversations. Existing conversations and tasks retain their
-saved configuration so a profile edit cannot change an operation midway through execution.
+Instructions changes apply to future conversations. Existing conversations and tasks retain their
+saved configuration so editing instructions cannot change an operation midway through execution.

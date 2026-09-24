@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import type { CollaborationCommand } from "@getpaseo/protocol/collaboration/rpc";
 import { useFetchQuery } from "@/data/query";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
+import { useHostFeature } from "@/runtime/host-features";
 
 export interface CollaborationCommandInput {
   name: CollaborationCommand;
@@ -10,6 +11,7 @@ export interface CollaborationCommandInput {
 
 export function useCollaboration(serverId: string) {
   const client = useHostRuntimeClient(serverId);
+  const supportsInlineModels = useHostFeature(serverId, "collaborationInlineModels");
   const query = useFetchQuery({
     dataShape: "value",
     staleTimeMs: 0,
@@ -28,5 +30,5 @@ export function useCollaboration(serverId: string) {
       await query.refetch();
     },
   });
-  return { client, query, command };
+  return { client, query, command, supportsInlineModels };
 }

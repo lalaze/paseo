@@ -24,6 +24,11 @@ export const ja: TranslationResources = {
     },
     chooseMode: "協働モードを選択",
     launch: {
+      prompts: en.collaboration.launch.prompts,
+      provider: en.collaboration.launch.provider,
+      model: en.collaboration.launch.model,
+      noProviders: en.collaboration.launch.noProviders,
+      noModels: en.collaboration.launch.noModels,
       subtitle: "このタスクにのみ適用",
       agents: "協働エージェント",
       manage: "設定を管理",

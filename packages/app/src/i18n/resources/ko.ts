@@ -24,6 +24,11 @@ export const ko: TranslationResources = {
     },
     chooseMode: "협업 모드 선택",
     launch: {
+      prompts: en.collaboration.launch.prompts,
+      provider: en.collaboration.launch.provider,
+      model: en.collaboration.launch.model,
+      noProviders: en.collaboration.launch.noProviders,
+      noModels: en.collaboration.launch.noModels,
       subtitle: "이 작업에만 적용",
       agents: "협업 에이전트",
       manage: "설정 관리",

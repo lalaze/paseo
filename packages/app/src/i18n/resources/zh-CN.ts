@@ -24,6 +24,11 @@ export const zhCN: TranslationResources = {
     },
     chooseMode: "选择协作模式",
     launch: {
+      prompts: "提示词",
+      provider: "提供商",
+      model: "模型",
+      noProviders: "暂无可用提供商",
+      noModels: "暂无可用模型",
       subtitle: "仅用于当前任务",
       agents: "协作 Agent",
       manage: "管理配置",
@@ -48,7 +53,7 @@ export const zhCN: TranslationResources = {
     launchErrors: {
       configure: "请先保存协作设置。",
       reviewerRequired: "请在协作设置中指定独立审核 Agent。",
-      updateHost: "请更新主机以使用执行＋审核模式。",
+      updateHost: "请更新主机，以便直接选择协作模型。",
     },
     categoryOverrides: "按任务类别分配",
     taskOverrides: "按任务 ID 分配",

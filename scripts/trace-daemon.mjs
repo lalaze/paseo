@@ -14,10 +14,16 @@
 
 import { nodeFileTrace } from "@vercel/nft";
 import { glob } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
+const serverRequire = createRequire(path.join(REPO_ROOT, "packages/server/package.json"));
+const ptyRoot = path.relative(
+  REPO_ROOT,
+  path.dirname(serverRequire.resolve("node-pty/package.json")),
+);
 
 const { sherpaPlatformPackageName } = await import(
   pathToFileURL(
@@ -36,6 +42,9 @@ const traceDesktop = process.env.PASEO_TRACE_DESKTOP === "1";
 // process and preloads as well.
 const entries = [
   "packages/cli/dist/index.js",
+  // The CLI locates the supervisor with createRequire().resolve("@getpaseo/server").
+  // nft does not follow that resolver; its target must survive materialization.
+  "packages/server/dist/server/server/exports.js",
   "packages/server/dist/scripts/supervisor-entrypoint.js",
   "packages/server/dist/server/terminal/terminal-worker-process.js",
   "packages/server/dist/server/server/speech/providers/local/worker-process.js",
@@ -68,7 +77,8 @@ const additionalInputs = [
   // with a runtime-computed platform suffix. Pin to the host platform —
   // the Nix derivation builds for one platform at a time and ships only
   // its own binaries.
-  `node_modules/node-pty/prebuilds/${process.platform}-${process.arch}/**`,
+  `${ptyRoot}/prebuilds/${process.platform}-${process.arch}/**`,
+  `${ptyRoot}/build/Release/**`,
   // sherpa-onnx-node dynamically resolves a platform-specific native package.
   // Copy the wrapper plus the host platform package explicitly.
   "node_modules/sherpa-onnx-node/**",

@@ -24,6 +24,11 @@ export const ar: TranslationResources = {
     },
     chooseMode: "اختيار وضع التعاون",
     launch: {
+      prompts: en.collaboration.launch.prompts,
+      provider: en.collaboration.launch.provider,
+      model: en.collaboration.launch.model,
+      noProviders: en.collaboration.launch.noProviders,
+      noModels: en.collaboration.launch.noModels,
       subtitle: "لهذه المهمة فقط",
       agents: "وكلاء التعاون",
       manage: "إدارة الإعدادات",

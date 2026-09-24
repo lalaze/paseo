@@ -147,6 +147,7 @@ test.for(["full", "execute_review"] as const)(
     await client.connect();
     expect(await client.collaborationCommand("status")).toEqual({
       settings: null,
+      rolePrompts: {},
       conversations: [],
       error: null,
     });
@@ -303,3 +304,52 @@ test.for(["full", "execute_review"] as const)(
   },
   60000,
 );
+
+test("inline collaboration models use task defaults and prompts saved without agent profiles", async (t) => {
+  const provider = new NativeToolClient();
+  const daemon = await createTestPaseoDaemon({ agentClients: { codex: provider } });
+  t.onTestFinished(() => daemon.close());
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  t.onTestFinished(() => client.close());
+  await client.connect();
+  const prompts = { execute: "Read the project docs first" };
+  const saved = await client.collaborationCommand("prompts.save", { prompts, base: {} });
+  expect(saved.settings).toBeNull();
+  expect(saved.rolePrompts).toEqual(prompts);
+  await expect(
+    client.collaborationCommand("prompts.save", { prompts: {}, base: {} }),
+  ).rejects.toThrow();
+  const main = await client.createAgent({
+    provider: "codex",
+    model: "gpt-5.4-mini",
+    cwd: daemon.paseoHome,
+  });
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "worker", label: "Codex", provider: "codex/gpt-5.4-mini", transport: "mcp" }],
+    directorProfileId: "worker",
+    workerProfileId: "worker",
+    reviewerProfileId: "worker",
+  });
+  const opened = await client.collaborationCommand("conversation.open", {
+    requestId: "inline-models",
+    workspaceId: main.workspaceId,
+    agentId: main.id,
+    mode: "execute_review",
+    settings,
+  });
+  expect(opened.conversations[0].settings?.rolePrompts).toEqual(prompts);
+  expect(opened.conversations[0].settings?.maxReworks).toBe(2);
+  expect(opened.settings).toBeNull();
+  await client.collaborationCommand("prompts.save", {
+    prompts: { execute: "New prompt" },
+    base: prompts,
+  });
+  const repeated = await client.collaborationCommand("conversation.open", {
+    requestId: "inline-models",
+    workspaceId: main.workspaceId,
+    agentId: main.id,
+    mode: "execute_review",
+    settings: { ...settings, maxReworks: 9 },
+  });
+  expect(repeated.conversations[0].settings).toEqual(opened.conversations[0].settings);
+});

@@ -24,6 +24,11 @@ export const ru: TranslationResources = {
     },
     chooseMode: "Выбрать режим совместной работы",
     launch: {
+      prompts: en.collaboration.launch.prompts,
+      provider: en.collaboration.launch.provider,
+      model: en.collaboration.launch.model,
+      noProviders: en.collaboration.launch.noProviders,
+      noModels: en.collaboration.launch.noModels,
       subtitle: "Только для этой задачи",
       agents: "Агенты совместной работы",
       manage: "Настроить профили",

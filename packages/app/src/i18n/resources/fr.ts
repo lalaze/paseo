@@ -24,6 +24,11 @@ export const fr: TranslationResources = {
     },
     chooseMode: "Choisir le mode de collaboration",
     launch: {
+      prompts: en.collaboration.launch.prompts,
+      provider: en.collaboration.launch.provider,
+      model: en.collaboration.launch.model,
+      noProviders: en.collaboration.launch.noProviders,
+      noModels: en.collaboration.launch.noModels,
       subtitle: "Pour cette tâche uniquement",
       agents: "Agents de collaboration",
       manage: "Gérer les profils",

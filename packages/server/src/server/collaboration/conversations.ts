@@ -13,6 +13,7 @@ import {
   type CollaborationMode,
   type ControlAction,
   type Profile,
+  type Settings,
 } from "@getpaseo/protocol/collaboration/schema";
 import type { Store } from "./store.js";
 import type { Engine, AgentSnapshot } from "./engine.js";
@@ -114,6 +115,7 @@ export class Conversations {
     goal?: string;
     fresh?: boolean;
     conversationId?: string;
+    settings?: Settings;
     agentId?: string;
     mode?: CollaborationMode;
   }) {
@@ -142,7 +144,8 @@ export class Conversations {
           }) ?? matches[0];
       }
       if (!c) {
-        const settings = SettingsSchema.parse(this.store.settings());
+        // COMPAT(collaborationInlineModels): added in v0.9.0, remove after 2027-03-24 once clients send per-conversation settings.
+        const settings = SettingsSchema.parse(input.settings ?? this.store.settings());
         const mode = collaborationMode(input);
         validateCollaborationMode(mode, settings);
         c = {
@@ -173,6 +176,7 @@ export class Conversations {
     this.store.saveConversation(c);
   }
   private async takeover(input: {
+    settings?: Settings;
     requestId: string;
     workspaceId: string;
     agentId: string;
@@ -192,7 +196,8 @@ export class Conversations {
       if (request && request.agentId !== input.agentId) throw new Error("请求已绑定其他对话");
       if (c && c.workspaceId !== input.workspaceId) throw new Error("会话不属于当前工作区");
       if (!c) {
-        const settings = SettingsSchema.parse(this.store.settings());
+        // COMPAT(collaborationInlineModels): added in v0.9.0, remove after 2027-03-24 once clients send per-conversation settings.
+        const settings = SettingsSchema.parse(input.settings ?? this.store.settings());
         const mode = collaborationMode(input);
         validateCollaborationMode(mode, settings);
         const lead = settings.profiles.find((p) => p.id === settings.directorProfileId)!;

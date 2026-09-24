@@ -24,6 +24,11 @@ export const ptBR: TranslationResources = {
     },
     chooseMode: "Escolher modo de colaboração",
     launch: {
+      prompts: en.collaboration.launch.prompts,
+      provider: en.collaboration.launch.provider,
+      model: en.collaboration.launch.model,
+      noProviders: en.collaboration.launch.noProviders,
+      noModels: en.collaboration.launch.noModels,
       subtitle: "Somente para esta tarefa",
       agents: "Agentes de colaboração",
       manage: "Gerenciar perfis",

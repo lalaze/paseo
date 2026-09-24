@@ -21,6 +21,11 @@ export const en = {
     },
     chooseMode: "Choose collaboration mode",
     launch: {
+      prompts: "Instructions",
+      provider: "Provider",
+      model: "Model",
+      noProviders: "No providers available",
+      noModels: "No models available",
       subtitle: "For this task only",
       agents: "Collaboration agents",
       manage: "Manage profiles",
@@ -46,7 +51,7 @@ export const en = {
     launchErrors: {
       configure: "Save collaboration settings before continuing.",
       reviewerRequired: "Choose an independent review agent in collaboration settings.",
-      updateHost: "Update the host to use execution + review.",
+      updateHost: "Update the host to choose collaboration models here.",
     },
     categoryOverrides: "Category assignments",
     taskOverrides: "Task ID assignments",

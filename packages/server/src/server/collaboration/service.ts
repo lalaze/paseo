@@ -12,6 +12,7 @@ import {
   ResultSchema,
   ReviewSchema,
   SettingsSchema,
+  RolePromptsSchema,
   CollaborationModeSchema,
   collaborationMode,
   REVIEWER_ACTOR,
@@ -33,6 +34,7 @@ const openSchema = z.object({
   goal: z.string().max(32000).optional(),
   fresh: z.boolean().optional(),
   mode: CollaborationModeSchema.optional(),
+  settings: SettingsSchema.optional(),
 });
 const controlSchema = z.object({
   sourceMessageId: z.string(),
@@ -131,6 +133,7 @@ export class CollaborationService {
       const { store, conversations } = this.start();
       return {
         settings: store.settings() ?? null,
+        rolePrompts: store.rolePrompts(),
         error: null,
         conversations: store.conversations().map((candidateConversation) => {
           const summary = conversations.summary(candidateConversation.id);
@@ -138,6 +141,7 @@ export class CollaborationService {
             {
               id: candidateConversation.id,
               mode: collaborationMode(candidateConversation),
+              settings: candidateConversation.settings,
               requestId: candidateConversation.requestId,
               workspaceId: candidateConversation.workspaceId,
               agentId: candidateConversation.agentId,
@@ -160,6 +164,13 @@ export class CollaborationService {
     if (command === "status") return this.status();
     const { store, engine, conversations } = this.start();
     switch (command) {
+      case "prompts.save": {
+        const request = z
+          .object({ prompts: RolePromptsSchema, base: RolePromptsSchema })
+          .parse(input);
+        store.saveRolePrompts(request.prompts, request.base);
+        break;
+      }
       case "settings.save": {
         const request = z
           .object({ settings: SettingsSchema, base: SettingsSchema.nullable() })
@@ -167,9 +178,12 @@ export class CollaborationService {
         store.commitSettings(request.settings, request.base, store.settingsDraft().revision);
         break;
       }
-      case "conversation.open":
-        await conversations.open(openSchema.parse(input));
+      case "conversation.open": {
+        const request = openSchema.parse(input);
+        if (request.settings) request.settings.rolePrompts = store.rolePrompts();
+        await conversations.open(request);
         break;
+      }
       case "conversation.resync":
         await conversations.resync(z.object({ id: z.string() }).parse(input).id);
         break;

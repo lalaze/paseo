@@ -1,35 +1,114 @@
 import { test, expect } from "vitest";
-import { SettingsSchema, type Settings } from "@getpaseo/protocol/collaboration/schema";
+import { SettingsSchema } from "@getpaseo/protocol/collaboration/schema";
+import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import { openCollaborationSettings } from "./settings-model";
-import { openCollaborationLaunch } from "./launch-model";
+import { openCollaborationLaunch, type LaunchRole } from "./launch-model";
 
-const profiles = [
+const providers: ProviderSnapshotEntry[] = [
   {
-    id: "first",
-    name: "First",
     provider: "codex",
-    model: "gpt-5.4-mini",
-    featureValues: { effort: "high" },
+    label: "Codex",
+    enabled: true,
+    status: "ready",
+    defaultModeId: "auto-review",
+    models: [
+      { provider: "codex", id: "model-a", label: "Model A" },
+      { provider: "codex", id: "model-b", label: "Model B" },
+    ],
+  },
+  {
+    provider: "claude",
+    label: "Claude",
+    enabled: true,
+    status: "ready",
+    models: [{ provider: "claude", id: "sonnet", label: "Sonnet" }],
   },
 ];
+function choose(model: ReturnType<typeof openCollaborationLaunch>, role: LaunchRole) {
+  model.selectProvider(role, "codex", "Codex");
+  model.selectModel(role, "model-a", "Model A");
+}
 
-test("launch directs missing configuration to settings and locks actions while submitting", async () => {
-  const model = openCollaborationLaunch({ settings: null, supportsExecuteReview: true });
-  expect(model.getState().primaryAction).toBe("configure");
+test("new collaboration chooses models without profiles and uses default task settings", async () => {
+  const model = openCollaborationLaunch({ settings: null, currentAgent: false }, "execute_review");
+  model.applyProviders(providers);
+  expect(model.getState().canContinue).toBe(false);
+  choose(model, "worker");
+  expect(model.getState().canContinue).toBe(false);
+  choose(model, "reviewer");
+  expect(model.getState().canContinue).toBe(true);
+  await model.start(async (mode, settings) => {
+    expect(mode).toBe("execute_review");
+    expect(settings).toEqual(
+      SettingsSchema.parse({
+        profiles: ["worker", "reviewer"].map((id) => ({
+          id,
+          label: "Model A",
+          provider: "codex/model-a",
+          modeId: "auto-review",
+          transport: "mcp",
+        })),
+        directorProfileId: "worker",
+        workerProfileId: "worker",
+        reviewerProfileId: "reviewer",
+      }),
+    );
+  });
+  model.close();
+});
+
+test("changing provider clears its model and catalog refresh preserves explicit selections", () => {
+  const model = openCollaborationLaunch({ settings: null, currentAgent: true });
+  model.applyProviders(providers);
+  choose(model, "worker");
+  expect(model.getState().canContinue).toBe(true);
+  model.selectProvider("worker", "claude", "Claude");
+  expect(model.getState().selections.worker?.model).toBe("");
+  expect(model.getState().canContinue).toBe(false);
+  model.selectModel("worker", "sonnet", "Chosen Sonnet");
+  model.applyProviders([...providers]);
+  model.applySnapshot({ settings: null, currentAgent: true });
+  expect(model.getState().selections.worker).toEqual({
+    provider: "claude",
+    providerLabel: "Claude",
+    model: "sonnet",
+    modelLabel: "Chosen Sonnet",
+  });
+  expect(model.getState().canContinue).toBe(true);
+  model.applyProviders([providers[0]]);
+  expect(model.getState().canContinue).toBe(false);
+  expect(model.getState().selections.worker?.modelLabel).toBe("Chosen Sonnet");
+  model.close();
+});
+
+test("full workflow requires a lead for new conversations and preserves selections across modes and settings", () => {
+  const model = openCollaborationLaunch({ settings: null, currentAgent: false });
+  model.applyProviders(providers);
+  choose(model, "worker");
+  expect(model.getState().canContinue).toBe(false);
+  choose(model, "director");
+  expect(model.getState().canContinue).toBe(true);
   model.selectMode("execute_review");
-  expect(model.getState().primaryAction).toBe("configure");
-  const settings = SettingsSchema.parse({
-    profiles: [{ id: "one", label: "One", provider: "codex/model" }],
-    directorProfileId: "one",
-    workerProfileId: "one",
-  });
-  model.applySnapshot({ settings, supportsExecuteReview: true });
-  expect(model.getState().primaryAction).toBe("configureReviewer");
-  model.applySnapshot({
-    settings: { ...settings, reviewerProfileId: "one" },
-    supportsExecuteReview: true,
-  });
-  expect(model.getState().primaryAction).toBe("continue");
+  expect(model.getState().canContinue).toBe(false);
+  choose(model, "reviewer");
+  const reopened = openCollaborationLaunch(
+    { settings: null, currentAgent: false },
+    model.getState().mode,
+    model.getState().selections,
+  );
+  reopened.applyProviders(providers);
+  expect(reopened.getState().selections).toEqual(model.getState().selections);
+  expect(reopened.getState().mode).toBe("execute_review");
+  reopened.selectMode("full");
+  expect(reopened.getState().canContinue).toBe(true);
+  model.close();
+  reopened.close();
+});
+
+test("launch locks pending edits and duplicate submissions, then retries failures with the selected models", async () => {
+  const model = openCollaborationLaunch({ settings: null, currentAgent: true });
+  model.applyProviders(providers);
+  choose(model, "worker");
   let finish = () => {};
   let starts = 0;
   const pending = model.start(() => {
@@ -38,187 +117,134 @@ test("launch directs missing configuration to settings and locks actions while s
       finish = resolve;
     });
   });
-  expect(model.getState().pending).toBe(true);
-  expect(model.getState().canContinue).toBe(false);
-  model.selectMode("full");
+  model.selectProvider("worker", "claude", "Claude");
+  model.selectMode("execute_review");
   await model.start(async () => {
     starts++;
   });
   expect(starts).toBe(1);
-  expect(model.getState().mode).toBe("execute_review");
+  expect(model.getState().mode).toBe("full");
+  expect(model.getState().selections.worker?.provider).toBe("codex");
+  expect(model.getState().canContinue).toBe(false);
   finish();
   await pending;
-  expect(model.getState().canContinue).toBe(true);
-  model.close();
-});
-
-test("launch mode survives configuration and retries without starting before explicit continuation", async () => {
-  const settings = SettingsSchema.parse({
-    profiles: [{ id: "one", label: "One", provider: "codex/model" }],
-    directorProfileId: "one",
-    workerProfileId: "one",
-  });
-  const model = openCollaborationLaunch({ settings, supportsExecuteReview: true });
-  expect(model.getState().mode).toBe("full");
-  model.selectMode("execute_review");
-  expect(model.getState().blocked).toBe("reviewerRequired");
-  let starts = 0;
-  const launch = async (mode: string) => {
-    starts++;
-    expect(mode).toBe("execute_review");
-  };
-  await model.start(launch);
-  expect(starts).toBe(0);
-  model.applySnapshot({
-    settings: { ...settings, reviewerProfileId: "one" },
-    supportsExecuteReview: true,
-  });
-  expect(model.getState().mode).toBe("execute_review");
-  expect(starts).toBe(0);
   await model.start(async () => {
-    throw new Error("connection lost");
+    throw new Error("Connection lost");
   });
-  expect(model.getState().error).toBe("connection lost");
-  await model.start(launch);
-  expect(starts).toBe(1);
+  expect(model.getState().error).toBe("Connection lost");
+  await model.start(async () => {
+    starts++;
+  });
+  expect(starts).toBe(2);
   expect(model.getState().error).toBe("");
   model.close();
 });
 
-test("older hosts disable lightweight selection and active tasks keep their selected mode", () => {
-  const model = openCollaborationLaunch({ settings: null, supportsExecuteReview: false });
-  model.selectMode("execute_review");
-  expect(model.getState().mode).toBe("full");
-  model.applySnapshot({
+test("legacy advanced defaults do not carry into a new task, existing conversations keep saved models", async () => {
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "old", label: "Old profile", provider: "codex/model-a" }],
+    directorProfileId: "old",
+    workerProfileId: "old",
+    maxReworks: 9,
+    requirePlanApproval: true,
+  });
+  const model = openCollaborationLaunch({ settings, currentAgent: false });
+  model.applyProviders(providers);
+  await model.start(async (_mode, next) => {
+    expect(next?.maxReworks).toBe(2);
+    expect(next?.requirePlanApproval).toBe(false);
+  });
+  const existing = openCollaborationLaunch({
     settings: null,
-    supportsExecuteReview: true,
+    currentAgent: true,
     conversation: {
       id: "chat",
-      title: "Task",
       workspaceId: "workspace",
-      mode: "execute_review",
+      title: "Existing",
+      settings,
+      mode: "full",
       run: {
         id: "run",
         phase: "executing",
         control: "running",
-        message: "Executing",
+        message: "Working",
         done: 0,
         total: 1,
       },
     },
   });
-  expect(model.getState().mode).toBe("execute_review");
-  model.selectMode("full");
-  expect(model.getState().mode).toBe("execute_review");
-  expect(model.getState().locked).toBe(true);
+  existing.selectMode("execute_review");
+  existing.selectProvider("worker", "claude", "Claude");
+  expect(existing.getState().mode).toBe("full");
+  expect(existing.getState().selections.worker?.provider).toBe("codex");
+  expect(existing.getState().canContinue).toBe(true);
+  await existing.start(async (_mode, next) => {
+    expect(next).toBeUndefined();
+  });
+  model.close();
+  existing.close();
+});
+
+test("prompts save before choosing any models; conflicts preserve edits and the saved base", async () => {
+  const model = openCollaborationSettings({});
+  model.setPrompt("execute", "Read docs first");
+  await model.save(async () => {
+    throw new Error("Conflict");
+  });
+  expect(model.getState().error).toBe("Conflict");
+  expect(model.getState().prompts).toEqual({ execute: "Read docs first" });
+  await model.save(async (prompts, base) => {
+    expect(base).toEqual({});
+    expect(prompts).toEqual({ execute: "Read docs first" });
+  });
+  expect(model.getState().saved).toBe(true);
+  model.setPrompt("review", "Check tests");
+  await model.save(async (_prompts, base) => {
+    expect(base).toEqual({ execute: "Read docs first" });
+  });
   model.close();
 });
 
-test("late conversation data restores its mode without overwriting a user's selection", () => {
-  const model = openCollaborationLaunch({ settings: null, supportsExecuteReview: true });
-  const snapshot = {
-    settings: null,
-    supportsExecuteReview: true,
-    conversation: {
-      id: "chat",
-      title: "Task",
-      workspaceId: "workspace",
-      mode: "execute_review" as const,
-    },
-  };
-  model.applySnapshot(snapshot);
-  expect(model.getState().mode).toBe("execute_review");
-  model.selectMode("full");
-  model.applySnapshot(snapshot);
-  expect(model.getState().mode).toBe("full");
-  model.close();
-});
-test("late profiles preserve edits and saved commands keep literal argv", async () => {
-  const model = openCollaborationSettings(null, profiles);
-  model.set("rolePrompts", { plan: "Read project docs" });
-  model.applyProfiles([
-    ...profiles,
-    { id: "second", name: "Second", provider: "claude", model: "sonnet" },
-  ]);
-  model.selectRole("workerProfileId", "second");
-  model.setChecks("npm run test -- 'path with spaces'\nnode -e 'console.log(1)'");
-  let saved: Settings | undefined;
-  await model.save(async (settings) => {
-    saved = settings;
-  });
-  expect(model.getState().error).toBe("");
-  expect(saved?.rolePrompts).toEqual({ plan: "Read project docs" });
-  expect(saved?.workerProfileId).toBe("second");
-  expect(saved?.profiles[0].featureValues).toEqual({ effort: "high" });
-  expect(saved?.verificationCommands.map(({ command, args }) => ({ command, args }))).toEqual([
-    { command: "npm", args: ["run", "test", "--", "path with spaces"] },
-    { command: "node", args: ["-e", "console.log(1)"] },
-  ]);
-  model.close();
-});
-
-test("invalid edits and conflicting saves remain editable and do not replace the saved base", async () => {
-  const initial = SettingsSchema.parse({
-    profiles: [{ id: "first", label: "First", provider: "codex/gpt-5.4-mini" }],
-    directorProfileId: "first",
-    workerProfileId: "first",
-  });
-  const model = openCollaborationSettings(initial, profiles);
-  model.setChecks("npm test && npm run build");
+test("invalid prompts stay editable and successful saves remain committed if returning fails", async () => {
+  const model = openCollaborationSettings({});
+  model.setPrompt("plan", "a".repeat(8001));
   let writes = 0;
   await model.save(async () => {
     writes++;
   });
   expect(writes).toBe(0);
-  expect(model.getState().error).toContain("each check command separately");
-  model.setChecks("npm test");
-  model.set("maxReworks", 4);
-  await model.save(async () => {
-    throw new Error("settings conflict");
-  });
-  expect(model.getState().error).toBe("settings conflict");
-  expect(model.getState().settings.maxReworks).toBe(4);
-  await model.save(async (_settings, base) => {
-    expect(base).toEqual(initial);
-  });
-  expect(model.getState().saved).toBe(true);
-  model.close();
-});
-
-test("successful settings remain the base when launching the conversation fails", async () => {
-  const model = openCollaborationSettings(null, profiles);
-  let committed: Settings | undefined;
+  expect(model.getState().error).not.toBe("");
+  model.setPrompt("plan", "Read docs");
   await model.save(
-    async (settings) => {
-      committed = settings;
+    async () => {
+      writes++;
     },
     async () => {
-      throw new Error("Disconnected during setup");
+      throw new Error("Navigation failed");
     },
   );
-  expect(model.getState().error).toBe("Disconnected during setup");
   expect(model.getState().saved).toBe(true);
-  await model.save(async (_settings, base) => {
-    expect(base).toEqual(committed);
+  expect(model.getState().error).toBe("Navigation failed");
+  await model.save(async (_prompts, base) => {
+    expect(base).toEqual({ plan: "Read docs" });
   });
-  expect(model.getState().error).toBe("");
+  expect(writes).toBe(1);
   model.close();
 });
 
-test("category assignments keep selected profiles and can be removed", async () => {
-  const model = openCollaborationSettings(null, profiles);
-  model.applyProfiles([
-    ...profiles,
-    { id: "frontend", name: "Frontend", provider: "claude", model: "sonnet" },
-  ]);
-  model.setRuleKey("categoryOverrides", "ui");
-  model.addRule("categoryOverrides");
-  model.setRule("categoryOverrides", "ui", "frontend");
-  await model.save(async (settings) => {
-    expect(settings.categoryOverrides).toEqual({ ui: "frontend" });
-    expect(settings.profiles.map((profile) => profile.id)).toEqual(["first", "frontend"]);
+test("late launch data seeds saved models once without replacing user edits on refresh", () => {
+  const model = openCollaborationLaunch({ settings: null, currentAgent: true, ready: false });
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "saved", label: "Saved", provider: "codex/model-a" }],
+    directorProfileId: "saved",
+    workerProfileId: "saved",
   });
-  model.setRule("categoryOverrides", "ui", null);
-  expect(model.getState().settings.categoryOverrides).toEqual({});
+  model.applyProviders(providers);
+  expect(model.getState().canContinue).toBe(false);
+  model.applySnapshot({ settings, currentAgent: true, ready: true });
+  expect(model.getState().selections.worker?.model).toBe("model-a");
+  model.selectModel("worker", "model-b", "Model B");
+  model.applySnapshot({ settings, currentAgent: true, ready: true });
+  expect(model.getState().selections.worker?.model).toBe("model-b");
   model.close();
 });

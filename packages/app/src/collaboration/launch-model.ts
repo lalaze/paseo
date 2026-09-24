@@ -1,50 +1,135 @@
 import {
   collaborationMode,
+  SettingsSchema,
   type CollaborationMode,
+  type Profile,
   type Settings,
 } from "@getpaseo/protocol/collaboration/schema";
 import type { CollaborationState } from "@getpaseo/protocol/collaboration/rpc";
+import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
+import { filterSelectableModels } from "@/provider-selection/model-catalog";
 
+export type LaunchRole = "director" | "worker" | "reviewer";
+export interface ModelSelection {
+  provider: string;
+  model: string;
+  providerLabel: string;
+  modelLabel: string;
+}
+export type LaunchSelections = Record<LaunchRole, ModelSelection | null>;
 export interface LaunchSnapshot {
+  ready?: boolean;
   settings: Settings | null;
   conversation?: CollaborationState["conversations"][number];
-  supportsExecuteReview: boolean;
+  currentAgent: boolean;
 }
 
-export function openCollaborationLaunch(initial: LaunchSnapshot, selected?: CollaborationMode) {
+function seedSelection(profile: Profile | undefined): ModelSelection | null {
+  if (!profile) return null;
+  const slash = profile.provider.indexOf("/");
+  const provider = profile.provider.slice(0, slash);
+  const model = profile.provider.slice(slash + 1);
+  return { provider, model, providerLabel: provider, modelLabel: model };
+}
+
+export function openCollaborationLaunch(
+  initial: LaunchSnapshot,
+  selected?: CollaborationMode,
+  restored?: LaunchSelections,
+) {
   let snapshot = initial;
   let mode = selected ?? collaborationMode(initial.conversation ?? {});
   let modeSelected = selected !== undefined;
+  let seeded = initial.ready !== false;
+  function seed(settings: Settings | null | undefined): LaunchSelections {
+    return {
+      director: seedSelection(settings?.profiles.find((p) => p.id === settings.directorProfileId)),
+      worker: seedSelection(settings?.profiles.find((p) => p.id === settings.workerProfileId)),
+      reviewer: seedSelection(settings?.profiles.find((p) => p.id === settings.reviewerProfileId)),
+    };
+  }
+  let selections = restored ?? seed(initial.conversation?.settings ?? initial.settings);
+  let entries: ProviderSnapshotEntry[] = [];
   let pending = false;
   let error = "";
   const listeners = new Set<() => void>();
+  function models(provider: string) {
+    const entry = entries.find((candidate) => candidate.provider === provider && candidate.enabled);
+    return filterSelectableModels(entry?.models ?? null) ?? [];
+  }
+  function valid(selection: ModelSelection | null) {
+    return (
+      selection !== null && models(selection.provider).some((model) => model.id === selection.model)
+    );
+  }
   function read() {
     const locked = Boolean(snapshot.conversation?.run);
     if (locked) mode = collaborationMode(snapshot.conversation!);
-    let blocked: "configure" | "reviewerRequired" | "updateHost" | null = null;
-    if (!snapshot.settings) blocked = "configure";
-    if (mode === "execute_review") {
-      if (snapshot.settings && !snapshot.settings.reviewerProfileId) blocked = "reviewerRequired";
-      if (!snapshot.supportsExecuteReview) blocked = "updateHost";
-    }
-    // Reopening an existing task does not create a new run or change its saved profiles.
-    if (locked) blocked = null;
-    const settings = snapshot.settings;
-    let primaryAction: "configure" | "configureReviewer" | "continue" = "continue";
-    if (blocked === "configure") primaryAction = "configure";
-    if (blocked === "reviewerRequired") primaryAction = "configureReviewer";
+    const agentsLocked = Boolean(snapshot.conversation);
+    const showDirector = mode === "full" && !snapshot.currentAgent;
+    const directorValid = !showDirector || valid(selections.director);
+    const reviewerValid = (mode === "full" && !selections.reviewer) || valid(selections.reviewer);
+    const complete = valid(selections.worker) && directorValid && reviewerValid;
+    const savedReviewer = snapshot.conversation?.settings?.reviewerProfileId;
+    const canReopen = mode === "full" || Boolean(savedReviewer);
     return {
       mode,
       locked,
+      agentsLocked,
+      showDirector,
+      selections,
       pending,
       error,
-      blocked,
-      primaryAction,
-      canContinue: !pending && blocked === null,
-      supportsExecuteReview: snapshot.supportsExecuteReview,
-      worker: settings?.profiles.find((p) => p.id === settings.workerProfileId)?.label,
-      reviewer: settings?.profiles.find((p) => p.id === settings.reviewerProfileId)?.label,
+      canContinue: snapshot.ready !== false && !pending && (agentsLocked ? canReopen : complete),
+      providerOptions: entries
+        .filter((entry) => entry.enabled)
+        .map((entry) => ({
+          id: entry.provider,
+          value: entry.provider,
+          label: entry.label ?? entry.provider,
+          testID: `collaboration-provider-option-${entry.provider}`,
+        })),
+      modelOptions: {
+        director: modelOptions(selections.director),
+        worker: modelOptions(selections.worker),
+        reviewer: modelOptions(selections.reviewer),
+      },
     };
+  }
+  function modelOptions(selection: ModelSelection | null) {
+    return models(selection?.provider ?? "").map((model) => ({
+      id: model.id,
+      value: model.id,
+      label: model.label,
+      testID: `collaboration-model-option-${model.id}`,
+    }));
+  }
+  function taskSettings(): Settings | undefined {
+    if (snapshot.conversation) return undefined;
+    function profile(role: LaunchRole): Profile {
+      const selection = selections[role]!;
+      const provider = entries.find((entry) => entry.provider === selection.provider)!;
+      return {
+        id: role,
+        label: selection.modelLabel,
+        provider: `${selection.provider}/${selection.model}`,
+        modeId: provider.defaultModeId ?? undefined,
+        transport: "mcp",
+      };
+    }
+    const profiles = [profile("worker")];
+    let directorProfileId = "worker";
+    if (state.showDirector) {
+      profiles.push(profile("director"));
+      directorProfileId = "director";
+    }
+    if (selections.reviewer) profiles.push(profile("reviewer"));
+    return SettingsSchema.parse({
+      profiles,
+      directorProfileId,
+      workerProfileId: "worker",
+      reviewerProfileId: selections.reviewer ? "reviewer" : undefined,
+    });
   }
   let state = read();
   function publish() {
@@ -61,24 +146,48 @@ export function openCollaborationLaunch(initial: LaunchSnapshot, selected?: Coll
     },
     applySnapshot(next: LaunchSnapshot) {
       snapshot = next;
+      if (!seeded && next.ready !== false) {
+        selections = restored ?? seed(next.conversation?.settings ?? next.settings);
+        seeded = true;
+      }
       if (!modeSelected) mode = collaborationMode(next.conversation ?? {});
+      publish();
+    },
+    applyProviders(next: ProviderSnapshotEntry[]) {
+      entries = next;
+      publish();
+    },
+    selectProvider(role: LaunchRole, provider: string, label: string) {
+      if (pending || state.agentsLocked) return;
+      let selection: ModelSelection | null = null;
+      if (provider) selection = { provider, providerLabel: label, model: "", modelLabel: "" };
+      selections = { ...selections, [role]: selection };
+      error = "";
+      publish();
+    },
+    selectModel(role: LaunchRole, model: string, label: string) {
+      if (pending || state.agentsLocked || !selections[role]) return;
+      selections = { ...selections, [role]: { ...selections[role], model, modelLabel: label } };
+      error = "";
       publish();
     },
     selectMode(next: CollaborationMode) {
       if (pending || state.locked) return;
-      if (next === "execute_review" && !snapshot.supportsExecuteReview) return;
       modeSelected = true;
       mode = next;
       error = "";
       publish();
     },
-    async start(launch: (mode: CollaborationMode) => Promise<void>) {
+    async start(
+      launch: (mode: CollaborationMode, settings: Settings | undefined) => Promise<void>,
+    ) {
       if (!state.canContinue) return;
+      const settings = taskSettings();
       pending = true;
       error = "";
       publish();
       try {
-        await launch(mode);
+        await launch(mode, settings);
       } catch (cause) {
         error = cause instanceof Error ? cause.message : String(cause);
       } finally {

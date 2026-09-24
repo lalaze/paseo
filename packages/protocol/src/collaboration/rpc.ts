@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { CollaborationModeSchema, SettingsSchema } from "./schema.js";
+import { CollaborationModeSchema, RolePromptsSchema, SettingsSchema } from "./schema.js";
 
 export const CollaborationCommandSchema = z.enum([
   "status",
   "settings.save",
+  "prompts.save",
   "conversation.open",
   "conversation.resync",
   "run.control",
@@ -21,11 +22,13 @@ export const CollaborationResponseSchema = z.object({
 });
 export const CollaborationStateSchema = z.object({
   settings: SettingsSchema.nullable(),
+  rolePrompts: RolePromptsSchema.optional(),
   error: z.string().nullable(),
   conversations: z.array(
     z.object({
       id: z.string(),
       mode: CollaborationModeSchema.optional(),
+      settings: SettingsSchema.optional(),
       requestId: z.string().optional(),
       workspaceId: z.string(),
       agentId: z.string().optional(),

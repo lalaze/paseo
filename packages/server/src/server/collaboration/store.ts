@@ -3,7 +3,13 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { SettingsSchema, type Run, type Settings } from "@getpaseo/protocol/collaboration/schema";
+import {
+  RolePromptsSchema,
+  SettingsSchema,
+  type RolePrompts,
+  type Run,
+  type Settings,
+} from "@getpaseo/protocol/collaboration/schema";
 import {
   DraftStateSchema,
   documentKey,
@@ -75,6 +81,17 @@ export class Store {
   }
   saveSettings(s: Settings) {
     this.setMeta("settings", SettingsSchema.parse(s));
+  }
+  rolePrompts(): RolePrompts {
+    // COMPAT(collaborationInlineModels): added in v0.9.0, remove after 2027-03-24 once legacy host settings are migrated.
+    return RolePromptsSchema.parse(this.meta("role-prompts") ?? this.settings()?.rolePrompts ?? {});
+  }
+  saveRolePrompts(prompts: RolePrompts, base: RolePrompts) {
+    this.transaction(() => {
+      if (documentKey(this.rolePrompts()) !== documentKey(base))
+        throw new Error("提示词已在其他设备修改，请重新打开设置后重试");
+      this.setMeta("role-prompts", RolePromptsSchema.parse(prompts));
+    });
   }
   settingsDraft(): DraftState {
     return DraftStateSchema.parse(this.meta("settings-draft") ?? { revision: 0, draft: null });

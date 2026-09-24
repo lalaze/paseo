@@ -6,92 +6,87 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import type { CollaborationMode } from "@getpaseo/protocol/collaboration/schema";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/select-field";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
-import { ChevronRight, ShieldCheck, UserRound } from "lucide-react-native";
-import { ICON_SIZE, type Theme } from "@/styles/theme";
-import { LaunchModeOptions } from "./launch-mode-options";
-import { LaunchGoal } from "./launch-goal";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import { useWorkspaceFields } from "@/stores/session-store-hooks";
+import { LaunchModeOptions } from "./launch-mode-options";
+import { LaunchGoal } from "./launch-goal";
 import { enableCollaboration, type CollaborationTarget } from "./launch";
-import { openCollaborationLaunch, type LaunchSnapshot } from "./launch-model";
+import {
+  openCollaborationLaunch,
+  type LaunchSnapshot,
+  type LaunchSelections,
+  type LaunchRole,
+} from "./launch-model";
 import { closeCollaborationLaunch, useCollaborationLaunchStore } from "./launch-store";
 import { useCollaboration } from "./use-collaboration";
 
 const launchSnapPoints = ["75%", "90%"];
-
 export function CollaborationLaunchHost() {
   const request = useCollaborationLaunchStore((state) => state.request);
   return request ? <LaunchDialog key={request.requestId} target={request} /> : null;
 }
-
 function LaunchDialog({ target }: { target: CollaborationTarget }) {
-  const { t } = useTranslation();
+  const [closing, setClosing] = useState(false);
   const pathname = usePathname();
   const [origin] = useState(() => useCollaborationLaunchStore.getState().originPath ?? pathname);
   const configuring = useCollaborationLaunchStore((state) => state.configuring);
-  const { client, query } = useCollaboration(target.serverId);
+  const { query, supportsInlineModels } = useCollaboration(target.serverId);
   const configPath = buildSettingsHostSectionRoute(target.serverId, "collaboration");
-  const header = useMemo(
-    () => ({
-      title: t("collaboration.chooseMode"),
-      subtitle: <Text style={styles.secondary}>{t("collaboration.launch.subtitle")}</Text>,
-    }),
-    [t],
-  );
+  const close = useCallback(() => setClosing(true), []);
+  const dismissed = useCallback(() => {
+    if (closing && useCollaborationLaunchStore.getState().request?.requestId === target.requestId)
+      closeCollaborationLaunch();
+  }, [closing, target.requestId]);
   useEffect(() => {
     useCollaborationLaunchStore.setState({ originPath: origin });
     Keyboard.dismiss();
   }, [origin]);
   useEffect(() => {
-    if (pathname === origin) {
-      useCollaborationLaunchStore.setState({ configuring: false });
-    } else if (pathname !== configPath) {
-      closeCollaborationLaunch();
-    }
+    if (pathname === origin) useCollaborationLaunchStore.setState({ configuring: false });
+    else if (pathname !== configPath) setClosing(true);
   }, [pathname, origin, configPath]);
-  const configure = useCallback(() => {
-    useCollaborationLaunchStore.setState({ configuring: true });
-    router.push(configPath);
-  }, [configPath]);
+  const configure = useCallback(
+    (selections: LaunchSelections) => {
+      useCollaborationLaunchStore.setState((state) => ({
+        configuring: true,
+        request: state.request ? { ...state.request, selections } : null,
+      }));
+      router.push(configPath);
+    },
+    [configPath],
+  );
   const retry = useCallback(() => {
     void query.refetch();
   }, [query]);
   const snapshot = useMemo<LaunchSnapshot>(
     () => ({
+      ready: Boolean(query.data),
       settings: query.data?.settings ?? null,
       conversation: query.data?.conversations.find((entry) =>
         target.agentId ? entry.agentId === target.agentId : entry.requestId === target.requestId,
       ),
-      supportsExecuteReview:
-        client?.getLastServerInfoMessage()?.features?.collaborationExecuteReview === true,
+      currentAgent: Boolean(target.agentId),
     }),
-    [query.data, client, target.agentId, target.requestId],
+    [query.data, target.agentId, target.requestId],
   );
-  const visible = pathname === origin && !configuring;
-  const error = query.error?.message ?? query.data?.error;
-  if (!query.data || query.data.error)
-    return (
-      <AdaptiveModalSheet
-        header={header}
-        visible={visible}
-        onClose={closeCollaborationLaunch}
-        desktopMaxWidth={560}
-        snapPoints={launchSnapPoints}
-      >
-        {error ? (
-          <View style={styles.content}>
-            <Text style={styles.error}>{error}</Text>
-            <Button onPress={retry}>{t("collaboration.retry")}</Button>
-          </View>
-        ) : (
-          <Spinner />
-        )}
-      </AdaptiveModalSheet>
-    );
+  const visible = pathname === origin && !configuring && !closing;
   return (
-    <ModePicker target={target} snapshot={snapshot} visible={visible} onConfigure={configure} />
+    <ModePicker
+      target={target}
+      snapshot={snapshot}
+      visible={visible}
+      onConfigure={configure}
+      onClose={close}
+      onDismiss={dismissed}
+      onRetry={retry}
+      error={query.error?.message ?? query.data?.error ?? null}
+      supported={supportsInlineModels}
+    />
   );
 }
 
@@ -99,19 +94,38 @@ interface ModePickerProps {
   target: CollaborationTarget;
   snapshot: LaunchSnapshot;
   visible: boolean;
-  onConfigure: () => void;
+  onConfigure: (selections: LaunchSelections) => void;
+  onClose: () => void;
+  onDismiss: () => void;
+  onRetry: () => void;
+  error: string | null;
+  supported: boolean;
 }
-
-function ModePicker({ target, snapshot, visible, onConfigure }: ModePickerProps) {
+function ModePicker({
+  target,
+  snapshot,
+  visible,
+  onConfigure,
+  onClose,
+  onDismiss,
+  onRetry,
+  error,
+  supported,
+}: ModePickerProps) {
   const { t } = useTranslation();
   const size = useIsCompactFormFactor() ? "md" : "sm";
-  const [model] = useState(() => openCollaborationLaunch(snapshot, target.mode));
+  const [model] = useState(() => openCollaborationLaunch(snapshot, target.mode, target.selections));
   useEffect(() => () => model.close(), [model]);
-  const { settings, conversation, supportsExecuteReview } = snapshot;
-  useEffect(
-    () => model.applySnapshot({ settings, conversation, supportsExecuteReview }),
-    [model, settings, conversation, supportsExecuteReview],
+  useEffect(() => model.applySnapshot(snapshot), [model, snapshot]);
+  const cwd = useWorkspaceFields(
+    target.serverId,
+    target.workspaceId,
+    (workspace) => workspace.workspaceDirectory,
   );
+  const catalog = useProvidersSnapshot(target.serverId, { cwd, enabled: visible && supported });
+  useEffect(() => {
+    if (catalog.entries) model.applyProviders(catalog.entries);
+  }, [model, catalog.entries]);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   const header = useMemo(
     () => ({
@@ -131,47 +145,54 @@ function ModePicker({ target, snapshot, visible, onConfigure }: ModePickerProps)
   );
   const close = useCallback(() => {
     if (useCollaborationLaunchStore.getState().request?.requestId !== target.requestId) return;
-    if (!model.getState().pending) closeCollaborationLaunch();
-  }, [model, target.requestId]);
+    if (!model.getState().pending) onClose();
+  }, [model, target.requestId, onClose]);
   const start = useCallback(() => {
-    void model.start(async (mode) => {
-      await enableCollaboration({ ...target, mode });
-      closeCollaborationLaunch();
+    void model.start(async (mode, settings) => {
+      await enableCollaboration({ ...target, mode, settings });
+      onClose();
     });
-  }, [model, target]);
-  const needsConfiguration = state.primaryAction !== "continue";
-  const reviewerMissing = state.mode === "execute_review" && !state.reviewer;
-  const primaryLabel = t(
-    {
-      configureReviewer: "collaboration.launch.configureReviewer",
-      configure: "collaboration.configure",
-      continue: "collaboration.continue",
-    }[state.primaryAction],
+  }, [model, target, onClose]);
+  const configure = useCallback(
+    () => onConfigure(model.getState().selections),
+    [model, onConfigure],
   );
-  const manageChevron = useMemo(
-    () => <ThemedChevron size={ICON_SIZE.sm} uniProps={mutedColor} />,
-    [],
-  );
-  const manageProfiles = useMemo(
+  const promptButton = useMemo(
     () => (
       <Button
-        onPress={onConfigure}
+        onPress={configure}
         size={size}
         variant="ghost"
         disabled={state.pending}
-        trailing={manageChevron}
-        testID="collaboration-manage-profiles"
+        testID="collaboration-manage-prompts"
       >
-        {t("collaboration.launch.manage")}
+        {t("collaboration.launch.prompts")}
       </Button>
     ),
-    [onConfigure, size, state.pending, manageChevron, t],
+    [configure, size, state.pending, t],
   );
+  const retryCatalog = useCallback(() => {
+    catalog.refetchIfStale();
+  }, [catalog]);
+  const ready = snapshot.ready && supported && !error;
+  let unavailable = <Spinner />;
+  if (snapshot.ready && !supported)
+    unavailable = (
+      <Text style={styles.secondary}>{t("collaboration.launchErrors.updateHost")}</Text>
+    );
+  if (error)
+    unavailable = (
+      <View style={styles.content}>
+        <Text style={styles.error}>{error}</Text>
+        <Button onPress={onRetry}>{t("collaboration.retry")}</Button>
+      </View>
+    );
   return (
     <AdaptiveModalSheet
       header={header}
       visible={visible}
       onClose={close}
+      onDismiss={onDismiss}
       dismissible={!state.pending}
       desktopMaxWidth={560}
       snapPoints={launchSnapPoints}
@@ -187,122 +208,152 @@ function ModePicker({ target, snapshot, visible, onConfigure }: ModePickerProps)
             {t("common.actions.cancel")}
           </Button>
           <Button
-            onPress={needsConfiguration ? onConfigure : start}
-            variant="default"
-            style={styles.primary}
-            textStyle={styles.primaryText}
-            disabled={state.pending || (!needsConfiguration && !state.canContinue)}
+            onPress={start}
+            disabled={!ready || !state.canContinue}
             loading={state.pending}
-            testID={needsConfiguration ? "collaboration-configure" : "collaboration-continue"}
+            testID="collaboration-continue"
           >
-            {primaryLabel}
+            {t("collaboration.continue")}
           </Button>
         </>
       }
     >
-      <View style={styles.content}>
-        <LaunchModeOptions
-          mode={state.mode}
-          disabled={state.locked || state.pending}
-          supportsExecuteReview={state.supportsExecuteReview}
-          onSelect={select}
-        />
-        {target.goal && <LaunchGoal goal={target.goal} />}
-        {!state.locked && (
-          <SettingsSection
-            title={t("collaboration.launch.agents")}
-            style={styles.profiles}
-            flush
-            trailing={manageProfiles}
-          >
-            <View>
-              <View style={styles.profileRow} testID="collaboration-launch-worker">
-                <ThemedUser size={ICON_SIZE.lg} uniProps={mutedColor} />
-                <Text style={styles.role}>{t("collaboration.launch.worker")}</Text>
-                <Text style={styles.profileName}>
-                  {state.worker ?? t("collaboration.launch.unconfigured")}
-                </Text>
+      {ready ? (
+        <View style={styles.content}>
+          <LaunchModeOptions
+            mode={state.mode}
+            disabled={state.locked || state.pending}
+            supportsExecuteReview
+            onSelect={select}
+          />
+          {target.goal && <LaunchGoal goal={target.goal} />}
+          <SettingsSection title={t("collaboration.launch.agents")} flush trailing={promptButton}>
+            {!catalog.entries && !state.agentsLocked ? (
+              <Spinner />
+            ) : (
+              <View style={styles.roles}>
+                {state.showDirector && <RoleModels role="director" model={model} state={state} />}
+                <RoleModels role="worker" model={model} state={state} />
+                <RoleModels role="reviewer" model={model} state={state} />
               </View>
-              <View
-                style={[styles.profileRow, styles.reviewRow]}
-                testID="collaboration-launch-reviewer"
-              >
-                <ThemedShield size={ICON_SIZE.lg} uniProps={mutedColor} />
-                <Text style={styles.role}>{t("collaboration.launch.reviewer")}</Text>
-                <View style={styles.profileValue}>
-                  <Text style={[styles.text, reviewerMissing && styles.warning]}>
-                    {state.reviewer ??
-                      (reviewerMissing
-                        ? t("collaboration.launch.unconfigured")
-                        : t("collaboration.sameReviewer"))}
-                  </Text>
-                  {reviewerMissing && (
-                    <Text style={styles.secondary}>{t("collaboration.launch.reviewerHint")}</Text>
-                  )}
-                </View>
-              </View>
-            </View>
+            )}
           </SettingsSection>
-        )}
-        {state.locked && <Text style={styles.secondary}>{t("collaboration.modeLocked")}</Text>}
-        {state.blocked === "configure" && (
-          <Text style={styles.secondary}>{t("collaboration.launchErrors.configure")}</Text>
-        )}
-        {state.error && (
-          <Text style={styles.error} accessibilityRole="alert">
-            {state.error}
-          </Text>
-        )}
-      </View>
+          {catalog.error && (
+            <View style={styles.roles}>
+              <Text style={styles.error}>{catalog.error}</Text>
+              <Button onPress={retryCatalog}>{t("collaboration.retry")}</Button>
+            </View>
+          )}
+          {state.locked && <Text style={styles.secondary}>{t("collaboration.modeLocked")}</Text>}
+          {state.error && (
+            <Text style={styles.error} accessibilityRole="alert">
+              {state.error}
+            </Text>
+          )}
+        </View>
+      ) : (
+        unavailable
+      )}
     </AdaptiveModalSheet>
   );
 }
-
+type LaunchModel = ReturnType<typeof openCollaborationLaunch>;
+interface RoleModelsProps {
+  role: LaunchRole;
+  model: LaunchModel;
+  state: ReturnType<LaunchModel["getState"]>;
+}
+function RoleModels({ role, model, state }: RoleModelsProps) {
+  const { t } = useTranslation();
+  const compact = useIsCompactFormFactor();
+  const size = compact ? "md" : "sm";
+  const selection = state.selections[role];
+  const optionalReview = role === "reviewer" && state.mode === "full";
+  const options = useMemo(
+    () =>
+      optionalReview
+        ? [
+            {
+              id: "",
+              value: "",
+              label: t("collaboration.sameReviewer"),
+              testID: "collaboration-reviewer-use-lead",
+            },
+            ...state.providerOptions,
+          ]
+        : state.providerOptions,
+    [optionalReview, state.providerOptions, t],
+  );
+  const providerDisplay = useMemo(
+    () => (selection ? { label: selection.providerLabel } : null),
+    [selection],
+  );
+  const modelDisplay = useMemo(
+    () => (selection?.model ? { label: selection.modelLabel } : null),
+    [selection],
+  );
+  const changeProvider = useCallback(
+    (value: string, display: { label: string }) => model.selectProvider(role, value, display.label),
+    [model, role],
+  );
+  const changeModel = useCallback(
+    (value: string, display: { label: string }) => model.selectModel(role, value, display.label),
+    [model, role],
+  );
+  const disabled = state.pending || state.agentsLocked;
+  return (
+    <View style={styles.role} testID={`collaboration-launch-${role}`}>
+      <Text style={styles.roleLabel}>{t(`collaboration.${role}ProfileId`)}</Text>
+      <View style={[styles.fields, compact && styles.compactFields]}>
+        <View style={styles.field}>
+          <SelectField
+            field={false}
+            size={size}
+            label={t("collaboration.launch.provider")}
+            triggerTestID={`collaboration-${role}-provider`}
+            value={selection?.provider ?? null}
+            selectedDisplay={providerDisplay}
+            options={options}
+            onChange={changeProvider}
+            disabled={disabled}
+            searchable
+            placeholder={
+              optionalReview ? t("collaboration.sameReviewer") : t("collaboration.launch.provider")
+            }
+            emptyText={t("collaboration.launch.noProviders")}
+          />
+        </View>
+        {selection && (
+          <View style={styles.field}>
+            <SelectField
+              field={false}
+              size={size}
+              label={t("collaboration.launch.model")}
+              triggerTestID={`collaboration-${role}-model`}
+              value={selection.model || null}
+              selectedDisplay={modelDisplay}
+              options={state.modelOptions[role]}
+              onChange={changeModel}
+              disabled={disabled}
+              searchable
+              placeholder={t("collaboration.launch.model")}
+              emptyText={t("collaboration.launch.noModels")}
+            />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
 const Spinner = withUnistyles(LoadingSpinner, (theme) => ({ color: theme.colors.foregroundMuted }));
-const ThemedUser = withUnistyles(UserRound);
-const ThemedShield = withUnistyles(ShieldCheck);
-const ThemedChevron = withUnistyles(ChevronRight);
-const mutedColor = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
 const styles = StyleSheet.create((theme) => ({
   content: { gap: theme.spacing[6] },
-  profiles: {
-    paddingTop: theme.spacing[4],
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-  },
-  profileRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: theme.spacing[3],
-    paddingVertical: theme.spacing[3],
-  },
-  reviewRow: { borderTopWidth: 1, borderTopColor: theme.colors.border },
-  role: {
-    width: 72,
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
-    lineHeight: theme.fontSize.base * 1.5,
-  },
-  profileValue: { flex: 1, minWidth: 0, gap: theme.spacing[2] },
-  profileName: {
-    flex: 1,
-    minWidth: 0,
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
-    lineHeight: theme.fontSize.base * 1.5,
-  },
-  primary: { flexShrink: 1 },
-  primaryText: { textAlign: "center" },
-  text: {
-    color: theme.colors.foreground,
-    fontSize: theme.fontSize.base,
-    lineHeight: theme.fontSize.base * 1.5,
-  },
-  secondary: {
-    color: theme.colors.foregroundMuted,
-    fontSize: theme.fontSize.sm,
-    lineHeight: theme.fontSize.sm * 1.5,
-  },
-  warning: { color: theme.colors.statusWarning },
-  error: { color: theme.colors.statusDanger, fontSize: theme.fontSize.sm },
+  roles: { gap: theme.spacing[4] },
+  role: { gap: theme.spacing[2] },
+  roleLabel: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
+  fields: { flexDirection: "row", gap: theme.spacing[2] },
+  compactFields: { flexDirection: "column" },
+  field: { flex: 1, minWidth: 0 },
+  secondary: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
 }));
