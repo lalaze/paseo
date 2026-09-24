@@ -1,3 +1,5 @@
+import { buildImageBackgroundTheme } from "../background-theme";
+import { darkTheme, lightTheme } from "@/styles/theme";
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
 import { readSkinPackage, skinDigest } from "./package";
@@ -171,4 +173,20 @@ describe("Dream Skin package import", () => {
     expect(adapted.colors.surface0).toBe("#000000");
     expect(adapted.colors.surface1).toBe("#1a1a1a");
   });
+});
+
+describe("wallpaper materials", () => {
+  it.each([darkTheme, lightTheme])(
+    "preserves the regular theme's colors and solid overlays",
+    (base) => {
+      const wallpaper = buildImageBackgroundTheme(base);
+      expect(wallpaper.colors.foreground).toBe(base.colors.foreground);
+      expect(wallpaper.colors.accent).toBe(base.colors.accent);
+      expect(wallpaper.colors.surface0).toBe(base.colors.surface0);
+      expect(wallpaper.colors.popover).toBe(base.colors.popover);
+      expect(wallpaper.colors.surfaceCanvas).toBe("transparent");
+      expect(wallpaper.colors.surfaceWorkspace).toBe("transparent");
+      expect(wallpaper.conversation.toolExpandedBackground).toBe("transparent");
+    },
+  );
 });

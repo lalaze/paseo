@@ -66,6 +66,7 @@ export const MAX_FONT_FAMILY_LENGTH = 200;
 
 export interface AppSettings {
   theme: ThemePreference;
+  bingWallpaperEnabled: boolean;
   /** Which contributed theme `theme: "plugin"` selects. */
   pluginThemeId: string | null;
   language: AppLanguage;
@@ -121,6 +122,7 @@ export interface Settings extends AppSettings {
 
 export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
   theme: DEFAULT_THEME_PREFERENCE,
+  bingWallpaperEnabled: false,
   pluginThemeId: null,
   language: "system",
   sendBehavior: "steer",
@@ -194,6 +196,7 @@ const DEFAULT_STORED_APP_SETTINGS = {
 const StoredAppSettingsSchema = z
   .looseObject({
     theme: ThemePreferenceSchema.catch(DEFAULT_THEME_PREFERENCE),
+    bingWallpaperEnabled: z.boolean().catch(false),
     pluginThemeId: z.string().nullable().catch(null),
     language: z
       .enum(["system", "ar", "en", "es", "fr", "ja", "ko", "pt-BR", "ru", "zh-CN"])

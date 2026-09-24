@@ -2282,6 +2282,29 @@ export const ja: TranslationResources = {
       },
     },
     appearance: {
+      bing: {
+        archive: "壁紙アーカイブ",
+        archiveDescription:
+          "更新時に画像をこの端末に保存します。アプリやサイトのデータを消去するとアーカイブも削除されます。",
+        empty: "保存された壁紙はありません。",
+        apply: "{{name}} を使用",
+        delete: "{{name}} を削除",
+        more: "さらに表示",
+        pinned: "壁紙を固定中 · 毎日の新しい画像は引き続き保存されます",
+        daily: "毎日更新",
+        resume: "毎日の更新を再開",
+        title: "Bing の日替わり壁紙",
+        enable: "Bing 壁紙を使う",
+        description:
+          "毎日自動更新します。有効にすると現在のスキンを解除し、スキンを選ぶと Bing 壁紙が無効になります。",
+        unavailable:
+          "Bing 壁紙に対応したホストに接続してください。必要に応じてホストを更新してください。",
+        loading: "壁紙を読み込み中…",
+        failed: "壁紙を読み込めませんでした：{{reason}}",
+        refresh: "更新",
+        attribution: "Bing で表示",
+        imageFailed: "壁紙画像を読み込めませんでした。",
+      },
       skins: {
         title: "画像スキン",
         description:

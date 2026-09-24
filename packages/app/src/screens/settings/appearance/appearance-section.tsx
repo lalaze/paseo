@@ -48,6 +48,7 @@ import type { PluginThemeOption } from "@/plugins/themes";
 import { settingsStyles } from "@/styles/settings";
 import { AppearancePreview } from "./appearance-preview";
 import { SidebarNavSection } from "./sidebar-nav-section";
+import { BingWallpaperSection } from "@/appearance/bing/section";
 import { ImageSkinsSection } from "@/appearance/skins/section";
 import { deactivateSkin, useSkinLibrary } from "@/appearance/skins/use-library";
 import { SKIN_LIBRARY_KEY } from "@/appearance/skins/model";
@@ -699,7 +700,9 @@ export function AppearanceSection() {
       <SettingsSection title={t("settings.appearance.theme.title")}>
         <View style={settingsStyles.card}>
           <ThemeRow
-            activeSkinName={skinLibrary?.active?.name ?? null}
+            activeSkinName={
+              settings.bingWallpaperEnabled ? null : (skinLibrary?.active?.name ?? null)
+            }
             disabled={themeMutation.isPending}
             value={settings.theme}
             pluginThemes={pluginThemes}
@@ -714,6 +717,7 @@ export function AppearanceSection() {
           </Text>
         ) : null}
       </SettingsSection>
+      <BingWallpaperSection />
       <ImageSkinsSection />
       <SettingsSection title={t("settings.appearance.detailLevel.title")}>
         <SettingsCard>

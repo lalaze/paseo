@@ -42,6 +42,27 @@ function makeDeps(
 }
 
 describe("loadAppSettingsFromStorage", () => {
+  it("restores Bing wallpaper independently of the regular theme and defaults old settings to off", async () => {
+    const deps = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "light", bingWallpaperEnabled: true }),
+      }),
+    });
+    expect(await loadAppSettingsFromStorage(deps)).toMatchObject({
+      theme: "light",
+      bingWallpaperEnabled: true,
+    });
+    const old = makeDeps({
+      storage: createInMemoryKeyValueStorage({
+        [APP_SETTINGS_KEY]: JSON.stringify({ theme: "dark" }),
+      }),
+    });
+    expect(await loadAppSettingsFromStorage(old)).toMatchObject({
+      theme: "dark",
+      bingWallpaperEnabled: false,
+    });
+  });
+
   it("preserves a persisted steer send behavior", async () => {
     const deps = makeDeps({
       storage: createInMemoryKeyValueStorage({

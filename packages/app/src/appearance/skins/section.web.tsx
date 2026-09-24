@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Linking, Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
+import { useAppSettings } from "@/hooks/use-settings";
 import { Button } from "@/components/ui/button";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
 import { settingsStyles } from "@/styles/settings";
@@ -27,9 +28,14 @@ interface SkinCardProps {
 }
 function SkinCard({ skin, selected, disabled, run }: SkinCardProps) {
   const { t } = useTranslation();
+  const { updateSettings } = useAppSettings();
   const select = useCallback(
-    () => run(() => selectSkin(skin.id, skin.strength)),
-    [run, skin.id, skin.strength],
+    () =>
+      run(async () => {
+        await selectSkin(skin.id, skin.strength);
+        await updateSettings({ bingWallpaperEnabled: false });
+      }),
+    [run, skin.id, skin.strength, updateSettings],
   );
   const imageStyle = useMemo<CSSProperties>(
     () => ({
@@ -83,6 +89,7 @@ export function ImageSkinsSection() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const library = useSkinLibrary();
+  const { settings, updateSettings } = useAppSettings();
   const input = useRef<HTMLInputElement>(null);
   const mutation = useMutation({
     mutationFn: (action: () => Promise<void>) => action(),
@@ -90,7 +97,7 @@ export function ImageSkinsSection() {
   });
   const { mutate: run, isPending } = mutation;
   const data = library.data;
-  const active = data?.active;
+  const active = settings.bingWallpaperEnabled ? null : data?.active;
   const pickFile = useCallback(() => input.current?.click(), []);
   const browseGallery = useCallback(
     () => run(() => Linking.openURL("https://dreamskin.cc/")),
@@ -115,9 +122,10 @@ export function ImageSkinsSection() {
         const imported = await readSkinPackage(new Uint8Array(await file.arrayBuffer()));
         const ready = await prepareSkinImage(imported);
         await saveSkin(ready);
+        await updateSettings({ bingWallpaperEnabled: false });
       });
     },
-    [run],
+    [run, updateSettings],
   );
 
   return (
@@ -182,7 +190,7 @@ export function ImageSkinsSection() {
                   key={strength}
                   skinId={active.id}
                   strength={strength}
-                  selected={data.strength === strength}
+                  selected={data?.strength === strength}
                   disabled={isPending}
                   run={run}
                 />

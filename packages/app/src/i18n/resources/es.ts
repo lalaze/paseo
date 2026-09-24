@@ -2315,6 +2315,29 @@ export const es: TranslationResources = {
       },
     },
     appearance: {
+      bing: {
+        archive: "Archivo de fondos",
+        archiveDescription:
+          "Las imágenes se guardan en este dispositivo al actualizarse. Borrar los datos de la aplicación o del sitio elimina el archivo.",
+        empty: "Aún no hay fondos archivados.",
+        apply: "Aplicar {{name}}",
+        delete: "Eliminar {{name}}",
+        more: "Mostrar más",
+        pinned: "Fondo fijo · las nuevas imágenes diarias se siguen archivando",
+        daily: "Actualización diaria",
+        resume: "Reanudar actualizaciones diarias",
+        title: "Fondo diario de Bing",
+        enable: "Usar fondo de Bing",
+        description:
+          "Se actualiza a diario. Al activarlo se desactiva el tema de imagen actual; elegir un tema de imagen desactiva el fondo de Bing.",
+        unavailable:
+          "Conéctate a un host compatible con fondos de Bing. Actualiza el host si es necesario.",
+        loading: "Cargando fondo…",
+        failed: "No se pudo cargar el fondo: {{reason}}",
+        refresh: "Actualizar",
+        attribution: "Ver en Bing",
+        imageFailed: "No se pudo cargar la imagen de fondo.",
+      },
       skins: {
         title: "Aspectos con imágenes",
         description:

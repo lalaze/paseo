@@ -2298,6 +2298,29 @@ export const ptBR: TranslationResources = {
       },
     },
     appearance: {
+      bing: {
+        archive: "Arquivo de papéis de parede",
+        archiveDescription:
+          "As imagens são salvas neste dispositivo a cada atualização. Limpar os dados do aplicativo ou site remove o arquivo.",
+        empty: "Nenhum papel de parede arquivado.",
+        apply: "Aplicar {{name}}",
+        delete: "Excluir {{name}}",
+        more: "Mostrar mais",
+        pinned: "Papel de parede fixo · novas imagens diárias continuam sendo arquivadas",
+        daily: "Atualização diária",
+        resume: "Retomar atualizações diárias",
+        title: "Papel de parede diário do Bing",
+        enable: "Usar papel de parede do Bing",
+        description:
+          "Atualiza diariamente. Ativar desativa o tema de imagem atual; escolher um tema de imagem desativa o papel de parede do Bing.",
+        unavailable:
+          "Conecte-se a um host compatível com papéis de parede do Bing. Atualize o host se necessário.",
+        loading: "Carregando papel de parede…",
+        failed: "Não foi possível carregar o papel de parede: {{reason}}",
+        refresh: "Atualizar",
+        attribution: "Ver no Bing",
+        imageFailed: "Não foi possível carregar a imagem de fundo.",
+      },
       skins: {
         title: "Temas com imagens",
         description:

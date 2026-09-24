@@ -428,3 +428,122 @@ test("applies the interface font size to settings text", async ({ page }) => {
   await expect(contentSizeInput).toHaveValue("21");
   await expect(sectionTitle).toHaveCSS("font-size", "10px");
 });
+
+test("Bing daily wallpaper is separate from image skins and survives reload", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await page.goto("/settings");
+  await openSettingsSection(page, "appearance");
+  const artwork = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 80;
+    canvas.height = 80;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#306090";
+    context.fillRect(0, 0, 80, 80);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  const buffer = Buffer.from(
+    zipSync({
+      "theme.json": strToU8(
+        JSON.stringify({
+          schemaVersion: 1,
+          id: "bing-switch-test",
+          name: "Bing switch test",
+          image: "background.png",
+          appearance: "dark",
+        }),
+      ),
+      "background.png": Buffer.from(artwork, "base64"),
+    }),
+  );
+  await page
+    .getByTestId("skin-file-input")
+    .setInputFiles({ name: "skin.zip", mimeType: "application/zip", buffer });
+  await expect(page.getByTestId("skin-background")).toBeVisible();
+  const toggle = page.getByRole("switch", { name: "Use Bing wallpaper", exact: true });
+  await expect(
+    page.getByText("Connect to a host that supports Bing wallpaper. Update the host if needed.", {
+      exact: true,
+    }),
+  ).toHaveCount(0, { timeout: 45_000 });
+  await toggle.click();
+  await expect(toggle).toBeChecked({ timeout: 45_000 });
+  await expect(page.getByTestId("skin-background")).toHaveCount(0);
+  const background = page.getByTestId("bing-wallpaper-background");
+  await expect(background).toBeVisible();
+  await expect
+    .poll(
+      () => background.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth),
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  const archiveCard = page.getByTestId("bing-archive-card");
+  await expect(archiveCard).toHaveCount(1);
+  const preview = archiveCard.getByTestId("bing-archive-preview");
+  await expect(preview).toBeVisible();
+  expect((await preview.boundingBox())?.height).toBeGreaterThan(100);
+  await expect(background.locator("img")).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
+  await page.context().setOffline(true);
+  try {
+    await archiveCard.getByRole("button", { name: /^Apply / }).click();
+    await expect(
+      page.getByText("Fixed wallpaper · new daily images will still be archived", { exact: true }),
+    ).toBeVisible();
+    await toggle.click();
+    await expect(toggle).not.toBeChecked();
+    await archiveCard.getByRole("button", { name: /^Apply / }).click();
+    await expect(toggle).toBeChecked();
+    await expect(background.locator("img")).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
+  } finally {
+    await page.context().setOffline(false);
+  }
+  await page.reload();
+  await expect(toggle).toBeChecked();
+  await expect(
+    page.getByText("Fixed wallpaper · new daily images will still be archived", { exact: true }),
+  ).toBeVisible();
+  await expect(archiveCard).toHaveCount(1);
+  await expect(background.locator("img")).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
+  await page.getByRole("button", { name: "Resume daily updates", exact: true }).click();
+  await expect(page.getByText("Daily updates", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("bing-wallpaper-desktop.png") });
+  await expect(page.getByLabel("Theme: System", { exact: true })).toBeVisible();
+  const workspace = await seedWorkspace({ repoPrefix: "bing-wallpaper-", title: "Bing wallpaper" });
+  try {
+    await gotoAppShell(page);
+    const row = page.getByTestId(`sidebar-workspace-row-${getServerId()}:${workspace.workspaceId}`);
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    await background.locator("img").evaluate((image: HTMLImageElement) => image.decode());
+    await page.screenshot({ path: testInfo.outputPath("bing-wallpaper-workspace.png") });
+  } finally {
+    await workspace.cleanup();
+  }
+  await page.goto("/settings");
+  await openSettingsSection(page, "appearance");
+  await page.reload();
+  await expect(toggle).toBeChecked();
+  await expect(background).toBeVisible();
+  await expect(page.getByTestId("skin-background")).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(background).toHaveCount(0);
+  await expect(page.getByTestId("skin-background")).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toBeChecked({ timeout: 45_000 });
+  await page.getByRole("button", { name: "Apply Bing switch test", exact: true }).click();
+  await expect(toggle).not.toBeChecked();
+  await expect(background).toHaveCount(0);
+  await expect(page.getByTestId("skin-background")).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toBeChecked({ timeout: 45_000 });
+  await page
+    .getByTestId("skin-file-input")
+    .setInputFiles({ name: "skin.zip", mimeType: "application/zip", buffer });
+  await expect(toggle).not.toBeChecked();
+  await expect(background).toHaveCount(0);
+  await expect(page.getByTestId("skin-background")).toBeVisible();
+});

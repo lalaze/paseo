@@ -2320,6 +2320,29 @@ export const fr: TranslationResources = {
       },
     },
     appearance: {
+      bing: {
+        archive: "Archives des fonds d’écran",
+        archiveDescription:
+          "Les images sont enregistrées sur cet appareil à chaque mise à jour. Effacer les données de l’application ou du site supprime les archives.",
+        empty: "Aucun fond d’écran archivé.",
+        apply: "Appliquer {{name}}",
+        delete: "Supprimer {{name}}",
+        more: "Afficher plus",
+        pinned: "Fond d’écran fixe · les nouvelles images restent archivées chaque jour",
+        daily: "Mise à jour quotidienne",
+        resume: "Reprendre les mises à jour quotidiennes",
+        title: "Fond quotidien Bing",
+        enable: "Utiliser le fond Bing",
+        description:
+          "Actualisation quotidienne. Cette option désactive le thème illustré actuel ; choisir un thème illustré désactive le fond Bing.",
+        unavailable:
+          "Connectez-vous à un hôte prenant en charge les fonds Bing. Mettez-le à jour si nécessaire.",
+        loading: "Chargement du fond…",
+        failed: "Impossible de charger le fond : {{reason}}",
+        refresh: "Actualiser",
+        attribution: "Voir sur Bing",
+        imageFailed: "Impossible de charger l’image du fond.",
+      },
       skins: {
         title: "Habillages illustrés",
         description:

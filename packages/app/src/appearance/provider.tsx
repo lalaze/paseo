@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useColorScheme } from "react-native";
 import { UnistylesRuntime } from "react-native-unistyles";
 import { DEFAULT_THEME_PREFERENCE, useAppSettings, type AppSettings } from "@/hooks/use-settings";
 import {
@@ -16,6 +17,9 @@ import {
 } from "@/plugins/themes";
 import {
   PLUGIN_THEME_NAMES,
+  REGISTERED_THEMES,
+  darkTheme,
+  lightTheme,
   PLUGIN_THEME_PREFERENCE,
   SKIN_THEME_NAMES,
   THEME_TO_UNISTYLES,
@@ -24,6 +28,9 @@ import { applyAppearance } from "./apply";
 import { useSkinLibrary } from "./skins/use-library";
 import { buildSkinTheme } from "./skins/theme";
 import { SkinBackground } from "./skins/background";
+import { buildImageBackgroundTheme } from "./background-theme";
+import { BingBackground } from "./bing/background";
+import { BingWallpaperContext, useBingWallpaperController } from "./bing/use-wallpaper";
 import { NavigationThemeProvider } from "@/navigation/theme-provider";
 
 interface ContributedThemes {
@@ -64,18 +71,34 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const [hasAppliedAppearance, setHasAppliedAppearance] = useState(false);
   const options = usePluginThemeCatalog();
   const skinLibrary = useSkinLibrary();
-  const activeSkin = skinLibrary.data?.active;
+  const bing = useBingWallpaperController();
+  const colorScheme = useColorScheme();
+  const activeSkin = bing.enabled ? null : skinLibrary.data?.active;
   const skinTheme = useMemo(() => (activeSkin ? buildSkinTheme(activeSkin) : null), [activeSkin]);
   const selected = useMemo(() => {
     if (settings.theme !== PLUGIN_THEME_PREFERENCE) return null;
     return options.find((option) => option.id === settings.pluginThemeId) ?? null;
   }, [options, settings.pluginThemeId, settings.theme]);
 
+  const builtInPreference =
+    settings.theme === PLUGIN_THEME_PREFERENCE ? DEFAULT_THEME_PREFERENCE : settings.theme;
+  const systemTheme = colorScheme === "light" ? lightTheme : darkTheme;
+  const builtInTheme =
+    builtInPreference === "auto"
+      ? systemTheme
+      : REGISTERED_THEMES[THEME_TO_UNISTYLES[builtInPreference]];
+  const baseTheme = selected?.theme ?? builtInTheme;
+  const hasWallpaper = bing.enabled && Boolean(bing.wallpaper);
+  const imageTheme = useMemo(
+    () => (hasWallpaper ? buildImageBackgroundTheme(baseTheme) : skinTheme),
+    [hasWallpaper, baseTheme, skinTheme],
+  );
+
   useEffect(() => {
     if (isLoading || skinLibrary.isPending) return;
-    if (skinTheme) {
-      const name = SKIN_THEME_NAMES[skinTheme.colorScheme];
-      UnistylesRuntime.updateTheme(name, () => skinTheme);
+    if (imageTheme) {
+      const name = SKIN_THEME_NAMES[imageTheme.colorScheme];
+      UnistylesRuntime.updateTheme(name, () => imageTheme);
       UnistylesRuntime.setAdaptiveThemes(false);
       UnistylesRuntime.setTheme(name);
     } else {
@@ -93,7 +116,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   }, [
     isLoading,
     skinLibrary.isPending,
-    skinTheme,
+    imageTheme,
     selected,
     settings.theme,
     settings.uiFontFamily,
@@ -122,8 +145,18 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
   return (
     <ContributedThemesContext.Provider value={value}>
-      <SkinBackground />
-      <NavigationThemeProvider>{children}</NavigationThemeProvider>
+      <BingWallpaperContext.Provider value={bing}>
+        <SkinBackground disabled={bing.enabled} />
+        <BingBackground
+          url={bing.enabled ? bing.imageUrl : null}
+          imageAttempt={bing.imageAttempt}
+          color={baseTheme.colors.surface0}
+          onError={bing.imageFailed}
+          onLoad={bing.imageLoaded}
+        >
+          <NavigationThemeProvider>{children}</NavigationThemeProvider>
+        </BingBackground>
+      </BingWallpaperContext.Provider>
     </ContributedThemesContext.Provider>
   );
 }

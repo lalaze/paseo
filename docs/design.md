@@ -23,6 +23,14 @@ Desktop and web image skins import Dream Skin v1 ZIP artwork and color tokens th
 never applied. Keep imports in the device's IndexedDB, separate from host settings and
 plugin theme contributions. Preserve package attribution and license text; the loader's
 license does not grant redistribution rights to gallery artwork.
+Bing daily wallpaper is a separate background source in `packages/app/src/appearance/bing/`.
+It keeps the regular theme's colors. Enabling it deactivates the imported skin without deleting
+the library; applying or importing a skin turns Bing off. Fetch Bing metadata and JPEGs through the daemon
+because Bing does not allow browser CORS. Archive image bytes on the device (IndexedDB on web,
+document files on native), separately from app settings. Keep attribution with every entry.
+Pinning an archived image keeps daily collection enabled while Bing mode is active and the app
+is visible; it does not backfill days when the app was closed. Archives survive restarts but not
+clearing app/site data, and do not sync between devices.
 Keep the theme picker visible while a skin is active and show the skin's name as its current
 value. Choosing a regular theme deactivates the skin without deleting it from the library.
 

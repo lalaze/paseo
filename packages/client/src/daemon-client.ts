@@ -4993,6 +4993,27 @@ export class DaemonClient {
     });
   }
 
+  async getBingWallpaperImage(url: string) {
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "appearance.bing.get_image.request", url },
+      responseType: "appearance.bing.get_image.response",
+      timeout: 30_000,
+    });
+  }
+
+  async getBingWallpaper(
+    market: Extract<
+      SessionInboundMessage,
+      { type: "appearance.bing.get_wallpaper.request" }
+    >["market"],
+  ) {
+    return this.sendCorrelatedSessionRequest({
+      message: { type: "appearance.bing.get_wallpaper.request", market },
+      responseType: "appearance.bing.get_wallpaper.response",
+      timeout: 20_000,
+    });
+  }
+
   async getDaemonStatus(options?: DaemonStatusOptions): Promise<DaemonStatusPayload> {
     if (!this.lastServerInfoMessage) throw new DaemonConnectionError("Transport not connected");
     if (this.lastServerInfoMessage?.features?.daemonStatusRpc !== true) {

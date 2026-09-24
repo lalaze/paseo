@@ -2381,6 +2381,28 @@ export const en = {
       },
     },
     appearance: {
+      bing: {
+        archive: "Wallpaper archive",
+        archiveDescription:
+          "Images are saved on this device as they update. Clearing app or site data removes the archive.",
+        empty: "No archived wallpapers yet.",
+        apply: "Apply {{name}}",
+        delete: "Delete {{name}}",
+        more: "Show more",
+        pinned: "Fixed wallpaper · new daily images will still be archived",
+        daily: "Daily updates",
+        resume: "Resume daily updates",
+        title: "Bing daily wallpaper",
+        enable: "Use Bing wallpaper",
+        description:
+          "Refreshes daily. Enabling this turns off the current image skin; choosing a skin turns Bing wallpaper off.",
+        unavailable: "Connect to a host that supports Bing wallpaper. Update the host if needed.",
+        loading: "Loading wallpaper…",
+        failed: "Could not load wallpaper: {{reason}}",
+        refresh: "Refresh",
+        attribution: "View on Bing",
+        imageFailed: "The wallpaper image could not be loaded.",
+      },
       skins: {
         title: "Image skins",
         description:

@@ -2271,6 +2271,29 @@ export const ko: TranslationResources = {
       },
     },
     appearance: {
+      bing: {
+        archive: "배경화면 보관함",
+        archiveDescription:
+          "업데이트된 이미지를 이 기기에 저장합니다. 앱 또는 사이트 데이터를 지우면 보관함도 삭제됩니다.",
+        empty: "저장된 배경화면이 없습니다.",
+        apply: "{{name}} 적용",
+        delete: "{{name}} 삭제",
+        more: "더 보기",
+        pinned: "배경화면 고정 · 새로운 일일 이미지도 계속 저장됩니다",
+        daily: "매일 업데이트",
+        resume: "일일 업데이트 재개",
+        title: "Bing 일일 배경화면",
+        enable: "Bing 배경화면 사용",
+        description:
+          "매일 자동으로 갱신합니다. 활성화하면 현재 스킨이 해제되며 스킨을 선택하면 Bing 배경화면이 꺼집니다.",
+        unavailable:
+          "Bing 배경화면을 지원하는 호스트에 연결하세요. 필요한 경우 호스트를 업데이트하세요.",
+        loading: "배경화면 로딩 중…",
+        failed: "배경화면을 불러올 수 없습니다: {{reason}}",
+        refresh: "새로고침",
+        attribution: "Bing에서 보기",
+        imageFailed: "배경화면 이미지를 불러오지 못했습니다.",
+      },
       skins: {
         title: "이미지 스킨",
         description:

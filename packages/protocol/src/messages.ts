@@ -1367,6 +1367,44 @@ export const WaitForFinishRequestSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 });
 
+export const BingWallpaperSchema = z.object({
+  date: z.string(),
+  url: z.string(),
+  title: z.string(),
+  copyright: z.string(),
+  copyrightUrl: z.string(),
+});
+export type BingWallpaper = z.infer<typeof BingWallpaperSchema>;
+
+export const BingWallpaperRequestSchema = z.object({
+  type: z.literal("appearance.bing.get_wallpaper.request"),
+  requestId: z.string(),
+  market: z.enum(["en-US", "zh-CN", "ja-JP", "ko-KR", "fr-FR", "es-ES", "pt-BR", "ru-RU", "ar-SA"]),
+});
+
+export const BingWallpaperResponseSchema = z.object({
+  type: z.literal("appearance.bing.get_wallpaper.response"),
+  payload: z.object({
+    requestId: z.string(),
+    wallpaper: BingWallpaperSchema.nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
+export const BingWallpaperImageRequestSchema = z.object({
+  type: z.literal("appearance.bing.get_image.request"),
+  requestId: z.string(),
+  url: z.string(),
+});
+export const BingWallpaperImageResponseSchema = z.object({
+  type: z.literal("appearance.bing.get_image.response"),
+  payload: z.object({
+    requestId: z.string(),
+    base64: z.string().nullable(),
+    error: z.string().nullable(),
+  }),
+});
+
 export const DaemonGetStatusRequestSchema = z.object({
   type: z.literal("daemon.get_status.request"),
   requestId: z.string(),
@@ -3189,6 +3227,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   SetVoiceModeMessageSchema,
   SendAgentMessageRequestSchema,
   WaitForFinishRequestSchema,
+  BingWallpaperRequestSchema,
+  BingWallpaperImageRequestSchema,
   DaemonGetStatusRequestSchema,
   DaemonGetPairingOfferRequestSchema,
   DaemonConfigReloadRequestSchema,
@@ -3568,6 +3608,8 @@ export const ServerInfoStatusPayloadSchema = z
         forgeSearch: z.boolean().optional(),
         // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
         daemonStatusRpc: z.boolean().optional(),
+        bingWallpaper: z.boolean().optional(),
+        bingWallpaperArchive: z.boolean().optional(),
         // COMPAT(daemonConfigReload): added in v0.4.0, remove gate after 2027-02-14.
         daemonConfigReload: z.boolean().optional(),
         // COMPAT(relayConfig): added in v0.2.6, remove gate after 2027-01-31.
@@ -6824,6 +6866,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   WorkspaceMarkUnreadResponseSchema,
   SendAgentMessageResponseMessageSchema,
   SetVoiceModeResponseMessageSchema,
+  BingWallpaperResponseSchema,
+  BingWallpaperImageResponseSchema,
   DaemonGetStatusResponseSchema,
   DaemonGetPairingOfferResponseSchema,
   DaemonConfigReloadResponseSchema,

@@ -1,3 +1,4 @@
+import { getBingWallpaper, getBingWallpaperImage } from "./appearance/bing.js";
 import type { CollaborationService } from "./collaboration/service.js";
 import { searchTimeline } from "./agent/chat-search/index.js";
 import type { BrowserToolsBroker } from "./browser-tools/broker.js";
@@ -2581,6 +2582,48 @@ export class Session {
     };
   }
 
+  private async handleBingWallpaperImageRequest(
+    msg: Extract<SessionInboundMessage, { type: "appearance.bing.get_image.request" }>,
+  ): Promise<void> {
+    try {
+      const base64 = await getBingWallpaperImage(msg.url);
+      this.emit({
+        type: "appearance.bing.get_image.response",
+        payload: { requestId: msg.requestId, base64, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "appearance.bing.get_image.response",
+        payload: {
+          requestId: msg.requestId,
+          base64: null,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  private async handleBingWallpaperRequest(
+    msg: Extract<SessionInboundMessage, { type: "appearance.bing.get_wallpaper.request" }>,
+  ): Promise<void> {
+    try {
+      const wallpaper = await getBingWallpaper(msg.market);
+      this.emit({
+        type: "appearance.bing.get_wallpaper.response",
+        payload: { requestId: msg.requestId, wallpaper, error: null },
+      });
+    } catch (error) {
+      this.emit({
+        type: "appearance.bing.get_wallpaper.response",
+        payload: {
+          requestId: msg.requestId,
+          wallpaper: null,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
   private dispatchVoiceAndControlMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "voice_audio_chunk":
@@ -2774,6 +2817,17 @@ export class Session {
     }
   }
 
+  private dispatchAppearanceMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    switch (msg.type) {
+      case "appearance.bing.get_image.request":
+        return this.handleBingWallpaperImageRequest(msg);
+      case "appearance.bing.get_wallpaper.request":
+        return this.handleBingWallpaperRequest(msg);
+      default:
+        return undefined;
+    }
+  }
+
   private dispatchAgentConfigMessage(msg: SessionInboundMessage): Promise<void> | undefined {
     switch (msg.type) {
       case "set_agent_mode_request":
@@ -2822,7 +2876,7 @@ export class Session {
       case "write_project_config_request":
         return this.projectConfigSession.handleWriteProjectConfigRequest(msg);
       default:
-        return undefined;
+        return this.dispatchAppearanceMessage(msg);
     }
   }
 

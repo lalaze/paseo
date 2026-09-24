@@ -2236,6 +2236,26 @@ export const zhCN: TranslationResources = {
       },
     },
     appearance: {
+      bing: {
+        archive: "壁纸归档",
+        archiveDescription: "更新时自动保存图片到当前设备。清除应用或网站数据会删除归档。",
+        empty: "还没有归档壁纸。",
+        apply: "使用 {{name}}",
+        delete: "删除 {{name}}",
+        more: "显示更多",
+        pinned: "已固定壁纸 · 新的每日壁纸仍会自动归档",
+        daily: "每日自动更新",
+        resume: "恢复每日更新",
+        title: "Bing 每日壁纸",
+        enable: "使用 Bing 壁纸",
+        description: "每天自动更新。开启后停用当前皮肤；重新选择皮肤会关闭 Bing 壁纸。",
+        unavailable: "请连接支持 Bing 壁纸的主机，必要时更新主机。",
+        loading: "正在加载壁纸…",
+        failed: "无法加载壁纸：{{reason}}",
+        refresh: "刷新",
+        attribution: "在 Bing 中查看",
+        imageFailed: "壁纸图片加载失败。",
+      },
       skins: {
         title: "图片皮肤",
         description:

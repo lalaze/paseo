@@ -3,9 +3,9 @@ import { createPortal } from "react-dom";
 import { darkTheme, lightTheme } from "@/styles/theme";
 import { useSkinLibrary } from "./use-library";
 
-export function SkinBackground() {
+export function SkinBackground({ disabled = false }: { disabled?: boolean }) {
   const { data } = useSkinLibrary();
-  const active = data?.active;
+  const active = disabled ? null : data?.active;
   const blob = active?.image;
   const [source, setSource] = useState<{ image: Blob; url: string } | null>(null);
   useEffect(() => {

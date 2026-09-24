@@ -1714,6 +1714,8 @@ export class VoiceAssistantWebSocketServer {
         forgeSearch: true,
         // COMPAT(daemonStatusRpc): added in v0.1.76, remove gate after 2026-11-18.
         ...(this.advertiseDaemonStatusRpc ? { daemonStatusRpc: true } : {}),
+        bingWallpaper: true,
+        bingWallpaperArchive: true,
         // COMPAT(daemonConfigReload): added in v0.4.0, remove gate after 2027-02-14.
         daemonConfigReload: true,
         // COMPAT(relayConfig): added in v0.2.6, remove gate after 2027-01-31.

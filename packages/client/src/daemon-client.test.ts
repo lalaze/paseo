@@ -6904,3 +6904,58 @@ test("reviewed plugin updates gate before requests and preserve exact proposal d
     ]);
   }
 });
+
+test("Bing wallpaper requests correlate metadata and errors", async () => {
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "bing-wallpaper-test",
+    logger: createMockLogger(),
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connected = client.connect();
+  mock.triggerOpen({ features: { bingWallpaper: true } });
+  await connected;
+  const wallpaper = {
+    date: "202609231600",
+    url: "https://www.bing.com/th?id=OHR.Test.jpg",
+    title: "Coast",
+    copyright: "© Photographer",
+    copyrightUrl: "https://www.bing.com/search?q=Coast",
+  };
+  const request = client.getBingWallpaper("zh-CN");
+  const sent = parseSentFrame(mock.sent[0]);
+  expect(sent).toMatchObject({ type: "appearance.bing.get_wallpaper.request", market: "zh-CN" });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "appearance.bing.get_wallpaper.response",
+      payload: { requestId: sent.requestId, wallpaper, error: null },
+    }),
+  );
+  await expect(request).resolves.toMatchObject({ wallpaper, error: null });
+
+  const retry = client.getBingWallpaper("en-US");
+  const retrySent = parseSentFrame(mock.sent[1]);
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "appearance.bing.get_wallpaper.response",
+      payload: { requestId: retrySent.requestId, wallpaper: null, error: "Bing unavailable" },
+    }),
+  );
+  await expect(retry).resolves.toMatchObject({ wallpaper: null, error: "Bing unavailable" });
+  const download = client.getBingWallpaperImage(wallpaper.url);
+  const imageSent = parseSentFrame(mock.sent[2]);
+  expect(imageSent).toMatchObject({
+    type: "appearance.bing.get_image.request",
+    url: wallpaper.url,
+  });
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "appearance.bing.get_image.response",
+      payload: { requestId: imageSent.requestId, base64: "/9j/test", error: null },
+    }),
+  );
+  await expect(download).resolves.toMatchObject({ base64: "/9j/test", error: null });
+});
