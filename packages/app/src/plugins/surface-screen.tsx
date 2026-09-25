@@ -252,7 +252,7 @@ export function PluginSurfaceScreen() {
 const styles = StyleSheet.create((theme) => ({
   screen: {
     flex: 1,
-    backgroundColor: theme.colors.surface0,
+    backgroundColor: theme.colors.surfaceCanvas,
   },
   body: {
     flex: 1,

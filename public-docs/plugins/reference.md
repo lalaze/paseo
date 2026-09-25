@@ -662,7 +662,6 @@ export function Main({ theme, host, layout }: PluginSurfaceProps) {
       screen: {
         flex: 1,
         padding: layout.compact ? 16 : 24,
-        backgroundColor: theme.colors.surface0,
       },
       title: { color: theme.colors.foreground },
       detail: { color: theme.colors.foregroundMuted },
@@ -1001,7 +1000,7 @@ Recreate styles when `theme` or `layout.compact` changes.
 | ------------------------------- | -------------------------- | ----------------------------------- |
 | `theme.colors.foreground`       | Every primary `Text`       | Titles and body copy                |
 | `theme.colors.foregroundMuted`  | Secondary `Text`           | Labels and supporting copy          |
-| `theme.colors.surface0`         | Root view                  | Panel background                    |
+| `theme.colors.surface0`         | Opaque surfaces            | Modal and inset backgrounds         |
 | `theme.colors.surface1`         | Raised surfaces            | Cards and panels                    |
 | `theme.colors.surface2`         | Control surfaces           | Inputs and secondary controls       |
 | `theme.colors.border`           | Surface boundaries         | Borders and dividers                |
@@ -1014,6 +1013,9 @@ Recreate styles when `theme` or `layout.compact` changes.
 | `layout.platform`               | Platform-specific behavior | `ios`, `android`, or `web`          |
 
 Do not hardcode `#000`, `#fff`, or React Native's default text color. Primary copy uses `foreground`. Labels use `foregroundMuted`. Tighten padding when `layout.compact` is true.
+
+Leave full-page root views and scroll containers transparent so the host canvas can show the
+user's background image. Use solid surface tokens for bounded cards, controls, and overlays.
 
 Workspace and agent panels receive the same `theme`, `layout`, and optional `navigation` fields.
 
