@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { parseArgs, promisify } from "node:util";
 import { isMainModule } from "./is-main-module.mjs";
+import { quotaPatchSnapshot } from "./personal-quota/install.mjs";
 
 const exec = promisify(execFile);
 const repo = path.resolve(import.meta.dirname, "..");
@@ -314,6 +315,20 @@ node scripts/deploy-personal.mjs "\${args[@]}"
       );
     }
     if (action !== "prepare") {
+      assert.ok(
+        plan.local.quotaPatchSnapshot,
+        "Local runtime lacks quota patches; prepare both hosts again",
+      );
+      assert.equal(
+        plan.local.quotaPatchSnapshot,
+        await quotaPatchSnapshot(),
+        "Quota bundle changed; prepare both hosts again",
+      );
+      assert.equal(
+        plan.local.quotaPatchSnapshot,
+        plan.code.quotaPatchSnapshot,
+        "Quota patches differ; prepare both hosts again",
+      );
       await activateBoth(targets);
       process.stdout.write(`Deployment complete: ${host} and local.\n`);
     } else {

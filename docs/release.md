@@ -43,6 +43,16 @@ It builds the current working tree, including uncommitted edits, copies the
 daemon/CLI runtime and Web UI into `artifacts/personal/releases/`, and verifies a temporary
 daemon with its own home and port. It does not stop your running daemon or change npm packages.
 
+Personal preparation always installs the Google Antigravity quota reader and Kimi CLI-managed
+credential renewal from `scripts/personal-quota/` into the new runtime before verification.
+The pinned bundle travels with the source snapshot to both hosts; it does not depend on a
+sibling plugin checkout, npm installation, or PATH wrapper. Compatibility checks retain the
+provider declaration omitted by runtime tracing and reject changed quota modules, wire schemas,
+or node-pty versions. Review and adapt the bundle when these checks fail; do not bypass them.
+Preparation and activation verify the installed file hashes. Missing patches block activation
+before stopping the daemon. Explicit `rollback` can still recover to an older unpatched release.
+Installation does not query accounts or renew credentials; providers do that when usage is read.
+
 The runtime uses the same dependency trace as the Nix build. It copies installed dependencies;
 it does not reinstall them on each deployment. Run `npm ci` when the lockfile changes.
 Build on the target OS and architecture because terminal and speech dependencies are native.
@@ -67,9 +77,9 @@ code, not data.
 
 The stable CLI is `artifacts/personal/bin/paseo`. Use this path for future starts and service
 definitions, or add its absolute directory to PATH before the npm bin directory. The script
-does not replace existing `paseo` wrappers or run their custom patch hooks: apply any required
-local patches to the source before preparing a runtime. The original npm installation stays
-available for recovery.
+does not replace existing `paseo` wrappers or run their custom patch hooks. The two quota patches
+above are built into personal preparation; other wrapper patches are not. The original npm
+installation stays available for recovery.
 
 After the first migration, build and activate with one command:
 

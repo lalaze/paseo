@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -191,8 +192,92 @@ async function personalDeployment(t) {
     if (runtime.failStart && target === entry) throw new Error("start failed");
     return "";
   }
-  return { root, home, release, oldRelease, oldEntry, entry, state, calls, runtime, invoke };
+  return {
+    root,
+    home,
+    release,
+    oldRelease,
+    oldEntry,
+    entry,
+    state,
+    calls,
+    runtime,
+    invoke,
+    verify: async () => {},
+  };
 }
+
+test("personal activation refuses a runtime missing quota patches before stopping the daemon", async (t) => {
+  const { activate } = await import("./deploy-personal.mjs");
+  const fixture = await personalDeployment(t);
+  await assert.rejects(activate({ ...fixture, verify: undefined }), /quota-patches.json/);
+  assert.deepEqual(fixture.calls, []);
+  assert.equal(fixture.runtime.running, fixture.oldEntry);
+});
+
+test("personal quota patches preserve upstream providers and renew before rereading Kimi credentials", async () => {
+  const { patchQuotaModules } = await import("./personal-quota/install.mjs");
+  const original = {
+    manifest: 'export const PROVIDER_USAGE_FETCHERS = [\n{ providerId: "kimi" },\n];',
+    kimi: "async function read() {\n                return { ...credentials, access_token: credentials.access_token };\n}",
+  };
+  const patched = patchQuotaModules(original);
+  assert.match(patched.manifest, /providerId: "antigravity-acp"/);
+  assert.match(patched.manifest, /providerId: "kimi"/);
+  assert.match(
+    patched.kimi,
+    /await ensureKimiCredentialsFresh\(path, credentials\);\n\s+const refreshed = await this.readCredentialFile\(path\);/,
+  );
+  assert.match(patched.kimi, /access_token: refreshed.access_token/);
+  assert.throws(() => patchQuotaModules(patched), /existing Antigravity/);
+  assert.throws(() => patchQuotaModules({ ...original, kimi: "changed upstream" }), /exactly one/);
+  assert.throws(
+    () => patchQuotaModules({ ...original, manifest: "changed upstream" }),
+    /exactly one/,
+  );
+});
+
+test("incompatible quota runtime aborts installation before writing patch payloads", async (t) => {
+  const { installQuotaPatches } = await import("./personal-quota/install.mjs");
+  const root = await mkdtemp(join(tmpdir(), "paseo-quota-incompatible-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const quota = join(root, "packages/server/dist/server/services/quota-fetcher");
+  await mkdir(quota, { recursive: true });
+  await writeFile(join(quota, "manifest.js"), "incompatible upstream");
+  await assert.rejects(installQuotaPatches(root), /Quota compatibility changed/);
+  await assert.rejects(readFile(join(root, "quota-patches.json")), { code: "ENOENT" });
+  await assert.rejects(readFile(join(quota, "providers/antigravity.js")), { code: "ENOENT" });
+});
+
+test("quota verification detects changed and missing installed files before activation", async (t) => {
+  const { quotaPatchSnapshot, verifyQuotaPatches } = await import("./personal-quota/install.mjs");
+  const { activate } = await import("./deploy-personal.mjs");
+  const fixture = await personalDeployment(t);
+  const base = "packages/server/dist/server/services/quota-fetcher";
+  const files = {};
+  const paths = [
+    "manifest.js",
+    "providers/kimi.js",
+    "providers/antigravity.js",
+    "providers/antigravity-local.js",
+    "providers/kimi-refresh.js",
+  ];
+  for (const file of paths) {
+    const relative = `${base}/${file}`;
+    await mkdir(join(fixture.release, relative, ".."), { recursive: true });
+    await writeFile(join(fixture.release, relative), file);
+    files[relative] = createHash("sha256").update(file).digest("hex");
+  }
+  const receipt = { snapshotId: await quotaPatchSnapshot(), files };
+  await writeFile(join(fixture.release, "quota-patches.json"), JSON.stringify(receipt));
+  await verifyQuotaPatches(fixture.release);
+  await writeFile(join(fixture.release, base, "manifest.js"), "accidentally overwritten");
+  await assert.rejects(activate({ ...fixture, verify: undefined }), /Quota runtime changed/);
+  assert.deepEqual(fixture.calls, []);
+  await writeFile(join(fixture.release, base, "manifest.js"), "manifest.js");
+  await rm(join(fixture.release, base, "providers/kimi-refresh.js"));
+  await assert.rejects(verifyQuotaPatches(fixture.release), /kimi-refresh.js/);
+});
 
 test("personal deployment switches only after health checks and records the previous runtime", async (t) => {
   const { activate } = await import("./deploy-personal.mjs");

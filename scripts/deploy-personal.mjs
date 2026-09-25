@@ -18,6 +18,11 @@ import {
 import path from "node:path";
 import { promisify, parseArgs } from "node:util";
 import { isMainModule } from "./is-main-module.mjs";
+import {
+  installQuotaPatches,
+  quotaCompatibilityFiles,
+  verifyQuotaPatches,
+} from "./personal-quota/install.mjs";
 
 const exec = promisify(execFile);
 const repo = path.resolve(import.meta.dirname, "..");
@@ -96,6 +101,7 @@ async function assertHealthy(entry, home, invoke) {
 }
 
 export async function verifyRuntime(release) {
+  await verifyQuotaPatches(release);
   const home = await mkdtemp(path.join(release, ".smoke-"));
   const entry = path.join(release, cliPath);
   await writeFile(
@@ -139,13 +145,19 @@ async function prepare(root, sourceInfo) {
     capture: true,
     env: { ...process.env, PASEO_TRACE_DESKTOP: "0" },
   });
-  const files = new Set([...traced.trim().split("\n"), "package.json", "LICENSE"]);
+  const files = new Set([
+    ...traced.trim().split("\n"),
+    "package.json",
+    "LICENSE",
+    ...quotaCompatibilityFiles,
+  ]);
   await copyRuntime({ source: repo, destination: release, files });
   await cp(
     path.join(repo, "packages/server/dist/server/web-ui"),
     path.join(release, "packages/server/dist/server/web-ui"),
     { recursive: true, mode: constants.COPYFILE_FICLONE },
   );
+  const quotaPatches = await installQuotaPatches(release);
   await verifyRuntime(release);
   const metadata = {
     release,
@@ -155,6 +167,7 @@ async function prepare(root, sourceInfo) {
     platform: process.platform,
     arch: process.arch,
     nodeAbi: process.versions.modules,
+    quotaPatchSnapshot: quotaPatches.snapshotId,
     preparedAt: new Date().toISOString(),
   };
   await saveJson(path.join(release, "personal-release.json"), metadata);
@@ -164,7 +177,15 @@ async function prepare(root, sourceInfo) {
 }
 
 // invoke is the daemon CLI boundary. Filesystem transitions remain real in tests.
-export async function activate({ root, release, home, previousCli, invoke = daemon }) {
+export async function activate({
+  root,
+  release,
+  home,
+  previousCli,
+  invoke = daemon,
+  verify = verifyQuotaPatches,
+}) {
+  await verify(release);
   const statePath = path.join(root, "deployment.json");
   const state = await optionalJson(statePath);
   if (state) assert.equal(state.home, home, "Use the same --home for this deployment root");
@@ -282,6 +303,8 @@ deploy/activate/rollback stop the full supervisor, interrupting its running agen
       release: metadata.release,
       home: path.resolve(values.home),
       previousCli: values["previous-cli"] ? path.resolve(values["previous-cli"]) : undefined,
+      // Recovery may need a runtime from before quota patches became mandatory.
+      ...(action === "rollback" ? { verify: async () => {} } : {}),
     });
   } finally {
     await rm(lock, { recursive: true });

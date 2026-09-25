@@ -3,7 +3,8 @@
   "options": {
     "typeAware": false
   },
-  "ignorePatterns": [".dev/**"],
+  // Pinned external payloads; keep behavior aligned with their source patch bundle.
+  "ignorePatterns": [".dev/**", "scripts/personal-quota/providers/**"],
   "plugins": ["react", "react-perf", "unicorn", "typescript", "oxc", "import", "promise"],
   "categories": {
     "correctness": "error",
