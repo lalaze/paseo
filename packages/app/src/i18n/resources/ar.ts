@@ -48,12 +48,18 @@ export const ar: TranslationResources = {
       execute_review: "وكيل تنفيذ واحد، ثم مراجعة مستقلة قبل قبولك",
     },
     modeLocked: "وضع هذه المهمة ثابت. ابدأ محادثة جديدة لاختيار وضع آخر.",
+    isolationDescriptions: {
+      local: "يُبقي التغييرات غير الملتزمة ويبدّل هنا إلى فرع director.",
+      worktree:
+        "يبدأ من الالتزام الحالي في worktree جديد من Paseo. تبقى التغييرات غير الملتزمة في مكانها.",
+    },
     continue: "المتابعة إلى المحادثة",
     configure: "إعداد الوكلاء",
     launchErrors: {
       configure: "احفظ إعدادات التعاون أولاً.",
       reviewerRequired: "اختر وكيل مراجعة مستقلاً في إعدادات التعاون.",
       updateHost: "حدّث المضيف لاستخدام التنفيذ والمراجعة.",
+      updateHostWorktree: "حدّث المضيف لتشغيل التعاون في worktree منفصل.",
     },
     categoryOverrides: "التعيين حسب الفئة",
     taskOverrides: "التعيين حسب معرّف المهمة",

@@ -1,3 +1,5 @@
+import { createRealpathAwarePathMatcher } from "../utils/path.js";
+import { readPaseoWorktreeMetadata } from "../utils/worktree-metadata.js";
 import { CHAT_TOOLS } from "./collaboration/gateway.js";
 import { CollaborationService } from "./collaboration/service.js";
 import { isPaseoToolEnabled } from "./agent/paseo-tool-policy.js";
@@ -18,6 +20,10 @@ export type ListenTarget =
   | { type: "tcp"; host: string; port: number }
   | { type: "socket"; path: string }
   | { type: "pipe"; path: string };
+
+function isCommitSha(value: string | null | undefined): value is string {
+  return !!value && /^[0-9a-f]{40}$/i.test(value);
+}
 
 function resolveBoundListenTarget(
   listenTarget: ListenTarget,
@@ -147,6 +153,7 @@ import { WorkspaceReconciliationService } from "./workspace-reconciliation-servi
 import {
   FileBackedProjectRegistry,
   FileBackedWorkspaceRegistry,
+  type PersistedWorkspaceRecord,
   type WorkspaceArchiveContext,
 } from "./workspace-registry.js";
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
@@ -194,7 +201,10 @@ import { ScriptHealthMonitor } from "./script-health-monitor.js";
 import { createScriptStatusEmitter } from "./script-status-projection.js";
 import { WorkspaceScriptRuntimeStore } from "./workspace-script-runtime-store.js";
 import { createWorkspaceScriptsService } from "./session/workspace-scripts/workspace-scripts-service.js";
-import { assertWorkspaceAutomationAllowedForWorkspace } from "./workspace-automation-gate.js";
+import {
+  assertWorkspaceAutomationAllowed,
+  assertWorkspaceAutomationAllowedForWorkspace,
+} from "./workspace-automation-gate.js";
 import { spawnWorkspaceScript } from "./worktree-bootstrap.js";
 import {
   createManagedProcessRegistry,
@@ -1118,6 +1128,14 @@ export async function createPaseoDaemon(
     emitWorkspaceUpdatesForWorkspaceIds: emitWorkspaceUpdatesExternal,
   });
 
+  const warmWorkspaceGitData = async (workspace: PersistedWorkspaceRecord) => {
+    await Promise.all(
+      wsServer
+        ?.listSessions()
+        .map((session) => session.warmWorkspaceGitDataForWorkspace(workspace)) ?? [],
+    );
+  };
+
   const createPaseoWorktreeForTools = async (
     input: Parameters<typeof createPaseoWorktreeWorkflow>[1],
     serviceOptions?: Parameters<typeof createPaseoWorktreeWorkflow>[2],
@@ -1138,13 +1156,7 @@ export async function createPaseoDaemon(
             workspaceProvisioning,
           });
         },
-        warmWorkspaceGitData: async (workspace) => {
-          await Promise.all(
-            wsServer
-              ?.listSessions()
-              .map((session) => session.warmWorkspaceGitDataForWorkspace(workspace)) ?? [],
-          );
-        },
+        warmWorkspaceGitData,
         autoNameWorkspaceBranchForFirstAgent: (autoNameInput) =>
           workspaceAutoName.scheduleForWorktree(autoNameInput),
         emitWorkspaceUpdateForWorkspaceId: async (workspaceId) => {
@@ -1379,6 +1391,78 @@ export async function createPaseoDaemon(
       logger,
       ensureWorkspace: (cwd) => ensureWorkspaceForCreateAndBroadcastExternal(cwd),
       emitWorkspace: (id) => emitWorkspaceUpdatesExternal([id]),
+      createIsolatedWorkspace: async ({ repository, runId, baseCommit, branch, reuseBranch }) => {
+        // Setup hooks come from the source checkout, so an untrusted change request stays
+        // behind the same gate as its own workspace scripts.
+        const isSource = createRealpathAwarePathMatcher(repository);
+        for (const workspace of await workspaceRegistry.list()) {
+          if (!workspace.archivedAt && isSource(workspace.worktreeRoot ?? workspace.cwd))
+            assertWorkspaceAutomationAllowed(workspace.untrustedSource);
+        }
+        // Not createPaseoWorktreeWorkflow: it runs setup in the background, and workers
+        // need setup finished before they start.
+        const created = await createRegisteredPaseoWorktree(
+          {
+            cwd: repository,
+            worktreeSlug: `director-${runId}`,
+            runSetup: true,
+            paseoHome: config.paseoHome,
+            worktreesRoot: config.worktreesRoot,
+            ...(reuseBranch
+              ? { action: "checkout" as const, refName: branch }
+              : { action: "branch-off" as const, refName: baseCommit, branchName: branch }),
+          },
+          { github, workspaceGitService, workspaceProvisioning },
+        );
+        const { workspace } = created;
+        await emitWorkspaceUpdatesExternal([workspace.workspaceId]);
+        void warmWorkspaceGitData(workspace).catch((error) => {
+          logger.warn(
+            { err: error, workspaceId: workspace.workspaceId },
+            "Failed to warm workspace git data after creating collaboration worktree",
+          );
+        });
+        return {
+          cwd: workspace.cwd,
+          branch: created.worktree.branchName,
+          workspaceId: workspace.workspaceId,
+          ...(isCommitSha(workspace.baseBranch) ? { baseCommit: workspace.baseBranch } : {}),
+        };
+      },
+      findIsolatedWorkspace: async ({ repository, runId, branch }) => {
+        // Only Paseo-owned worktrees are listed, so the source checkout never matches.
+        const listed = await workspaceGitService.listWorktrees(repository, {
+          force: true,
+          reason: "collaboration-recover",
+        });
+        const slug = `director-${runId}`;
+        const exact = listed.find((entry) => path.basename(entry.path) === slug);
+        if (exact && exact.branchName !== branch) {
+          throw new Error("恢复工作区的分支不匹配");
+        }
+        const match = exact ?? listed.find((entry) => entry.branchName === branch);
+        if (!match) return undefined;
+        const isWorktree = createRealpathAwarePathMatcher(match.path);
+        const workspace = (await workspaceRegistry.list()).find(
+          (candidate) => !candidate.archivedAt && isWorktree(candidate.cwd),
+        );
+        const recordedBase =
+          readPaseoWorktreeMetadata(match.path)?.baseRef ?? workspace?.baseBranch ?? undefined;
+        return {
+          cwd: match.path,
+          branch,
+          ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
+          ...(isCommitSha(recordedBase) ? { baseCommit: recordedBase } : {}),
+        };
+      },
+      discardIsolatedWorkspace: async (created) => {
+        // Only the workspace id returned by the create call we just made is a known failed artifact.
+        if (!created.workspaceId) return;
+        await archiveWorkspaceByIdExternal(
+          created.workspaceId,
+          `collaboration-discard-${created.workspaceId}`,
+        );
+      },
       assertToolsEnabled: (agentId, required = CHAT_TOOLS) => {
         const mcp = daemonConfigStore.get().mcp;
         if (

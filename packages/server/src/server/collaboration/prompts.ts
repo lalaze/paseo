@@ -51,7 +51,8 @@ export function buildPrompt(
       "本轮是全部任务完成后的统一审核。必须检查整体功能、集成兼容性和每个子任务的验收标准；下方 acceptance 列出了所有必须覆盖的标准。执行完成不代表审核通过，不要求此前存在逐任务审核记录。发现问题时一次性汇总并指定对应 taskId，调度器会串行返工相关任务及其依赖的后续任务，再统一复审。";
   instruction +=
     "AI 最终审核通过后，调度器会等待用户验收；AI 不替用户确认完成，也不要因本轮尚未进行最终用户验收而阻塞审核。";
-  if (run.workspaceId)
+  // Current-workspace runs work in the source checkout itself; worktree runs start clean.
+  if (run.cwd === run.repository)
     instruction +=
       "当前工作区可能包含任务开始前已有的暂存、未暂存和未跟踪文件，它们属于本次工作上下文；审核当前代码时须包含这些改动，不能只查看 HEAD。不要要求用户先 commit 或 stash 才开始，也不要自行提交、暂存、清理或丢弃用户改动；执行者应在现有代码上按任务范围修复。成果 diff 相对启动时的 HEAD，可能同时包含用户原有改动和本轮修改，不要把全部差异归因于执行 AI。";
   if (preInstructions.length)

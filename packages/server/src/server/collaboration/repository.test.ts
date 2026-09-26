@@ -72,7 +72,7 @@ test("current-workspace mode preserves dirty work and index, reviews existing ch
   await assert.rejects(repository.capture(run), /切回 director\/current/);
 });
 
-test("isolated mode directs dirty repositories to current-workspace mode without changing user work", async (t) => {
+test("isolated mode leaves uncommitted source changes in place", async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "director-isolated-")));
   t.onTestFinished(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, "repo");
@@ -88,18 +88,180 @@ test("isolated mode directs dirty repositories to current-workspace mode without
   await exec("git", ["commit", "-m", "base"], { cwd: repo });
   const repository = new GitRepository(join(root, "state"));
   await writeFile(join(repo, "new.txt"), "untracked\n");
-  await assert.rejects(repository.prepare(repo, "isolated"), /在当前工作区执行/);
+  const work = await repository.prepare(repo, "isolated");
+  assert.notEqual(work.cwd, repo);
   assert.equal(
     (await exec("git", ["branch", "--show-current"], { cwd: repo })).stdout.trim(),
     "main",
   );
   assert.equal(await readFile(join(repo, "new.txt"), "utf8"), "untracked\n");
+  await assert.rejects(readFile(join(work.cwd, "new.txt"), "utf8"));
+  assert.equal(
+    (await exec("git", ["worktree", "list", "--porcelain"], { cwd: repo })).stdout.match(
+      /^worktree /gm,
+    )?.length,
+    2,
+  );
+});
+
+test("isolated mode uses the injected Paseo worktree and still resumes a Director worktree", async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "director-official-")));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  for (const args of [
+    ["init", "-b", "main"],
+    ["config", "user.name", "Test"],
+    ["config", "user.email", "test@example.invalid"],
+  ])
+    await exec("git", args, { cwd: repo });
+  await writeFile(join(repo, "app.txt"), "before\n");
+  await exec("git", ["add", "."], { cwd: repo });
+  await exec("git", ["commit", "-m", "base"], { cwd: repo });
+  const baseCommit = (await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
+  let calls = 0;
+  const official = new GitRepository(join(root, "state"), async (request) => {
+    calls += 1;
+    assert.equal(request.repository, repo);
+    assert.equal(request.runId, "run-1");
+    assert.equal(request.baseCommit, baseCommit);
+    assert.equal(request.branch, "director/run-1");
+    assert.equal(request.reuseBranch, false);
+    return { cwd: repo, branch: request.branch, workspaceId: "ws-official" };
+  });
+  const created = await official.prepare(repo, "run-1");
+  assert.equal(calls, 1);
+  assert.equal(created.cwd, repo);
+  assert.equal(created.workspaceId, "ws-official");
+  assert.equal(created.branch, "director/run-1");
   assert.equal(
     (await exec("git", ["worktree", "list", "--porcelain"], { cwd: repo })).stdout.match(
       /^worktree /gm,
     )?.length,
     1,
   );
+
+  const legacy = new GitRepository(join(root, "legacy"));
+  const existing = await legacy.prepare(repo, "run-2");
+  const resumed = new GitRepository(join(root, "legacy"), async () => {
+    throw new Error("已有 Director 工作区不应再创建 Paseo worktree");
+  });
+  assert.deepEqual(await resumed.prepare(repo, "run-2"), existing);
+});
+
+test("isolated mode cuts the worktree at the git root and skips recovery until the director branch exists", async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "director-subdir-")));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, "repo");
+  const app = join(repo, "packages", "app");
+  await mkdir(app, { recursive: true });
+  for (const args of [
+    ["init", "-b", "main"],
+    ["config", "user.name", "Test"],
+    ["config", "user.email", "test@example.invalid"],
+  ])
+    await exec("git", args, { cwd: repo });
+  await writeFile(join(repo, "app.txt"), "before\n");
+  await exec("git", ["add", "."], { cwd: repo });
+  await exec("git", ["commit", "-m", "base"], { cwd: repo });
+  let requested = "";
+  const created = await new GitRepository(join(root, "state"), async (request) => {
+    requested = request.repository;
+    return { cwd: request.repository, branch: request.branch, workspaceId: "ws" };
+  }).prepare(app, "run-sub");
+  assert.equal(requested, repo);
+  assert.equal(created.repository, repo);
+  assert.equal(created.cwd, repo);
+
+  let lookedUp = 0;
+  await new GitRepository(
+    join(root, "fresh"),
+    async () => ({ cwd: repo, branch: "director/run-sub", workspaceId: "new" }),
+    async () => {
+      lookedUp += 1;
+      return undefined;
+    },
+  ).prepare(repo, "run-sub");
+  assert.equal(lookedUp, 0);
+  await exec("git", ["branch", "director/run-sub"], { cwd: repo });
+  let recoveredLookups = 0;
+  const recovered = await new GitRepository(
+    join(root, "again"),
+    async () => {
+      throw new Error("已有分支时应先恢复工作区");
+    },
+    async () => {
+      recoveredLookups += 1;
+      return { cwd: repo, branch: "director/run-sub", workspaceId: "kept" };
+    },
+  ).prepare(repo, "run-sub");
+  assert.equal(recoveredLookups, 1);
+  assert.equal(recovered.workspaceId, "kept");
+});
+
+test("an interrupted Paseo worktree is reused by run id and a mismatched create is discarded", async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "director-recover-")));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  for (const args of [
+    ["init", "-b", "main"],
+    ["config", "user.name", "Test"],
+    ["config", "user.email", "test@example.invalid"],
+  ])
+    await exec("git", args, { cwd: repo });
+  await writeFile(join(repo, "app.txt"), "before\n");
+  await exec("git", ["add", "."], { cwd: repo });
+  await exec("git", ["commit", "-m", "base"], { cwd: repo });
+  await exec("git", ["branch", "director/run-1"], { cwd: repo });
+  const branch = "director/run-1";
+  let created = 0;
+  const recovered = new GitRepository(
+    join(root, "state"),
+    async () => {
+      created += 1;
+      return { cwd: repo, branch, workspaceId: "new" };
+    },
+    async (request) => {
+      assert.equal(request.runId, "run-1");
+      assert.equal(request.branch, branch);
+      return { cwd: repo, branch, workspaceId: "existing", baseCommit: "abc" };
+    },
+  );
+  const again = await recovered.prepare(repo, "run-1");
+  assert.equal(created, 0);
+  assert.equal(again.workspaceId, "existing");
+  assert.equal(again.baseCommit, "abc");
+  assert.equal(again.branch, branch);
+
+  // A leftover branch without a worktree is checked out again and keeps its own base.
+  await exec("git", ["branch", "director/run-2"], { cwd: repo });
+  const leftoverBase = (await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
+  await writeFile(join(repo, "app.txt"), "after\n");
+  await exec("git", ["commit", "-am", "later"], { cwd: repo });
+  let reused: boolean | undefined;
+  const checkedOut = await new GitRepository(
+    join(root, "leftover"),
+    async (request) => {
+      reused = request.reuseBranch;
+      return { cwd: repo, branch: request.branch, workspaceId: "checked-out" };
+    },
+    async () => undefined,
+  ).prepare(repo, "run-2");
+  assert.equal(reused, true);
+  assert.equal(checkedOut.baseCommit, leftoverBase);
+
+  const discarded: string[] = [];
+  const mismatched = new GitRepository(
+    join(root, "mismatch"),
+    async () => ({ cwd: repo, branch: "director/run-3-1", workspaceId: "leak" }),
+    async () => undefined,
+    async (workspace) => {
+      discarded.push(workspace.workspaceId ?? "");
+    },
+  );
+  await assert.rejects(mismatched.prepare(repo, "run-3"), /协作工作区分支不匹配/);
+  assert.deepEqual(discarded, ["leak"]);
 });
 
 test("current-workspace mode refuses unresolved conflicts without switching branches", async (t) => {

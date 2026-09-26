@@ -48,12 +48,17 @@ export const zhCN: TranslationResources = {
       execute_review: "一个执行 Agent，独立审核后交你验收",
     },
     modeLocked: "此任务的模式已固定。切换模式请新建协作对话。",
+    isolationDescriptions: {
+      local: "保留未提交改动，在这里切到 director 分支。",
+      worktree: "从当前提交新建 Paseo worktree。未提交改动留在原目录。",
+    },
     continue: "继续到对话",
     configure: "配置 Agent",
     launchErrors: {
       configure: "请先保存协作设置。",
       reviewerRequired: "请在协作设置中指定独立审核 Agent。",
       updateHost: "请更新主机，以便直接选择协作模型。",
+      updateHostWorktree: "请更新主机，以便在独立 worktree 中运行协作。",
     },
     categoryOverrides: "按任务类别分配",
     taskOverrides: "按任务 ID 分配",

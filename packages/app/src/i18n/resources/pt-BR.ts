@@ -49,6 +49,11 @@ export const ptBR: TranslationResources = {
       execute_review: "Um executor, com revisão independente antes da sua aprovação",
     },
     modeLocked: "O modo desta tarefa está fixado. Inicie outra conversa para mudar de modo.",
+    isolationDescriptions: {
+      local: "Mantém as alterações não commitadas e troca aqui para um branch director.",
+      worktree:
+        "Começa do commit atual em um novo worktree do Paseo. As alterações não commitadas ficam aqui.",
+    },
     continue: "Continuar para a conversa",
     configure: "Configurar agentes",
     launchErrors: {
@@ -56,6 +61,7 @@ export const ptBR: TranslationResources = {
       reviewerRequired:
         "Escolha um agente de revisão independente nas configurações de colaboração.",
       updateHost: "Atualize o host para usar implementação + revisão.",
+      updateHostWorktree: "Atualize o host para executar a colaboração em um worktree separado.",
     },
     categoryOverrides: "Atribuições por categoria",
     taskOverrides: "Atribuições por ID da tarefa",

@@ -3,16 +3,38 @@ import { Pressable, Text, View, type PressableStateCallbackType } from "react-na
 import { useTranslation } from "react-i18next";
 import { Circle, CircleDot } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import type { CollaborationMode } from "@getpaseo/protocol/collaboration/schema";
+import type {
+  CollaborationIsolation,
+  CollaborationMode,
+} from "@getpaseo/protocol/collaboration/schema";
 import { isWeb } from "@/constants/platform";
 import { createControlGeometry } from "@/components/ui/control-geometry";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
 
 const modes: CollaborationMode[] = ["full", "execute_review"];
+const isolations: CollaborationIsolation[] = ["local", "worktree"];
 const EmptyRadio = withUnistyles(Circle);
 const SelectedRadio = withUnistyles(CircleDot);
 const foreground = (theme: Theme) => ({ color: theme.colors.foreground });
 const muted = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
+const RADIO_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"]);
+
+function nextRadioIndex(key: string, index: number, count: number): number {
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  if (key === "ArrowDown" || key === "ArrowRight") return Math.min(count - 1, index + 1);
+  return Math.max(0, index - 1);
+}
+
+interface RadioChoice<T extends string> {
+  value: T;
+  title: string;
+  description: string;
+  unavailable?: boolean;
+  pending?: boolean;
+  notice?: string;
+  testID: string;
+}
 
 export function LaunchModeOptions({
   mode,
@@ -26,41 +48,119 @@ export function LaunchModeOptions({
   onSelect: (mode: CollaborationMode) => void;
 }) {
   const { t } = useTranslation();
-  const refs = useRef<Partial<Record<CollaborationMode, View | null>>>({});
-  const register = useCallback((value: CollaborationMode, node: View | null) => {
-    refs.current[value] = node;
+  const options = useMemo(
+    () =>
+      modes.map((value) => {
+        const unavailable = value === "execute_review" && !supportsExecuteReview;
+        return {
+          value,
+          title: t(`collaboration.modes.${value}`),
+          description: t(`collaboration.modeDescriptions.${value}`),
+          unavailable,
+          notice: unavailable ? t("collaboration.launchErrors.updateHost") : undefined,
+          testID:
+            value === "full" ? "collaboration-mode-full" : "collaboration-mode-execute-review",
+        };
+      }),
+    [supportsExecuteReview, t],
+  );
+  return (
+    <RadioOptions
+      label={t("collaboration.chooseMode")}
+      value={mode}
+      options={options}
+      disabled={disabled}
+      onSelect={onSelect}
+    />
+  );
+}
+
+export function LaunchIsolationOptions({
+  isolation,
+  disabled,
+  supportsWorktree,
+  onSelect,
+}: {
+  isolation: CollaborationIsolation;
+  disabled: boolean;
+  /** Null while the host has not reported its features. */
+  supportsWorktree: boolean | null;
+  onSelect: (isolation: CollaborationIsolation) => void;
+}) {
+  const { t } = useTranslation();
+  const options = useMemo(
+    () =>
+      isolations.map((value) => {
+        const unavailable = value === "worktree" && supportsWorktree === false;
+        return {
+          value,
+          title: t(`newWorkspace.isolation.${value}`),
+          description: t(`collaboration.isolationDescriptions.${value}`),
+          unavailable,
+          pending: value === "worktree" && supportsWorktree === null,
+          notice: unavailable ? t("collaboration.launchErrors.updateHostWorktree") : undefined,
+          testID: `collaboration-isolation-${value}`,
+        };
+      }),
+    [supportsWorktree, t],
+  );
+  return (
+    <RadioOptions
+      label={t("newWorkspace.isolation.label")}
+      value={isolation}
+      options={options}
+      disabled={disabled}
+      onSelect={onSelect}
+    />
+  );
+}
+
+function RadioOptions<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  value: T;
+  options: RadioChoice<T>[];
+  disabled: boolean;
+  onSelect: (value: T) => void;
+}) {
+  const refs = useRef<Partial<Record<string, View | null>>>({});
+  const register = useCallback((option: string, node: View | null) => {
+    refs.current[option] = node;
   }, []);
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
-      if (
-        disabled ||
-        !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
-      )
-        return;
+      const selectable = options.filter((option) => !option.unavailable && !option.pending);
+      if (disabled || selectable.length === 0 || !RADIO_KEYS.has(event.key)) return;
       event.preventDefault();
       event.stopPropagation();
-      let next: CollaborationMode = "full";
-      if (supportsExecuteReview && event.key !== "Home") {
-        if (event.key === "End" || mode === "full") next = "execute_review";
-      }
+      const index = Math.max(
+        0,
+        selectable.findIndex((option) => option.value === value),
+      );
+      const next = selectable[nextRadioIndex(event.key, index, selectable.length)]?.value;
+      if (!next || next === value) return;
       onSelect(next);
       refs.current[next]?.focus();
     },
-    [disabled, supportsExecuteReview, mode, onSelect],
+    [disabled, onSelect, options, value],
   );
   return (
     <View
       style={styles.options}
       accessibilityRole="radiogroup"
-      accessibilityLabel={t("collaboration.chooseMode")}
+      accessibilityLabel={label}
       {...(isWeb ? { onKeyDown } : {})}
     >
-      {modes.map((value) => (
-        <ModeOption
-          key={value}
-          value={value}
-          selected={mode === value}
-          unavailable={value === "execute_review" && !supportsExecuteReview}
+      {options.map((option) => (
+        <RadioOption
+          key={option.value}
+          option={option}
+          selected={option.value === value}
           disabled={disabled}
           onSelect={onSelect}
           register={register}
@@ -70,57 +170,57 @@ export function LaunchModeOptions({
   );
 }
 
-function ModeOption({
-  value,
+function RadioOption<T extends string>({
+  option,
   selected,
-  unavailable,
   disabled,
   onSelect,
   register,
 }: {
-  value: CollaborationMode;
+  option: RadioChoice<T>;
   selected: boolean;
-  unavailable: boolean;
   disabled: boolean;
-  onSelect: (mode: CollaborationMode) => void;
-  register: (mode: CollaborationMode, node: View | null) => void;
+  onSelect: (value: T) => void;
+  register: (value: string, node: View | null) => void;
 }) {
-  const { t } = useTranslation();
   const [focused, setFocused] = useState(false);
-  const inactive = disabled || unavailable;
-  const ref = useCallback((node: View | null) => register(value, node), [register, value]);
-  const select = useCallback(() => onSelect(value), [onSelect, value]);
+  const inactive = disabled || !!option.unavailable || !!option.pending;
+  const ref = useCallback(
+    (node: View | null) => register(option.value, node),
+    [option.value, register],
+  );
+  const select = useCallback(() => onSelect(option.value), [onSelect, option.value]);
   const keyDown = useCallback(
     (event: KeyboardEvent) => {
       if (inactive || (event.key !== " " && event.key !== "Spacebar")) return;
       event.preventDefault();
       event.stopPropagation();
-      onSelect(value);
+      onSelect(option.value);
     },
-    [inactive, onSelect, value],
+    [inactive, onSelect, option.value],
   );
   const focus = useCallback(() => setFocused(true), []);
   const blur = useCallback(() => setFocused(false), []);
   const accessibilityState = useMemo(
     () => ({ checked: selected, disabled: inactive }),
-    [selected, inactive],
+    [inactive, selected],
   );
   const optionStyle = useCallback(
     ({ pressed, hovered }: PressableStateCallbackType) => [
       styles.option,
       selected && styles.selected,
       !inactive && (hovered || pressed) && styles.hover,
-      unavailable && styles.unavailable,
+      option.unavailable && styles.unavailable,
       focused && !inactive && styles.focused,
     ],
-    [selected, inactive, unavailable, focused],
+    [focused, inactive, option.unavailable, selected],
   );
   return (
     <View {...(isWeb ? { onKeyDown: keyDown } : {})}>
       <Pressable
         ref={ref}
         accessibilityRole="radio"
-        accessibilityLabel={t(`collaboration.modes.${value}`)}
+        accessibilityLabel={option.title}
         accessibilityState={accessibilityState}
         aria-checked={selected}
         disabled={inactive}
@@ -128,7 +228,7 @@ function ModeOption({
         onPress={select}
         onFocus={focus}
         onBlur={blur}
-        testID={value === "full" ? "collaboration-mode-full" : "collaboration-mode-execute-review"}
+        testID={option.testID}
         style={optionStyle}
       >
         <View style={styles.radio}>
@@ -139,11 +239,9 @@ function ModeOption({
           )}
         </View>
         <View style={styles.copy}>
-          <Text style={styles.title}>{t(`collaboration.modes.${value}`)}</Text>
-          <Text style={styles.description}>{t(`collaboration.modeDescriptions.${value}`)}</Text>
-          {unavailable && (
-            <Text style={styles.description}>{t("collaboration.launchErrors.updateHost")}</Text>
-          )}
+          <Text style={styles.title}>{option.title}</Text>
+          <Text style={styles.description}>{option.description}</Text>
+          {option.notice ? <Text style={styles.description}>{option.notice}</Text> : null}
         </View>
       </Pressable>
     </View>

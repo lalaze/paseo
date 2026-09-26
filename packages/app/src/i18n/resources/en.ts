@@ -46,12 +46,18 @@ export const en = {
       execute_review: "One implementer, independently reviewed before your acceptance",
     },
     modeLocked: "This task’s mode is fixed. Start a new conversation to use another mode.",
+    isolationDescriptions: {
+      local: "Keep uncommitted changes and work on a director branch here.",
+      worktree:
+        "Start from the current commit in a new Paseo worktree. Uncommitted changes stay here.",
+    },
     continue: "Continue to conversation",
     configure: "Configure agents",
     launchErrors: {
       configure: "Save collaboration settings before continuing.",
       reviewerRequired: "Choose an independent review agent in collaboration settings.",
       updateHost: "Update the host to choose collaboration models here.",
+      updateHostWorktree: "Update the host to run collaboration in a separate worktree.",
     },
     categoryOverrides: "Category assignments",
     taskOverrides: "Task ID assignments",

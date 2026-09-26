@@ -48,12 +48,18 @@ export const ko: TranslationResources = {
       execute_review: "실행 에이전트 하나가 구현하고 독립 검토 후 사용자가 승인",
     },
     modeLocked: "이 작업의 모드는 고정되어 있습니다. 다른 모드는 새 대화에서 선택하세요.",
+    isolationDescriptions: {
+      local: "커밋하지 않은 변경을 유지하고 여기서 director 브랜치로 전환합니다.",
+      worktree:
+        "현재 커밋에서 새 Paseo worktree를 만듭니다. 커밋하지 않은 변경은 원래 디렉터리에 남습니다.",
+    },
     continue: "대화로 계속",
     configure: "에이전트 설정",
     launchErrors: {
       configure: "먼저 협업 설정을 저장하세요.",
       reviewerRequired: "협업 설정에서 독립 검토 에이전트를 선택하세요.",
       updateHost: "구현＋검토를 사용하려면 호스트를 업데이트하세요.",
+      updateHostWorktree: "별도 worktree에서 협업을 실행하려면 호스트를 업데이트하세요.",
     },
     categoryOverrides: "범주별 배정",
     taskOverrides: "작업 ID별 배정",

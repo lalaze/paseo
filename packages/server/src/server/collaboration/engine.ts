@@ -3,6 +3,7 @@ import { realpath } from "node:fs/promises";
 import {
   SettingsSchema,
   collaborationMode,
+  type CollaborationIsolation,
   requiresPlanApproval,
   validateCollaborationMode,
   PlanSchema,
@@ -81,6 +82,8 @@ export class Engine {
     goal: string;
     settings?: Settings;
     workspaceId?: string;
+    /** `worktree` creates a Paseo worktree. Absent or `local` keeps this workspace. */
+    isolation?: CollaborationIsolation;
     chat?: Run["chat"];
     mode?: CollaborationMode;
   }): Promise<string> {
@@ -93,6 +96,7 @@ export class Engine {
       const mode = collaborationMode(input);
       validateCollaborationMode(mode, settings);
       const id = createHash("sha256").update(input.requestId).digest("hex").slice(0, 24);
+      const isolate = input.isolation === "worktree";
       if (input.workspaceId) {
         const directory = await this.agents.workspaceDirectory(input.workspaceId);
         const source = await realpath(input.repository);
@@ -101,21 +105,21 @@ export class Engine {
         if (
           this.store
             .unfinishedWorkspaceRuns()
-            .some((r) => r.workspaceId === input.workspaceId || r.cwd === source)
+            .some((r) => r.cwd === source || (!isolate && r.workspaceId === input.workspaceId))
         )
           throw new Error("当前目录已有未结束的 AI 协作任务，请先完成或取消该任务");
         // Untitled Paseo workspaces derive their name from the live branch.
         // Pin the existing display name before prepare() switches that branch.
-        await this.agents.retainWorkspaceName(input.workspaceId);
+        if (!isolate) await this.agents.retainWorkspaceName(input.workspaceId);
       }
       const workspace = await this.repository.prepare(
         input.repository,
         id,
-        Boolean(input.workspaceId),
+        Boolean(input.workspaceId) && !isolate,
       );
       const run: Run = {
         ...workspace,
-        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        ...(!isolate && input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         id,
         ...(input.chat ? { chat: input.chat, directorAgentId: input.chat.mainAgentId } : {}),
         requestId: input.requestId,

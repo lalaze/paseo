@@ -44,10 +44,17 @@ starts; create another conversation to change them.
 
 ## Execution and confirmation
 
-Tasks execute serially in dependency order within one workspace. Starting a task creates a
-`director/<run-id>` branch while retaining staged, unstaged and untracked changes. Use a separate
-Paseo workspace first when you want isolation. A repository must have an initial commit and no
-unresolved merge conflicts.
+Tasks execute serially in dependency order within one workspace. The launch dialog's
+[Isolation](glossary.md) choice decides where the task runs. Local creates a `director/<run-id>`
+branch in the source checkout while retaining staged, unstaged and untracked changes, so it must
+start from the project root. New worktree creates a Paseo worktree workspace on `director/<run-id>`
+at the repository root, even when started from a subdirectory, because evidence captures the whole
+worktree. Uncommitted changes stay in the source checkout. Setup hooks run to completion before
+workers start, unlike `create_workspace`, which runs them in the background; an untrusted change
+request checkout refuses until you run its setup. A retry reuses that worktree when its branch is
+still `director/<run-id>`, and checks a leftover branch out again, keeping its tip as the review
+base, when the worktree is gone. Worktrees already stored under the collaboration data directory
+are reused. A repository must have an initial commit and no unresolved merge conflicts.
 
 In Full workflow, plan approval is optional. Final user acceptance is required even after the AI approves the
 result. Approval tools verify the latest real user message and the version of the confirmation

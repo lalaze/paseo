@@ -1,7 +1,11 @@
 import { randomUUID } from "expo-crypto";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
-import type { CollaborationMode, Settings } from "@getpaseo/protocol/collaboration/schema";
+import type {
+  CollaborationIsolation,
+  CollaborationMode,
+  Settings,
+} from "@getpaseo/protocol/collaboration/schema";
 import type { LaunchSelections } from "./launch-model";
 import { useCollaborationLaunchStore } from "./launch-store";
 
@@ -12,6 +16,7 @@ export interface CollaborationTarget {
   goal?: string;
   requestId?: string;
   mode?: CollaborationMode;
+  isolation?: CollaborationIsolation;
   selections?: LaunchSelections;
   settings?: Settings;
 }
@@ -27,11 +32,11 @@ export async function enableCollaboration(target: CollaborationTarget) {
   }
   const client = getHostRuntimeStore().getClient(target.serverId);
   if (!client) throw new Error("Host disconnected");
-  if (
-    target.mode === "execute_review" &&
-    !client.getLastServerInfoMessage()?.features?.collaborationExecuteReview
-  )
+  const features = client.getLastServerInfoMessage()?.features;
+  if (target.mode === "execute_review" && !features?.collaborationExecuteReview)
     throw new Error("Update the host to use execution + review.");
+  if (target.isolation === "worktree" && !features?.collaborationWorktree)
+    throw new Error("Update the host to run collaboration in a separate worktree.");
   const state = await client.collaborationCommand("status");
   if (state.error) throw new Error(state.error);
   const opened = await client.collaborationCommand("conversation.open", {
@@ -41,6 +46,7 @@ export async function enableCollaboration(target: CollaborationTarget) {
     goal: target.goal,
     fresh: !target.agentId,
     mode: target.mode,
+    isolation: target.isolation,
     settings: target.settings,
   });
   const conversation = opened.conversations.find(

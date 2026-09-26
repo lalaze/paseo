@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { CollaborationModeSchema, RolePromptsSchema, SettingsSchema } from "./schema.js";
+import {
+  CollaborationIsolationSchema,
+  CollaborationModeSchema,
+  RolePromptsSchema,
+  SettingsSchema,
+} from "./schema.js";
 
 export const CollaborationCommandSchema = z.enum([
   "status",
@@ -28,6 +33,7 @@ export const CollaborationStateSchema = z.object({
     z.object({
       id: z.string(),
       mode: CollaborationModeSchema.optional(),
+      isolation: CollaborationIsolationSchema.optional(),
       settings: SettingsSchema.optional(),
       requestId: z.string().optional(),
       workspaceId: z.string(),

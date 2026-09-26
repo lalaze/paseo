@@ -10,6 +10,7 @@ import {
   SettingsSchema,
   collaborationMode,
   validateCollaborationMode,
+  type CollaborationIsolation,
   type CollaborationMode,
   type ControlAction,
   type Profile,
@@ -118,6 +119,7 @@ export class Conversations {
     settings?: Settings;
     agentId?: string;
     mode?: CollaborationMode;
+    isolation?: CollaborationIsolation;
   }) {
     if (input.agentId) return this.takeover(input as typeof input & { agentId: string });
     if (input.conversationId) {
@@ -157,6 +159,7 @@ export class Conversations {
           settings,
           createdAt: Date.now(),
           state: "creating",
+          ...(input.isolation ? { isolation: input.isolation } : {}),
           initialGoal: input.goal?.trim() || undefined,
           notices: [],
           receipts: {},
@@ -164,6 +167,7 @@ export class Conversations {
         this.store.saveConversation(c);
       }
       this.selectMode(c, input.mode);
+      this.selectIsolation(c, input.isolation);
       return c.id;
     });
     return this.ensureLocked(id);
@@ -175,6 +179,12 @@ export class Conversations {
     c.mode = mode;
     this.store.saveConversation(c);
   }
+  private selectIsolation(c: Conversation, isolation?: CollaborationIsolation) {
+    if (!isolation || isolation === (c.isolation ?? "local")) return;
+    if (c.runId) throw new Error("任务已开始，不能切换执行位置；请新建协作对话");
+    c.isolation = isolation;
+    this.store.saveConversation(c);
+  }
   private async takeover(input: {
     settings?: Settings;
     requestId: string;
@@ -182,6 +192,7 @@ export class Conversations {
     agentId: string;
     goal?: string;
     mode?: CollaborationMode;
+    isolation?: CollaborationIsolation;
   }) {
     if (!this.gateway.takeoverProfile || !this.gateway.adoptConversation)
       throw new Error("当前接入不支持原地接管");
@@ -224,6 +235,7 @@ export class Conversations {
           settings,
           createdAt: Date.now(),
           state: "creating",
+          ...(input.isolation ? { isolation: input.isolation } : {}),
           takeover: { messages: [] },
           notices: [],
           receipts: {},
@@ -231,6 +243,7 @@ export class Conversations {
         this.store.saveConversation(c);
       }
       this.selectMode(c, input.mode);
+      this.selectIsolation(c, input.isolation);
       // Existing main sessions can be adopted too, without changing their identity.
       if (!c.takeover) {
         c.takeover = { messages: [] };
@@ -420,6 +433,7 @@ export class Conversations {
       const key = `start:${input.sourceMessageId}`;
       if (c.receipts[key]?.state === "done") return c.receipts[key].value;
       if (c.runId) throw new Error("当前会话已有任务；请修改当前需求，或新建协作对话");
+      const isolation = c.isolation ?? "local";
       c.receipts[key] = { action: "start", state: "pending" };
       this.store.saveConversation(c);
       const runId = await this.engine.create({
@@ -429,6 +443,7 @@ export class Conversations {
         goal: input.goal,
         settings: c.settings,
         mode: collaborationMode(c),
+        isolation,
         chat: { version: 1, conversationId: c.id, mainAgentId: c.agentId! },
       });
       c.runId = runId;

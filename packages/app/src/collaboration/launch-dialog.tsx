@@ -3,7 +3,10 @@ import { Keyboard, Text, View } from "react-native";
 import { router, usePathname } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
-import type { CollaborationMode } from "@getpaseo/protocol/collaboration/schema";
+import type {
+  CollaborationIsolation,
+  CollaborationMode,
+} from "@getpaseo/protocol/collaboration/schema";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select-field";
@@ -12,8 +15,9 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import { useHostFeatureAvailabilityMap } from "@/runtime/host-features";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
-import { LaunchModeOptions } from "./launch-mode-options";
+import { LaunchIsolationOptions, LaunchModeOptions } from "./launch-mode-options";
 import { LaunchGoal } from "./launch-goal";
 import { enableCollaboration, type CollaborationTarget } from "./launch";
 import {
@@ -101,6 +105,14 @@ interface ModePickerProps {
   error: string | null;
   supported: boolean;
 }
+function canStartLaunch(
+  ready: boolean | undefined,
+  state: { canContinue: boolean; isolation: CollaborationIsolation },
+  supportsWorktree: boolean | null,
+): boolean {
+  if (!ready || !state.canContinue) return false;
+  return state.isolation !== "worktree" || supportsWorktree === true;
+}
 function ModePicker({
   target,
   snapshot,
@@ -114,6 +126,10 @@ function ModePicker({
 }: ModePickerProps) {
   const { t } = useTranslation();
   const size = useIsCompactFormFactor() ? "md" : "sm";
+  const supportsWorktree =
+    useHostFeatureAvailabilityMap([target.serverId], "collaborationWorktree").get(
+      target.serverId,
+    ) ?? null;
   const [model] = useState(() => openCollaborationLaunch(snapshot, target.mode, target.selections));
   useEffect(() => () => model.close(), [model]);
   useEffect(() => model.applySnapshot(snapshot), [model, snapshot]);
@@ -148,11 +164,17 @@ function ModePicker({
     if (!model.getState().pending) onClose();
   }, [model, target.requestId, onClose]);
   const start = useCallback(() => {
-    void model.start(async (mode, settings) => {
-      await enableCollaboration({ ...target, mode, settings });
+    void model.start(async (mode, settings, isolation) => {
+      await enableCollaboration({ ...target, mode, settings, isolation });
       onClose();
     });
   }, [model, target, onClose]);
+  const selectIsolation = useCallback(
+    (isolation: CollaborationIsolation) => {
+      model.selectIsolation(isolation);
+    },
+    [model],
+  );
   const configure = useCallback(
     () => onConfigure(model.getState().selections),
     [model, onConfigure],
@@ -209,7 +231,7 @@ function ModePicker({
           </Button>
           <Button
             onPress={start}
-            disabled={!ready || !state.canContinue}
+            disabled={!canStartLaunch(ready, state, supportsWorktree)}
             loading={state.pending}
             testID="collaboration-continue"
           >
@@ -226,6 +248,14 @@ function ModePicker({
             supportsExecuteReview
             onSelect={select}
           />
+          <SettingsSection title={t("newWorkspace.isolation.label")} flush>
+            <LaunchIsolationOptions
+              isolation={state.isolation}
+              disabled={state.locked || state.pending}
+              supportsWorktree={supportsWorktree}
+              onSelect={selectIsolation}
+            />
+          </SettingsSection>
           {target.goal && <LaunchGoal goal={target.goal} />}
           <SettingsSection title={t("collaboration.launch.agents")} flush trailing={promptButton}>
             {!catalog.entries && !state.agentsLocked ? (

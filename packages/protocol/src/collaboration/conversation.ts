@@ -1,4 +1,10 @@
-import { awaitingAcceptance, type CollaborationMode, type Run, type Settings } from "./schema.js";
+import {
+  awaitingAcceptance,
+  type CollaborationIsolation,
+  type CollaborationMode,
+  type Run,
+  type Settings,
+} from "./schema.js";
 
 export interface Confirmation {
   key: string;
@@ -9,6 +15,8 @@ export interface Confirmation {
 }
 export interface Conversation {
   mode?: CollaborationMode;
+  /** Absent means the task runs in the conversation workspace. */
+  isolation?: CollaborationIsolation;
   id: string;
   requestId: string;
   workspaceId: string;

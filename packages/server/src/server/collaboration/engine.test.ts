@@ -8,6 +8,7 @@ import {
   canResumeRun,
 } from "@getpaseo/protocol/collaboration/schema";
 import { inspectMessages } from "./gateway.js";
+import { buildPrompt } from "./prompts.js";
 describe("explicit retry replaces failed sessions with the original profile after restart", () => {
   for (const kind of ["plan", "execute", "final"] as const) {
     for (const failedState of ["ready", "sent"] as const)
@@ -242,6 +243,45 @@ test("workspace launches preserve ownership and prevent overlapping runs on the 
     h.engine.create({ ...input, requestId: "mismatch", repository: "/tmp" }),
     /不一致/,
   );
+});
+test("worktree isolation uses the created workspace and does not switch the source checkout", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  h.agents.directory = h.directory;
+  const calls: string[] = [];
+  h.agents.retainWorkspaceName = async () => {
+    calls.push("retain-name");
+  };
+  h.repository.prepare = async (repository, runId, currentWorkspace = false) => {
+    calls.push(currentWorkspace ? "local" : "worktree");
+    return {
+      repository,
+      cwd: currentWorkspace ? repository : `/worktrees/${runId}`,
+      baseCommit: "base",
+      branch: `director/${runId}`,
+      ...(currentWorkspace ? {} : { workspaceId: "wt-1" }),
+    };
+  };
+  const input = {
+    requestId: "isolate",
+    repository: h.directory,
+    goal: "独立执行",
+    workspaceId: "source",
+    isolation: "worktree" as const,
+    settings: settings(),
+  };
+  const id = await h.engine.create(input);
+  assert.deepEqual(calls, ["worktree"]);
+  assert.equal(h.store.get(id).workspaceId, "wt-1");
+  assert.equal(h.store.get(id).cwd, `/worktrees/${id}`);
+  const stayed = await h.engine.create({ ...input, requestId: "stay", isolation: "local" });
+  assert.equal(h.store.get(stayed).workspaceId, "source");
+  assert.equal(h.store.get(stayed).cwd, h.directory);
+  assert.deepEqual(calls, ["worktree", "retain-name", "local"]);
+  // Only the source checkout carries the user's uncommitted work into the diff.
+  const userChanges = /用户原有改动/;
+  assert.doesNotMatch(buildPrompt(h.store.get(id), "plan", "op"), userChanges);
+  assert.match(buildPrompt(h.store.get(stayed), "plan", "op"), userChanges);
 });
 test("workspace title is retained before switching branches, and a naming failure stops preparation", async (t) => {
   const h = await harness();

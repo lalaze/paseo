@@ -49,6 +49,11 @@ export const es: TranslationResources = {
       execute_review: "Un ejecutor, con revisión independiente antes de tu aprobación",
     },
     modeLocked: "El modo de esta tarea está fijado. Inicia otra conversación para cambiarlo.",
+    isolationDescriptions: {
+      local: "Conserva los cambios sin confirmar y cambia aquí a una rama director.",
+      worktree:
+        "Empieza desde el commit actual en un worktree nuevo de Paseo. Los cambios sin confirmar se quedan aquí.",
+    },
     continue: "Continuar a la conversación",
     configure: "Configurar agentes",
     launchErrors: {
@@ -56,6 +61,8 @@ export const es: TranslationResources = {
       reviewerRequired:
         "Elige un agente de revisión independiente en la configuración de colaboración.",
       updateHost: "Actualiza el host para usar implementación + revisión.",
+      updateHostWorktree:
+        "Actualiza el host para ejecutar la colaboración en un worktree separado.",
     },
     categoryOverrides: "Asignaciones por categoría",
     taskOverrides: "Asignaciones por ID de tarea",

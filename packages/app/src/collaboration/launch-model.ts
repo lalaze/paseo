@@ -1,6 +1,7 @@
 import {
   collaborationMode,
   SettingsSchema,
+  type CollaborationIsolation,
   type CollaborationMode,
   type Profile,
   type Settings,
@@ -40,6 +41,8 @@ export function openCollaborationLaunch(
   let snapshot = initial;
   let mode = selected ?? collaborationMode(initial.conversation ?? {});
   let modeSelected = selected !== undefined;
+  let isolation: CollaborationIsolation = initial.conversation?.isolation ?? "local";
+  let isolationSelected = false;
   let seeded = initial.ready !== false;
   function seed(settings: Settings | null | undefined): LaunchSelections {
     return {
@@ -64,7 +67,10 @@ export function openCollaborationLaunch(
   }
   function read() {
     const locked = Boolean(snapshot.conversation?.run);
-    if (locked) mode = collaborationMode(snapshot.conversation!);
+    if (locked) {
+      mode = collaborationMode(snapshot.conversation!);
+      isolation = snapshot.conversation?.isolation ?? "local";
+    }
     const agentsLocked = Boolean(snapshot.conversation);
     const showDirector = mode === "full" && !snapshot.currentAgent;
     const directorValid = !showDirector || valid(selections.director);
@@ -74,6 +80,7 @@ export function openCollaborationLaunch(
     const canReopen = mode === "full" || Boolean(savedReviewer);
     return {
       mode,
+      isolation,
       locked,
       agentsLocked,
       showDirector,
@@ -151,6 +158,7 @@ export function openCollaborationLaunch(
         seeded = true;
       }
       if (!modeSelected) mode = collaborationMode(next.conversation ?? {});
+      if (!isolationSelected) isolation = next.conversation?.isolation ?? "local";
       publish();
     },
     applyProviders(next: ProviderSnapshotEntry[]) {
@@ -178,8 +186,19 @@ export function openCollaborationLaunch(
       error = "";
       publish();
     },
+    selectIsolation(next: CollaborationIsolation) {
+      if (pending || state.locked) return;
+      isolationSelected = true;
+      isolation = next;
+      error = "";
+      publish();
+    },
     async start(
-      launch: (mode: CollaborationMode, settings: Settings | undefined) => Promise<void>,
+      launch: (
+        mode: CollaborationMode,
+        settings: Settings | undefined,
+        isolation: CollaborationIsolation,
+      ) => Promise<void>,
     ) {
       if (!state.canContinue) return;
       const settings = taskSettings();
@@ -187,7 +206,7 @@ export function openCollaborationLaunch(
       error = "";
       publish();
       try {
-        await launch(mode, settings);
+        await launch(mode, settings, isolation);
       } catch (cause) {
         error = cause instanceof Error ? cause.message : String(cause);
       } finally {

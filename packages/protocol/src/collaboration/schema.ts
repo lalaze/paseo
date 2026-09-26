@@ -3,6 +3,8 @@ import { z } from "zod";
 export const Id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 export const CollaborationModeSchema = z.enum(["full", "execute_review"]);
 export type CollaborationMode = z.infer<typeof CollaborationModeSchema>;
+export const CollaborationIsolationSchema = z.enum(["local", "worktree"]);
+export type CollaborationIsolation = z.infer<typeof CollaborationIsolationSchema>;
 
 export function collaborationMode(value: { mode?: CollaborationMode }): CollaborationMode {
   // COMPAT(collaborationExecuteReview): added in v0.9.0, remove after 2027-03-23 once stored conversations and runs carry mode.

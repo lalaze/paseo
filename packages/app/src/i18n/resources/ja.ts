@@ -50,12 +50,18 @@ export const ja: TranslationResources = {
     },
     modeLocked:
       "このタスクのモードは固定されています。別のモードには新しい会話を開始してください。",
+    isolationDescriptions: {
+      local: "未コミットの変更を残し、ここで director ブランチに切り替えます。",
+      worktree:
+        "現在のコミットから新しい Paseo worktree を作ります。未コミットの変更は元の場所に残ります。",
+    },
     continue: "会話へ進む",
     configure: "エージェントを設定",
     launchErrors: {
       configure: "先に協働設定を保存してください。",
       reviewerRequired: "協働設定で独立したレビューエージェントを選択してください。",
       updateHost: "実装＋レビューを使うにはホストを更新してください。",
+      updateHostWorktree: "別の worktree で共同作業するにはホストを更新してください。",
     },
     categoryOverrides: "カテゴリ別の割り当て",
     taskOverrides: "タスク ID 別の割り当て",

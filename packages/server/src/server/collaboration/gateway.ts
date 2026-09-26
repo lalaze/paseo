@@ -14,6 +14,11 @@ import type { AgentStorage } from "../agent/agent-storage.js";
 import { ensureUnarchivedAgentLoaded } from "../agent/agent-loading.js";
 import { sendPromptToAgent } from "../agent/agent-prompt.js";
 import type { createAgentCommand } from "../agent/create-agent/create.js";
+import type {
+  CreateIsolatedWorkspace,
+  DiscardIsolatedWorkspace,
+  FindIsolatedWorkspace,
+} from "./repository.js";
 import type { WorkspaceRegistry } from "../workspace-registry.js";
 import type { AgentGateway, AgentSnapshot } from "./engine.js";
 import type { ConversationGateway } from "./conversations.js";
@@ -40,6 +45,10 @@ export interface CollaborationHost {
   ) => ReturnType<typeof createAgentCommand>;
   ensureWorkspace: (cwd: string) => Promise<string>;
   emitWorkspace: (workspaceId: string) => Promise<void>;
+  /** Present when the daemon can create a Paseo-managed worktree. */
+  createIsolatedWorkspace?: CreateIsolatedWorkspace;
+  findIsolatedWorkspace?: FindIsolatedWorkspace;
+  discardIsolatedWorkspace?: DiscardIsolatedWorkspace;
   assertToolsEnabled: (agentId: string, tools?: readonly string[]) => void;
   logger: Logger;
 }

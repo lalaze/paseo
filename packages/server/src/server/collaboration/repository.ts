@@ -6,12 +6,42 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Run, Evidence, Command } from "@getpaseo/protocol/collaboration/schema";
 
 const exec = promisify(execFile);
+export interface IsolatedWorkspaceRequest {
+  /** Git root of the checkout the task started from. */
+  repository: string;
+  runId: string;
+  baseCommit: string;
+  branch: string;
+  /** A leftover director branch exists: check it out instead of cutting a new one. */
+  reuseBranch: boolean;
+}
+export interface IsolatedWorkspace {
+  cwd: string;
+  branch: string;
+  workspaceId?: string;
+  /** Commit the worktree was cut from, when it is already known. */
+  baseCommit?: string;
+}
+/** Official Paseo worktree creation, the same path `create_workspace` uses. */
+export type CreateIsolatedWorkspace = (
+  request: IsolatedWorkspaceRequest,
+) => Promise<IsolatedWorkspace>;
+export type FindIsolatedWorkspace = (
+  request: IsolatedWorkspaceRequest,
+) => Promise<IsolatedWorkspace | undefined>;
+export type DiscardIsolatedWorkspace = (workspace: IsolatedWorkspace) => Promise<void>;
 export interface Repository {
   prepare(
     repository: string,
     runId: string,
     currentWorkspace?: boolean,
-  ): Promise<{ repository: string; cwd: string; baseCommit: string; branch: string }>;
+  ): Promise<{
+    repository: string;
+    cwd: string;
+    baseCommit: string;
+    branch: string;
+    workspaceId?: string;
+  }>;
   assertBranch(run: Run): Promise<void>;
   /** The artifact id of the working tree right now, without writing any artifact. */
   fingerprint(run: Run): Promise<string>;
@@ -21,7 +51,12 @@ export interface Repository {
   discard(evidence: Evidence): Promise<void>;
 }
 export class GitRepository implements Repository {
-  constructor(private root: string) {}
+  constructor(
+    private root: string,
+    private createIsolatedWorkspace?: CreateIsolatedWorkspace,
+    private findIsolatedWorkspace?: FindIsolatedWorkspace,
+    private discardIsolatedWorkspace?: DiscardIsolatedWorkspace,
+  ) {}
   private async gitOutput(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
     return (
       await exec("git", args, {
@@ -37,20 +72,15 @@ export class GitRepository implements Repository {
   }
   async prepare(repository: string, runId: string, currentWorkspace = false) {
     if (!isAbsolute(repository)) throw new Error("仓库路径必须是绝对路径");
-    const repositoryRoot = await realpath(
-      await this.git(await realpath(repository), ["rev-parse", "--show-toplevel"]),
-    );
-    if (currentWorkspace && (await realpath(repository)) !== repositoryRoot)
+    const source = await realpath(repository);
+    const repositoryRoot = await realpath(await this.git(source, ["rev-parse", "--show-toplevel"]));
+    if (currentWorkspace && source !== repositoryRoot)
       throw new Error("请在项目根目录的工作区启动，或选择独立工作区执行");
     if ((await this.git(repositoryRoot, ["ls-files", "--unmerged"])).trim())
       throw new Error("仓库存在未解决的合并冲突，请先解决冲突后再启动 AI 协作");
-    if (!currentWorkspace && (await this.git(repositoryRoot, ["status", "--porcelain"])).trim())
-      throw new Error(
-        "独立工作区从当前提交创建，不包含未提交改动。要审核或修复当前改动，请选择「在当前工作区执行」或「使用已有工作区」",
-      );
     const baseCommit = await this.git(repositoryRoot, ["rev-parse", "HEAD"]);
-    const cwd = join(this.root, "worktrees", runId),
-      branch = `director/${runId}`;
+    const legacyCwd = join(this.root, "worktrees", runId);
+    const branch = `director/${runId}`;
     if (currentWorkspace) {
       // Branching at HEAD keeps staged, unstaged and untracked work in place.
       // Keep HEAD as the review base so pre-existing changes are reviewed too.
@@ -58,19 +88,68 @@ export class GitRepository implements Repository {
       if (currentBranch !== branch) await this.git(repositoryRoot, ["switch", "-c", branch]);
       return { repository: repositoryRoot, cwd: repositoryRoot, baseCommit, branch };
     }
+    const recovered = await this.recoverLegacyWorktree(legacyCwd, branch);
+    if (recovered) {
+      return { repository: repositoryRoot, cwd: legacyCwd, baseCommit: recovered, branch };
+    }
+    // A new run has no director branch. Skip the worktree and workspace scans until one exists.
+    // A leftover branch was cut before its run was recorded, so its tip is that run's base.
+    const leftoverBase = await this.branchTip(repositoryRoot, branch);
+    // Cut the worktree at the git root even from a subdirectory: evidence stages `.` from
+    // run.cwd, so a subdirectory cwd would drop edits made elsewhere in the repository.
+    const request = {
+      repository: repositoryRoot,
+      runId,
+      baseCommit,
+      branch,
+      reuseBranch: leftoverBase !== undefined,
+    };
+    const existing = leftoverBase ? await this.findIsolatedWorkspace?.(request) : undefined;
+    const base = leftoverBase ?? baseCommit;
+    if (existing) return this.adoptIsolatedWorkspace(repositoryRoot, base, existing);
+    if (this.createIsolatedWorkspace) {
+      const created = await this.createIsolatedWorkspace(request);
+      if (created.branch !== branch) {
+        await this.discardIsolatedWorkspace?.(created);
+        throw new Error("协作工作区分支不匹配");
+      }
+      return this.adoptIsolatedWorkspace(repositoryRoot, base, created);
+    }
     await mkdir(join(this.root, "worktrees"), { recursive: true, mode: 0o700 });
-    // A request id deterministically names its worktree; recover preparation after a crash.
+    await this.git(repositoryRoot, ["worktree", "add", "-b", branch, legacyCwd, baseCommit]);
+    return { repository: repositoryRoot, cwd: legacyCwd, baseCommit, branch };
+  }
+  private async adoptIsolatedWorkspace(
+    repository: string,
+    baseCommit: string,
+    workspace: IsolatedWorkspace,
+  ) {
+    return {
+      repository,
+      cwd: await realpath(workspace.cwd),
+      baseCommit: workspace.baseCommit ?? baseCommit,
+      branch: workspace.branch,
+      ...(workspace.workspaceId ? { workspaceId: workspace.workspaceId } : {}),
+    };
+  }
+  private async branchTip(cwd: string, branch: string): Promise<string | undefined> {
+    try {
+      return await this.git(cwd, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
+    } catch {
+      return undefined;
+    }
+  }
+  private async recoverLegacyWorktree(cwd: string, branch: string): Promise<string | undefined> {
     try {
       const existingBase = await this.git(cwd, ["rev-parse", "HEAD"]);
       const existingBranch = await this.git(cwd, ["branch", "--show-current"]);
       if (existingBranch !== branch) throw new Error("恢复工作区的分支不匹配");
-      return { repository: repositoryRoot, cwd, baseCommit: existingBase, branch };
+      return existingBase;
     } catch (e) {
       if (!(e as NodeJS.ErrnoException).code || (e as Error).message.includes("分支不匹配"))
         throw e;
+      return undefined;
     }
-    await this.git(repositoryRoot, ["worktree", "add", "-b", branch, cwd, baseCommit]);
-    return { repository: repositoryRoot, cwd, baseCommit, branch };
   }
   async assertBranch(run: Run) {
     if (run.workspaceId && (await this.git(run.cwd, ["branch", "--show-current"])) !== run.branch)

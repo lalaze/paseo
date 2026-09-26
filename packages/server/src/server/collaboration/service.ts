@@ -13,6 +13,7 @@ import {
   ReviewSchema,
   SettingsSchema,
   RolePromptsSchema,
+  CollaborationIsolationSchema,
   CollaborationModeSchema,
   collaborationMode,
   REVIEWER_ACTOR,
@@ -34,6 +35,7 @@ const openSchema = z.object({
   goal: z.string().max(32000).optional(),
   fresh: z.boolean().optional(),
   mode: CollaborationModeSchema.optional(),
+  isolation: CollaborationIsolationSchema.optional(),
   settings: SettingsSchema.optional(),
 });
 const controlSchema = z.object({
@@ -84,7 +86,16 @@ export class CollaborationService {
       throw error;
     }
     const gateway = new CollaborationGateway(this.host, store.meta<number>("mcpPort"));
-    const engine = new Engine(store, gateway, new GitRepository(this.root));
+    const engine = new Engine(
+      store,
+      gateway,
+      new GitRepository(
+        this.root,
+        this.host.createIsolatedWorkspace,
+        this.host.findIsolatedWorkspace,
+        this.host.discardIsolatedWorkspace,
+      ),
+    );
     const conversations = new Conversations(store, engine, gateway);
     this.runtime = { store, engine, conversations };
     this.unsubscribe = this.host.agentManager.subscribe(
@@ -141,6 +152,9 @@ export class CollaborationService {
             {
               id: candidateConversation.id,
               mode: collaborationMode(candidateConversation),
+              ...(candidateConversation.isolation
+                ? { isolation: candidateConversation.isolation }
+                : {}),
               settings: candidateConversation.settings,
               requestId: candidateConversation.requestId,
               workspaceId: candidateConversation.workspaceId,
@@ -252,7 +266,7 @@ export class CollaborationService {
       ),
       define(
         "start_task",
-        "在用户明确要求实施后启动协作任务；讨论不启动。",
+        "在用户明确要求实施后启动协作任务；讨论不启动。执行位置由用户在启动协作时选定，此工具不能更改。",
         z.object({ sourceMessageId: z.string(), goal: z.string().trim().min(1).max(32000) }),
         async (input) => {
           const c = chat();

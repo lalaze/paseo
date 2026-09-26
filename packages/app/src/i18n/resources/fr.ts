@@ -50,6 +50,11 @@ export const fr: TranslationResources = {
     },
     modeLocked:
       "Le mode de cette tâche est fixé. Ouvrez une nouvelle conversation pour changer de mode.",
+    isolationDescriptions: {
+      local: "Conserve les modifications non validées et bascule ici sur une branche director.",
+      worktree:
+        "Démarre depuis le commit actuel dans un nouveau worktree Paseo. Les modifications non validées restent ici.",
+    },
     continue: "Continuer vers la conversation",
     configure: "Configurer les agents",
     launchErrors: {
@@ -57,6 +62,8 @@ export const fr: TranslationResources = {
       reviewerRequired:
         "Choisissez un agent de vérification indépendant dans les paramètres de collaboration.",
       updateHost: "Mettez à jour l’hôte pour utiliser réalisation + vérification.",
+      updateHostWorktree:
+        "Mettez à jour l’hôte pour exécuter la collaboration dans un worktree séparé.",
     },
     categoryOverrides: "Affectations par catégorie",
     taskOverrides: "Affectations par identifiant de tâche",

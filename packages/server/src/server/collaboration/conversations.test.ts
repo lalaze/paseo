@@ -137,6 +137,36 @@ test("visual mode selection persists, starts one direct task, and cannot change 
   assert.equal((await h.chats.open(input)).mode, "execute_review");
 });
 
+test("starting a worktree conversation prepares an isolated workspace", async (t) => {
+  const h = await fixture(t);
+  const flags: boolean[] = [];
+  h.repo.prepare = async (repository, runId, currentWorkspace = false) => {
+    flags.push(currentWorkspace);
+    return {
+      repository,
+      cwd: currentWorkspace ? repository : `/worktrees/${runId}`,
+      baseCommit: "base",
+      branch: `director/${runId}`,
+      ...(currentWorkspace ? {} : { workspaceId: `wt-${runId}` }),
+    };
+  };
+  const c = await h.chats.open({
+    requestId: "isolated",
+    workspaceId: "workspace",
+    goal: "实现功能",
+    isolation: "worktree",
+  });
+  assert.equal(h.store.conversation(c.id).isolation, "worktree");
+  const status = await h.chats.status(c.id);
+  await h.chats.start(c.id, {
+    goal: "实现功能",
+    sourceMessageId: status.latestUserMessage!.id,
+  });
+  assert.deepEqual(flags, [false]);
+  assert.equal(h.store.all()[0]?.workspaceId, `wt-${h.store.all()[0]?.id}`);
+  assert.notEqual(h.store.all()[0]?.cwd, h.dir);
+});
+
 test("lightweight conversations without an independent reviewer do not create sessions", async (t) => {
   const h = await fixture(t);
   await assert.rejects(
