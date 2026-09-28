@@ -59,7 +59,21 @@ are reused. A repository must have an initial commit and no unresolved merge con
 In Full workflow, plan approval is optional. Final user acceptance is required even after the AI approves the
 result. Approval tools verify the latest real user message and the version of the confirmation
 shown in that conversation. Background notices and worker output cannot approve a plan or result.
-The assistant explains the required confirmation replies in chat.
+
+## Conversation timeline
+
+Operation prompts and background notices reach the main Agent as user-role messages. The app
+renders each one as a compact stage row (`Collaboration · review`, `Collaboration · awaiting
+acceptance`, and so on) with a one-line summary; expanding the row shows the instructions the
+Agent received, never the marker or JSON context. The row carries the status, so the Agent's reply
+must not restate it or narrate the scheduler: it says what changed, what is next, and what the user
+has to do. At acceptance the Agent gives one report — actual changes, verification run and results,
+known limitations — and ends with the exact replies: `验收通过` alone to accept, `不采纳成果`
+alone to reject, or a description of the changes to request rework.
+
+The rows are parsed from message text (`packages/app/src/collaboration/message-summary.ts`), and
+messages persisted by older hosts must keep parsing. Keep a notice's instruction on the single line
+between its marker and its JSON, and keep new JSON fields optional.
 
 Pause stops subsequent dispatch; the current turn can finish. Cancel stops the active worker and
 retains the branch and files. Uncertain creation or delivery waits for inspection and explicit retry.

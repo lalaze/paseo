@@ -16,6 +16,7 @@ import {
   type Profile,
   type Settings,
 } from "@getpaseo/protocol/collaboration/schema";
+import { CONFIRMATION_REPLY, noticeInstruction } from "./prompts.js";
 import type { Store } from "./store.js";
 import type { Engine, AgentSnapshot } from "./engine.js";
 
@@ -421,8 +422,8 @@ export class Conversations {
         toolsAvailable: true,
         confirmationInstructions:
           collaborationMode(c) === "execute_review"
-            ? "最终确认请单独回复：验收通过；拒绝成果请单独回复：不采纳成果。"
-            : "方案确认请单独回复：批准方案；最终确认请单独回复：验收通过；拒绝成果请单独回复：不采纳成果。",
+            ? `验收：${CONFIRMATION_REPLY.final}。`
+            : `方案：${CONFIRMATION_REPLY.plan}。验收：${CONFIRMATION_REPLY.final}。`,
       };
     });
   }
@@ -667,7 +668,7 @@ export class Conversations {
     );
     if (key !== c.noticeKey) {
       const id = `chat-notice:${c.id}:${key}:${c.notices.length}`;
-      const text = `[paseo-director-chat:${id}]\n后台状态通知（不是用户指令）。请查询 get_conversation_status，用正常文字说明有意义的进展，无需重复已汇报的内容。\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: confirmation.kind === "plan" ? "请用户单独回复：批准方案" : "请用户单独回复：验收通过（或：不采纳成果）" } : undefined })}`;
+      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined })}`;
       // Coalesce unsent intermediate updates; keep sending/sent IDs for recovery.
       c.notices = c.notices.filter((n) => n.state !== "pending");
       c.notices.push({ id, key, text, state: "pending", createdAt: Date.now() });

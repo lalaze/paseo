@@ -1,4 +1,5 @@
-import { CollaborationMessage, collaborationMessageSummary } from "@/collaboration/message";
+import { CollaborationMessage } from "@/collaboration/message";
+import { collaborationMessageSummary } from "@/collaboration/message-summary";
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {

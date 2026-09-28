@@ -38,10 +38,36 @@ export function readCollaborationPrompt(raw: string) {
       operationId: marker[1],
       stage,
       goal: data.goal,
+      instruction: instruction.trim(),
       task: data.task?.title,
       acceptance: data.acceptance ?? data.task?.acceptance ?? [],
       changes: data.userChangeRequests?.map((change) => change.feedback),
       raw,
+    };
+  } catch {
+    return;
+  }
+}
+
+const NoticeSchema = z.object({
+  message: z.string(),
+  confirmation: z
+    .object({ kind: z.enum(["plan", "final"]), reply: z.string().optional() })
+    .optional(),
+});
+/** Decode a background notice sent to the main Agent: marker line, one prose line, then JSON. */
+export function readCollaborationNotice(id: string, raw: string) {
+  const marker = `[paseo-director-chat:${id}]\n`;
+  if (!raw.startsWith(marker)) return;
+  const start = raw.indexOf("\n{", marker.length);
+  if (start < 0) return;
+  try {
+    const data = NoticeSchema.parse(JSON.parse(raw.slice(start + 1)));
+    return {
+      instruction: raw.slice(marker.length, start).trim(),
+      message: data.message,
+      confirmation: data.confirmation?.kind,
+      reply: data.confirmation?.reply,
     };
   } catch {
     return;

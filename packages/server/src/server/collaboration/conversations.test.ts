@@ -4,7 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import { readCollaborationNotice } from "@getpaseo/protocol/collaboration/presentation";
 import { Conversations, validateChatApproval, type ConversationGateway } from "./conversations.js";
+import { CHAT_PROMPT, noticeInstruction } from "./prompts.js";
 import { Store } from "./store.js";
 import { Engine } from "./engine.js";
 import type { Conversation } from "@getpaseo/protocol/collaboration/conversation";
@@ -243,6 +245,12 @@ test("native chat plan, child execution, review and explicit acceptance form a c
   h.gateway.idle(c.agentId!);
   const pending = h.chats.summary(c.id).confirmation!;
   assert.ok(pending);
+  // The app renders this notice as the acceptance stage card; the Agent owes one report.
+  const notice = h.gateway.sent.find((entry) => entry.opId === pending.noticeId);
+  const card = readCollaborationNotice(pending.noticeId, notice!.prompt);
+  assert.equal(card?.confirmation, "final");
+  assert.match(card!.instruction, /实际改动、验证及结果、已知限制/);
+  assert.match(card!.reply!, /单独回复“验收通过”.+单独回复“不采纳成果”.+描述需要修改的内容/);
   h.gateway.user(c.agentId!, "ambiguous", "好");
   await assert.rejects(
     h.chats.control(c.id, {
@@ -742,4 +750,21 @@ test("a stalled poll of one conversation does not delay tool calls from another"
   assert.equal((status as { id: string }).id, quick.id);
   release();
   await tick;
+});
+
+test("main Agent replies stay out of the stage card and end acceptance with exact next actions", () => {
+  assert.match(CHAT_PROMPT, /不要复述卡片内容/);
+  assert.match(CHAT_PROMPT, /不要描述后台、调度器、通知或工具调用过程/);
+  assert.match(CHAT_PROMPT, /有什么变化、下一步是什么、用户是否需要操作/);
+  const report = ["实际改动：", "验证：", "已知限制：", "下一步："].map((section) =>
+    CHAT_PROMPT.indexOf(section),
+  );
+  assert.ok(report.every((index, i) => index > 0 && (i === 0 || index > report[i - 1])));
+  assert.match(CHAT_PROMPT, /单独回复“验收通过”.+单独回复“不采纳成果”.+描述需要修改的内容以返工/);
+  assert.match(CHAT_PROMPT, /批准工具必须引用待确认 confirmation\.key 和最新真实用户消息/);
+  for (const kind of [undefined, "plan", "final"] as const) {
+    // The app splits the notice at the first line break before its JSON context.
+    assert.doesNotMatch(noticeInstruction(kind), /[\n{]/);
+    assert.match(noticeInstruction(kind), /不要复述卡片摘要，不要描述后台或调度过程/);
+  }
 });
