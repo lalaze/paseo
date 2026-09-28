@@ -58,6 +58,7 @@ import {
   type Stream as ACPStream,
 } from "@agentclientprotocol/sdk";
 import type { Logger } from "pino";
+import { composeSystemPromptParts } from "../system-prompt.js";
 
 import {
   getAgentStreamEventTurnId,
@@ -1859,11 +1860,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
     this.emitSubmittedUserMessage(prompt, messageId, turnId, options?.clientMessageId);
 
+    const content = toACPContentBlocks(prompt);
+    const instructions = composeSystemPromptParts(
+      this.config.systemPrompt,
+      this.config.daemonAppendSystemPrompt,
+    );
+    // ACP has no standard system-message field. Supply the configured instructions
+    // as turn context, including after resume, without changing the user's timeline entry.
+    if (instructions) {
+      content.unshift({
+        type: "text",
+        text: `[Paseo session instructions]\n${instructions}\n[/Paseo session instructions]`,
+      });
+    }
+
     void this.connection
       .prompt({
         sessionId: this.sessionId,
         messageId,
-        prompt: toACPContentBlocks(prompt),
+        prompt: content,
       })
       .then((response) => {
         this.handlePromptResponse(response, turnId);

@@ -191,6 +191,8 @@ function createSessionWithConfig(
     modeId?: string | null;
     model?: string | null;
     featureValues?: Record<string, unknown>;
+    systemPrompt?: string;
+    daemonAppendSystemPrompt?: string;
   } = {},
   logger: ReturnType<typeof createTestLogger> = createTestLogger(),
 ): ACPAgentSession {
@@ -201,6 +203,8 @@ function createSessionWithConfig(
       modeId: config.modeId ?? undefined,
       model: config.model ?? undefined,
       featureValues: config.featureValues,
+      systemPrompt: config.systemPrompt,
+      daemonAppendSystemPrompt: config.daemonAppendSystemPrompt,
     },
     {
       provider: config.provider ?? "claude-acp",
@@ -2913,6 +2917,58 @@ describe("ACPAgentSession", () => {
       turnId,
     });
     expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
+  });
+
+  test("startTurn sends session instructions on every turn without adding them to user messages", async () => {
+    const session = createSessionWithConfig({
+      systemPrompt: "Use start_task for implementation requests.",
+      daemonAppendSystemPrompt: "Reply in Chinese.",
+    });
+    const events: AgentStreamEvent[] = [];
+    const prompt = vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" }));
+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+    asInternals<ACPSessionInternals>(session).connection = { prompt };
+    session.subscribe((event) => events.push(event));
+
+    await session.startTurn("Create collaboration-smoke-test.txt", { clientMessageId: "first" });
+    await Promise.resolve();
+    await Promise.resolve();
+    await session.startTurn(
+      [
+        { type: "text", text: "Check this image too" },
+        { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+      ],
+      { clientMessageId: "second" },
+    );
+
+    const instructions = {
+      type: "text",
+      text: "[Paseo session instructions]\nUse start_task for implementation requests.\n\nReply in Chinese.\n[/Paseo session instructions]",
+    };
+    expect(prompt.mock.calls).toEqual([
+      [
+        {
+          sessionId: "session-1",
+          messageId: "first",
+          prompt: [instructions, { type: "text", text: "Create collaboration-smoke-test.txt" }],
+        },
+      ],
+      [
+        {
+          sessionId: "session-1",
+          messageId: "second",
+          prompt: [
+            instructions,
+            { type: "text", text: "Check this image too" },
+            { type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+          ],
+        },
+      ],
+    ]);
+    const userMessages = events.flatMap((event) =>
+      event.type === "timeline" && event.item.type === "user_message" ? [event.item.text] : [],
+    );
+    expect(userMessages).toEqual(["Create collaboration-smoke-test.txt", "Check this image too"]);
   });
 
   test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
