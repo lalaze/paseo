@@ -31,38 +31,42 @@ export function BingWallpaperSection() {
           disabled={bing.selecting}
           onValueChange={bing.setEnabled}
         />
-        {showDetails ? (
-          <View style={styles.details}>
-            {!bing.available ? (
-              <Text style={settingsStyles.rowHint}>
-                {t("settings.appearance.bing.unavailable")}
-              </Text>
-            ) : null}
-            {bing.busy ? (
-              <Text role="status" style={settingsStyles.rowHint}>
-                {t("settings.appearance.bing.loading")}
-              </Text>
-            ) : null}
-            {bing.error ? (
-              <Text role="alert" style={styles.error}>
-                {t("settings.appearance.bing.failed", { reason: bing.error })}
-              </Text>
-            ) : null}
-            {bing.enabled && bing.wallpaper ? (
-              <>
+        <View style={styles.details}>
+          {showDetails ? (
+            <>
+              {!bing.available ? (
                 <Text style={settingsStyles.rowHint}>
-                  {t(
-                    bing.selectedId
-                      ? "settings.appearance.bing.pinned"
-                      : "settings.appearance.bing.daily",
-                  )}
+                  {t("settings.appearance.bing.unavailable")}
                 </Text>
-                <Text style={settingsStyles.rowTitle}>{bing.wallpaper.title}</Text>
-                <Text style={settingsStyles.rowHint}>{bing.wallpaper.copyright}</Text>
-              </>
-            ) : null}
+              ) : null}
+              {bing.busy ? (
+                <Text role="status" style={settingsStyles.rowHint}>
+                  {t("settings.appearance.bing.loading")}
+                </Text>
+              ) : null}
+              {bing.error ? (
+                <Text role="alert" style={styles.error}>
+                  {t("settings.appearance.bing.failed", { reason: bing.error })}
+                </Text>
+              ) : null}
+              {bing.enabled && bing.wallpaper ? (
+                <>
+                  <Text style={settingsStyles.rowHint}>
+                    {t(
+                      bing.selectedId
+                        ? "settings.appearance.bing.pinned"
+                        : "settings.appearance.bing.daily",
+                    )}
+                  </Text>
+                  <Text style={settingsStyles.rowTitle}>{bing.wallpaper.title}</Text>
+                  <Text style={settingsStyles.rowHint}>{bing.wallpaper.copyright}</Text>
+                </>
+              ) : null}
+            </>
+          ) : null}
+          <View style={styles.actions}>
             {bing.enabled ? (
-              <View style={styles.actions}>
+              <>
                 <Button
                   size="sm"
                   variant="outline"
@@ -86,19 +90,17 @@ export function BingWallpaperSection() {
                     {t("settings.appearance.bing.attribution")}
                   </Button>
                 ) : null}
-              </View>
+              </>
             ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              onPress={openWallpaperLibrary}
+              testID="wallpaper-library-link"
+            >
+              {t("settings.appearance.bing.archive")}
+            </Button>
           </View>
-        ) : null}
-        <View style={styles.details}>
-          <Button
-            variant="outline"
-            size="sm"
-            onPress={openWallpaperLibrary}
-            testID="wallpaper-library-link"
-          >
-            {t("settings.appearance.bing.archive")}
-          </Button>
         </View>
       </View>
     </SettingsSection>
