@@ -2396,7 +2396,6 @@ export const en = {
         empty: "No archived wallpapers yet.",
         apply: "Apply {{name}}",
         delete: "Delete {{name}}",
-        more: "Show more",
         pinned: "Fixed wallpaper · new daily images will still be archived",
         daily: "Daily updates",
         resume: "Resume daily updates",

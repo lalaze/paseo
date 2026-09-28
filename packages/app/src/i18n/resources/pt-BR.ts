@@ -2313,7 +2313,6 @@ export const ptBR: TranslationResources = {
         empty: "Nenhum papel de parede arquivado.",
         apply: "Aplicar {{name}}",
         delete: "Excluir {{name}}",
-        more: "Mostrar mais",
         pinned: "Papel de parede fixo · novas imagens diárias continuam sendo arquivadas",
         daily: "Atualização diária",
         resume: "Retomar atualizações diárias",

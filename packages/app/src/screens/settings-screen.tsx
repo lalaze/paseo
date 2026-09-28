@@ -1619,6 +1619,16 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
     </>
   ) : null;
 
+  // The wallpaper library owns its scroll view so it can load more on scroll.
+  const detailBody =
+    view.kind === "wallpapers" ? (
+      content
+    ) : (
+      <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
+        <View style={styles.content}>{content}</View>
+      </ScrollView>
+    );
+
   const addHostModals = (
     <>
       <AddHostMethodModal
@@ -1680,9 +1690,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
           titleAccessory={detailHeader?.titleAccessory}
           onBack={handleBackFromDetail}
         />
-        <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
-          <View style={styles.content}>{content}</View>
-        </ScrollView>
+        {detailBody}
         {addHostModals}
       </View>
     );
@@ -1713,9 +1721,7 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
               left={desktopDetailHeaderLeft}
               leftStyle={desktopStyles.detailLeft}
             />
-            <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
-              <View style={styles.content}>{content}</View>
-            </ScrollView>
+            {detailBody}
           </View>
         </WindowChromeRegion>
       </View>

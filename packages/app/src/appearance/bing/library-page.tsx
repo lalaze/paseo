@@ -1,7 +1,16 @@
-import { useCallback, useMemo, useState } from "react";
-import { Image, Text, View } from "react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  Image,
+  ScrollView,
+  Text,
+  View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { ArrowLeft } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
 import { SettingsCard } from "@/components/settings";
 import { Button } from "@/components/ui/button";
@@ -10,18 +19,123 @@ import { useBingWallpaper } from "./use-wallpaper";
 import { useArchiveImage } from "./use-archive-image";
 import type { ArchivedWallpaper } from "./archive";
 
+const MIN_COLUMN_WIDTH = 280;
+const PAGE_SIZE = 12;
+// Start rendering the next page once the bottom is this close to the viewport.
+const LOAD_AHEAD = 800;
+// Height guess for text and buttons below the preview until the card reports its real height.
+const ESTIMATED_CARD_TEXT_HEIGHT = 150;
+
 interface WallpaperLibraryPageProps {
   onBack: () => void;
   showBack: boolean;
 }
 
+interface WallpaperColumn {
+  key: string;
+  entries: ArchivedWallpaper[];
+}
+
+// Places each entry in the currently shortest column so columns stay balanced
+// while reading order stays roughly left-to-right, newest first.
+function layoutColumns(
+  entries: ArchivedWallpaper[],
+  columnCount: number,
+  columnWidth: number,
+  heights: Record<string, number>,
+): WallpaperColumn[] {
+  const columns: WallpaperColumn[] = Array.from({ length: columnCount }, (_, index) => ({
+    key: `column-${index}`,
+    entries: [],
+  }));
+  const columnHeights = Array.from({ length: columnCount }, () => 0);
+  const estimate = (columnWidth * 9) / 16 + ESTIMATED_CARD_TEXT_HEIGHT;
+  for (const entry of entries) {
+    const shortest = columnHeights.indexOf(Math.min(...columnHeights));
+    columns[shortest].entries.push(entry);
+    columnHeights[shortest] += heights[entry.id] ?? estimate;
+  }
+  return columns;
+}
+
 export function WallpaperLibraryPage({ onBack, showBack }: WallpaperLibraryPageProps) {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const bing = useBingWallpaper();
-  const [visibleCount, setVisibleCount] = useState(12);
-  const showMore = useCallback(() => setVisibleCount((count) => count + 12), []);
+  const total = bing.entries.length;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [galleryWidth, setGalleryWidth] = useState(0);
+  const [cardHeights, setCardHeights] = useState<Record<string, number>>({});
+  const viewportHeight = useRef(0);
+  const scrollOffset = useRef(0);
+  const contentHeight = useRef(0);
+
+  const loadMore = useCallback(
+    () => setVisibleCount((count) => (count < total ? count + PAGE_SIZE : count)),
+    [total],
+  );
+  const loadMoreIfNearEnd = useCallback(() => {
+    if (viewportHeight.current === 0 || contentHeight.current === 0) return;
+    const remaining = contentHeight.current - scrollOffset.current - viewportHeight.current;
+    if (remaining < LOAD_AHEAD) loadMore();
+  }, [loadMore]);
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      scrollOffset.current = event.nativeEvent.contentOffset.y;
+      contentHeight.current = event.nativeEvent.contentSize.height;
+      loadMoreIfNearEnd();
+    },
+    [loadMoreIfNearEnd],
+  );
+  // Keeps loading until the content overflows the viewport, so tall or wide windows fill up.
+  const handleContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      contentHeight.current = height;
+      loadMoreIfNearEnd();
+    },
+    [loadMoreIfNearEnd],
+  );
+  const measureViewport = useCallback(
+    (event: LayoutChangeEvent) => {
+      viewportHeight.current = event.nativeEvent.layout.height;
+      loadMoreIfNearEnd();
+    },
+    [loadMoreIfNearEnd],
+  );
+  const measureGallery = useCallback(
+    (event: LayoutChangeEvent) => setGalleryWidth(event.nativeEvent.layout.width),
+    [],
+  );
+  const recordCardHeight = useCallback((id: string, height: number) => {
+    const rounded = Math.round(height);
+    setCardHeights((prev) => (prev[id] === rounded ? prev : { ...prev, [id]: rounded }));
+  }, []);
+
+  const columnCount = Math.max(1, Math.floor(galleryWidth / MIN_COLUMN_WIDTH));
+  const columns = useMemo(
+    () =>
+      layoutColumns(
+        bing.entries.slice(0, visibleCount),
+        columnCount,
+        galleryWidth / columnCount,
+        cardHeights,
+      ),
+    [bing.entries, visibleCount, columnCount, galleryWidth, cardHeights],
+  );
+  const contentStyle = useMemo(
+    () => [styles.scrollContent, { paddingBottom: insets.bottom }],
+    [insets.bottom],
+  );
+
   return (
-    <View style={styles.page}>
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={contentStyle}
+      onLayout={measureViewport}
+      onScroll={handleScroll}
+      onContentSizeChange={handleContentSizeChange}
+      scrollEventThrottle={100}
+    >
       {showBack ? (
         <Button variant="ghost" size="sm" leftIcon={ArrowLeft} onPress={onBack} style={styles.back}>
           {t("settings.appearance.bing.back")}
@@ -66,23 +180,29 @@ export function WallpaperLibraryPage({ onBack, showBack }: WallpaperLibraryPageP
           {bing.entries.length === 0 ? (
             <Text style={settingsStyles.rowHint}>{t("settings.appearance.bing.empty")}</Text>
           ) : null}
-          <View style={styles.gallery}>
-            {bing.entries.slice(0, visibleCount).map((entry) => (
-              <ArchiveCard key={entry.id} entry={entry} />
-            ))}
+          <View style={styles.gallery} onLayout={measureGallery}>
+            {galleryWidth > 0
+              ? columns.map((column) => (
+                  <View key={column.key} style={styles.column}>
+                    {column.entries.map((entry) => (
+                      <ArchiveCard key={entry.id} entry={entry} onMeasure={recordCardHeight} />
+                    ))}
+                  </View>
+                ))
+              : null}
           </View>
-          {bing.entries.length > visibleCount ? (
-            <Button size="sm" variant="outline" onPress={showMore}>
-              {t("settings.appearance.bing.more")}
-            </Button>
-          ) : null}
         </View>
       </SettingsCard>
-    </View>
+    </ScrollView>
   );
 }
 
-function ArchiveCard({ entry }: { entry: ArchivedWallpaper }) {
+interface ArchiveCardProps {
+  entry: ArchivedWallpaper;
+  onMeasure: (id: string, height: number) => void;
+}
+
+function ArchiveCard({ entry, onMeasure }: ArchiveCardProps) {
   const { t } = useTranslation();
   const bing = useBingWallpaper();
   const image = useArchiveImage(entry.id);
@@ -90,9 +210,13 @@ function ArchiveCard({ entry }: { entry: ArchivedWallpaper }) {
   const { selectArchive, deleteArchive } = bing;
   const apply = useCallback(() => selectArchive(entry.id), [selectArchive, entry.id]);
   const remove = useCallback(() => deleteArchive(entry.id), [deleteArchive, entry.id]);
+  const measure = useCallback(
+    (event: LayoutChangeEvent) => onMeasure(entry.id, event.nativeEvent.layout.height),
+    [onMeasure, entry.id],
+  );
   const date = `${entry.date.slice(0, 4)}-${entry.date.slice(4, 6)}-${entry.date.slice(6, 8)}`;
   return (
-    <View style={styles.archiveCard} testID="bing-archive-card">
+    <View style={styles.archiveCard} testID="bing-archive-card" onLayout={measure}>
       {image.data ? (
         <Image
           source={source}
@@ -101,7 +225,9 @@ function ArchiveCard({ entry }: { entry: ArchivedWallpaper }) {
           resizeMode="cover"
           accessibilityLabel={entry.title}
         />
-      ) : null}
+      ) : (
+        <View style={[styles.preview, styles.previewPlaceholder]} />
+      )}
       <Text style={settingsStyles.rowTitle}>{entry.title}</Text>
       <Text style={settingsStyles.rowHint}>{date}</Text>
       <Text style={settingsStyles.rowHint}>{entry.copyright}</Text>
@@ -137,18 +263,19 @@ function ArchiveCard({ entry }: { entry: ArchivedWallpaper }) {
 }
 
 const styles = StyleSheet.create((theme) => ({
-  page: { gap: theme.spacing[4] },
+  scrollView: { flex: 1 },
+  scrollContent: {
+    padding: theme.spacing[4],
+    paddingTop: theme.spacing[6],
+    gap: theme.spacing[4],
+  },
   details: { padding: theme.spacing[4], gap: theme.spacing[4] },
   back: { alignSelf: "flex-start" },
-  gallery: { flexDirection: "row", flexWrap: "wrap", gap: theme.spacing[4] },
-  archiveCard: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 260,
-    maxWidth: 400,
-    gap: theme.spacing[2],
-  },
+  gallery: { flexDirection: "row", alignItems: "flex-start", gap: theme.spacing[4] },
+  column: { flex: 1, minWidth: 0, gap: theme.spacing[6] },
+  archiveCard: { gap: theme.spacing[2] },
   preview: { width: "100%", aspectRatio: 16 / 9, borderRadius: theme.borderRadius.md },
+  previewPlaceholder: { backgroundColor: theme.colors.surface2 },
   actions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: theme.spacing[2] },
   error: { color: theme.colors.statusDanger, fontSize: theme.fontSize.sm },
 }));

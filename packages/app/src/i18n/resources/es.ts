@@ -2331,7 +2331,6 @@ export const es: TranslationResources = {
         empty: "Aún no hay fondos archivados.",
         apply: "Aplicar {{name}}",
         delete: "Eliminar {{name}}",
-        more: "Mostrar más",
         pinned: "Fondo fijo · las nuevas imágenes diarias se siguen archivando",
         daily: "Actualización diaria",
         resume: "Reanudar actualizaciones diarias",

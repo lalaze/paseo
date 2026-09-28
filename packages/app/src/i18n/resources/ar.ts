@@ -2275,7 +2275,6 @@ export const ar: TranslationResources = {
         empty: "لا توجد خلفيات مؤرشفة بعد.",
         apply: "استخدام {{name}}",
         delete: "حذف {{name}}",
-        more: "عرض المزيد",
         pinned: "خلفية ثابتة · تستمر أرشفة الصور اليومية الجديدة",
         daily: "تحديث يومي",
         resume: "استئناف التحديثات اليومية",
