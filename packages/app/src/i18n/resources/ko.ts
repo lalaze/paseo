@@ -2320,6 +2320,8 @@ export const ko: TranslationResources = {
         empty: "저장된 배경화면이 없습니다.",
         apply: "{{name}} 적용",
         delete: "{{name}} 삭제",
+        applyAction: "적용",
+        deleteAction: "삭제",
         pinned: "배경화면 고정 · 새로운 일일 이미지도 계속 저장됩니다",
         daily: "매일 업데이트",
         resume: "일일 업데이트 재개",

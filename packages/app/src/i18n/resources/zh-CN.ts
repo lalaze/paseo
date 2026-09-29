@@ -2282,6 +2282,8 @@ export const zhCN: TranslationResources = {
         empty: "还没有归档壁纸。",
         apply: "使用 {{name}}",
         delete: "删除 {{name}}",
+        applyAction: "使用",
+        deleteAction: "删除",
         pinned: "已固定壁纸 · 新的每日壁纸仍会自动归档",
         daily: "每日自动更新",
         resume: "恢复每日更新",

@@ -2371,6 +2371,8 @@ export const fr: TranslationResources = {
         empty: "Aucun fond d’écran archivé.",
         apply: "Appliquer {{name}}",
         delete: "Supprimer {{name}}",
+        applyAction: "Appliquer",
+        deleteAction: "Supprimer",
         pinned: "Fond d’écran fixe · les nouvelles images restent archivées chaque jour",
         daily: "Mise à jour quotidienne",
         resume: "Reprendre les mises à jour quotidiennes",

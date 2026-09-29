@@ -2433,6 +2433,8 @@ export const en = {
         empty: "No archived wallpapers yet.",
         apply: "Apply {{name}}",
         delete: "Delete {{name}}",
+        applyAction: "Apply",
+        deleteAction: "Delete",
         pinned: "Fixed wallpaper · new daily images will still be archived",
         daily: "Daily updates",
         resume: "Resume daily updates",

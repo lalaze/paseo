@@ -2350,6 +2350,8 @@ export const ru: TranslationResources = {
         empty: "В архиве пока нет обоев.",
         apply: "Применить {{name}}",
         delete: "Удалить {{name}}",
+        applyAction: "Применить",
+        deleteAction: "Удалить",
         pinned: "Обои закреплены · новые ежедневные изображения сохраняются в архив",
         daily: "Ежедневное обновление",
         resume: "Возобновить ежедневное обновление",

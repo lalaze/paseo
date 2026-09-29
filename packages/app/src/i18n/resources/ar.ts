@@ -2310,6 +2310,8 @@ export const ar: TranslationResources = {
         empty: "لا توجد خلفيات مؤرشفة بعد.",
         apply: "استخدام {{name}}",
         delete: "حذف {{name}}",
+        applyAction: "استخدام",
+        deleteAction: "حذف",
         pinned: "خلفية ثابتة · تستمر أرشفة الصور اليومية الجديدة",
         daily: "تحديث يومي",
         resume: "استئناف التحديثات اليومية",

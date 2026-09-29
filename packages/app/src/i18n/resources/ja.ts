@@ -2332,6 +2332,8 @@ export const ja: TranslationResources = {
         empty: "保存された壁紙はありません。",
         apply: "{{name}} を使用",
         delete: "{{name}} を削除",
+        applyAction: "使用",
+        deleteAction: "削除",
         pinned: "壁紙を固定中 · 毎日の新しい画像は引き続き保存されます",
         daily: "毎日更新",
         resume: "毎日の更新を再開",

@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
 import { SettingsCard } from "@/components/settings";
 import { Button } from "@/components/ui/button";
+import { useIsCompactFormFactor } from "@/constants/layout";
+import { isNative } from "@/constants/platform";
 import { settingsStyles } from "@/styles/settings";
 import { useBingWallpaper } from "./use-wallpaper";
 import { useArchiveImage } from "./use-archive-image";
@@ -23,8 +25,6 @@ const MIN_COLUMN_WIDTH = 280;
 const PAGE_SIZE = 12;
 // Start rendering the next page once the bottom is this close to the viewport.
 const LOAD_AHEAD = 800;
-// Height guess for text and buttons below the preview until the card reports its real height.
-const ESTIMATED_CARD_TEXT_HEIGHT = 150;
 
 interface WallpaperLibraryPageProps {
   onBack: () => void;
@@ -38,25 +38,14 @@ interface WallpaperColumn {
   entries: ArchivedWallpaper[];
 }
 
-// Places each entry in the currently shortest column so columns stay balanced
-// while reading order stays roughly left-to-right, newest first.
-function layoutColumns(
-  entries: ArchivedWallpaper[],
-  columnCount: number,
-  columnWidth: number,
-  heights: Record<string, number>,
-): WallpaperColumn[] {
+// Every card has the same 16:9 height, so dealing entries round-robin keeps columns
+// balanced and reading order left-to-right, newest first.
+function layoutColumns(entries: ArchivedWallpaper[], columnCount: number): WallpaperColumn[] {
   const columns: WallpaperColumn[] = Array.from({ length: columnCount }, (_, index) => ({
     key: `column-${index}`,
     entries: [],
   }));
-  const columnHeights = Array.from({ length: columnCount }, () => 0);
-  const estimate = (columnWidth * 9) / 16 + ESTIMATED_CARD_TEXT_HEIGHT;
-  for (const entry of entries) {
-    const shortest = columnHeights.indexOf(Math.min(...columnHeights));
-    columns[shortest].entries.push(entry);
-    columnHeights[shortest] += heights[entry.id] ?? estimate;
-  }
+  entries.forEach((entry, index) => columns[index % columnCount].entries.push(entry));
   return columns;
 }
 
@@ -67,7 +56,6 @@ export function WallpaperLibraryPage({ onBack, showBack, title }: WallpaperLibra
   const total = bing.entries.length;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [galleryWidth, setGalleryWidth] = useState(0);
-  const [cardHeights, setCardHeights] = useState<Record<string, number>>({});
   const viewportHeight = useRef(0);
   const scrollOffset = useRef(0);
   const contentHeight = useRef(0);
@@ -108,21 +96,10 @@ export function WallpaperLibraryPage({ onBack, showBack, title }: WallpaperLibra
     (event: LayoutChangeEvent) => setGalleryWidth(event.nativeEvent.layout.width),
     [],
   );
-  const recordCardHeight = useCallback((id: string, height: number) => {
-    const rounded = Math.round(height);
-    setCardHeights((prev) => (prev[id] === rounded ? prev : { ...prev, [id]: rounded }));
-  }, []);
-
   const columnCount = Math.max(1, Math.floor(galleryWidth / MIN_COLUMN_WIDTH));
   const columns = useMemo(
-    () =>
-      layoutColumns(
-        bing.entries.slice(0, visibleCount),
-        columnCount,
-        galleryWidth / columnCount,
-        cardHeights,
-      ),
-    [bing.entries, visibleCount, columnCount, galleryWidth, cardHeights],
+    () => layoutColumns(bing.entries.slice(0, visibleCount), columnCount),
+    [bing.entries, visibleCount, columnCount],
   );
   const contentStyle = useMemo(
     () => [styles.scrollContent, { paddingBottom: insets.bottom }],
@@ -188,7 +165,7 @@ export function WallpaperLibraryPage({ onBack, showBack, title }: WallpaperLibra
               ? columns.map((column) => (
                   <View key={column.key} style={styles.column}>
                     {column.entries.map((entry) => (
-                      <ArchiveCard key={entry.id} entry={entry} onMeasure={recordCardHeight} />
+                      <ArchiveCard key={entry.id} entry={entry} />
                     ))}
                   </View>
                 ))
@@ -202,24 +179,29 @@ export function WallpaperLibraryPage({ onBack, showBack, title }: WallpaperLibra
 
 interface ArchiveCardProps {
   entry: ArchivedWallpaper;
-  onMeasure: (id: string, height: number) => void;
 }
 
-function ArchiveCard({ entry, onMeasure }: ArchiveCardProps) {
+function ArchiveCard({ entry }: ArchiveCardProps) {
   const { t } = useTranslation();
   const bing = useBingWallpaper();
   const image = useArchiveImage(entry.id);
+  const isCompact = useIsCompactFormFactor();
+  const [isHovered, setIsHovered] = useState(false);
   const source = useMemo(() => ({ uri: image.data ?? undefined }), [image.data]);
   const { selectArchive, deleteArchive } = bing;
   const apply = useCallback(() => selectArchive(entry.id), [selectArchive, entry.id]);
   const remove = useCallback(() => deleteArchive(entry.id), [deleteArchive, entry.id]);
-  const measure = useCallback(
-    (event: LayoutChangeEvent) => onMeasure(entry.id, event.nativeEvent.layout.height),
-    [onMeasure, entry.id],
-  );
+  const handlePointerEnter = useCallback(() => setIsHovered(true), []);
+  const handlePointerLeave = useCallback(() => setIsHovered(false), []);
+  const showDetails = isHovered || isNative || isCompact;
   const date = `${entry.date.slice(0, 4)}-${entry.date.slice(4, 6)}-${entry.date.slice(6, 8)}`;
   return (
-    <View style={styles.archiveCard} testID="bing-archive-card" onLayout={measure}>
+    <View
+      style={styles.archiveCard}
+      testID="bing-archive-card"
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+    >
       {image.data ? (
         <Image
           source={source}
@@ -229,37 +211,51 @@ function ArchiveCard({ entry, onMeasure }: ArchiveCardProps) {
           accessibilityLabel={entry.title}
         />
       ) : (
-        <View style={[styles.preview, styles.previewPlaceholder]} />
+        <View style={[styles.preview, styles.previewPlaceholder]}>
+          {image.error ? (
+            <Text style={styles.error}>{t("settings.appearance.bing.imageFailed")}</Text>
+          ) : null}
+        </View>
       )}
-      <Text style={settingsStyles.rowTitle}>{entry.title}</Text>
-      <Text style={settingsStyles.rowHint}>{date}</Text>
-      <Text style={settingsStyles.rowHint}>{entry.copyright}</Text>
-      {image.error ? (
-        <Text style={styles.error}>{t("settings.appearance.bing.imageFailed")}</Text>
-      ) : null}
-      <View style={styles.actions}>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={bing.selecting || !image.data || (bing.enabled && bing.selectedId === entry.id)}
-          onPress={apply}
-        >
-          {t("settings.appearance.bing.apply", { name: entry.title })}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={
-            bing.selecting ||
-            bing.busy ||
-            bing.currentId === entry.id ||
-            bing.latestId === entry.id ||
-            bing.selectedId === entry.id
-          }
-          onPress={remove}
-        >
-          {t("settings.appearance.bing.delete", { name: entry.title })}
-        </Button>
+      {/* Hidden with opacity only: on web the pointer is already over the card whenever it can reach these buttons. */}
+      <View style={[styles.overlay, showDetails ? null : styles.overlayHidden]}>
+        <View style={styles.overlayActions}>
+          <Button
+            size="xs"
+            accessibilityLabel={t("settings.appearance.bing.apply", { name: entry.title })}
+            disabled={
+              bing.selecting || !image.data || (bing.enabled && bing.selectedId === entry.id)
+            }
+            onPress={apply}
+          >
+            {t("settings.appearance.bing.applyAction")}
+          </Button>
+          <Button
+            size="xs"
+            accessibilityLabel={t("settings.appearance.bing.delete", { name: entry.title })}
+            disabled={
+              bing.selecting ||
+              bing.busy ||
+              bing.currentId === entry.id ||
+              bing.latestId === entry.id ||
+              bing.selectedId === entry.id
+            }
+            onPress={remove}
+          >
+            {t("settings.appearance.bing.deleteAction")}
+          </Button>
+        </View>
+        <View style={styles.overlayInfo}>
+          <Text style={styles.overlayTitle} numberOfLines={1}>
+            {entry.title}
+          </Text>
+          <Text style={styles.overlayHint} numberOfLines={1}>
+            {date}
+          </Text>
+          <Text style={styles.overlayHint} numberOfLines={2}>
+            {entry.copyright}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -275,10 +271,41 @@ const styles = StyleSheet.create((theme) => ({
   details: { padding: theme.spacing[4], gap: theme.spacing[4] },
   back: { alignSelf: "flex-start" },
   gallery: { flexDirection: "row", alignItems: "flex-start", gap: theme.spacing[4] },
-  column: { flex: 1, minWidth: 0, gap: theme.spacing[6] },
-  archiveCard: { gap: theme.spacing[2] },
-  preview: { width: "100%", aspectRatio: 16 / 9, borderRadius: theme.borderRadius.md },
-  previewPlaceholder: { backgroundColor: theme.colors.surface2 },
+  column: { flex: 1, minWidth: 0, gap: theme.spacing[4] },
+  archiveCard: {
+    position: "relative",
+    aspectRatio: 16 / 9,
+    borderRadius: theme.borderRadius.md,
+    overflow: "hidden",
+  },
+  preview: { width: "100%", height: "100%" },
+  previewPlaceholder: {
+    backgroundColor: theme.colors.surface2,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: theme.spacing[3],
+  },
+  overlay: { ...StyleSheet.absoluteFillObject, justifyContent: "space-between" },
+  overlayHidden: { opacity: 0 },
+  overlayActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: theme.spacing[2],
+    padding: theme.spacing[2],
+  },
+  overlayInfo: {
+    gap: theme.spacing[1],
+    paddingHorizontal: theme.spacing[3],
+    paddingVertical: theme.spacing[2],
+    // Fixed dark scrim: the text sits on a photo, so it stays white in every theme.
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+  },
+  overlayTitle: {
+    color: theme.colors.palette.white,
+    fontSize: theme.fontSize.sm,
+    fontWeight: theme.fontWeight.medium,
+  },
+  overlayHint: { color: "rgba(255, 255, 255, 0.75)", fontSize: theme.fontSize.sm },
   actions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: theme.spacing[2] },
   error: { color: theme.colors.statusDanger, fontSize: theme.fontSize.sm },
 }));
