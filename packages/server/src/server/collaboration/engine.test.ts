@@ -9,7 +9,12 @@ import {
   awaitingAcceptance,
 } from "@getpaseo/protocol/collaboration/schema";
 import { confirmationFor } from "@getpaseo/protocol/collaboration/conversation";
-import { CollaborationGateway, inspectMessages, type CollaborationHost } from "./gateway.js";
+import {
+  CollaborationGateway,
+  inspectMessages,
+  profileCreateMode,
+  type CollaborationHost,
+} from "./gateway.js";
 import { buildPrompt } from "./prompts.js";
 describe("explicit retry replaces failed sessions with the original profile after restart", () => {
   for (const kind of ["plan", "execute", "final"] as const) {
@@ -134,6 +139,24 @@ test("retry recovers an existing streamed plan without another AI call", async (
   await h.until("final");
   await h.complete(review(true));
   assert.equal(h.run().phase, "awaiting_acceptance");
+});
+test("quota failure in assistant output stops automatic format retries", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  const op = await h.until("plan");
+  h.agents.states.set(op.agentId!, {
+    status: "idle",
+    seen: true,
+    output:
+      "API error (attempt 1): RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 166h36m1s.",
+  });
+  await h.engine.tick();
+  assert.equal(h.run().control, "needs_attention");
+  assert.match(h.run().message, /RESOURCE_EXHAUSTED/);
+  assert.equal(h.run().operations.length, 1);
+  assert.equal(h.agents.sent.length, 1);
+  await h.engine.tick();
+  assert.equal(h.agents.sent.length, 1);
 });
 test("recovering a valid plan still honors the user's approval setting", async (t) => {
   const h = await harness({ requirePlanApproval: true });
@@ -841,6 +864,51 @@ test("unified review rework invalidates executed dependent tasks", async (t) => 
   );
   assert.equal(h.run().tasks[0].reworks, 1);
   assert.equal(h.run().tasks[1].review, undefined);
+});
+
+test("role agents on another provider than the conversation use that provider's default mode", () => {
+  const modes = [
+    { id: "default", label: "Ask" },
+    { id: "plan", label: "Plan" },
+  ];
+  const base = { parentProvider: "claude", targetProvider: "antigravity-hub", modes };
+  // A Claude conversation in `auto` cannot pass its mode to a Hub worker.
+  assert.equal(
+    profileCreateMode({ ...base, profileMode: undefined, defaultModeId: null }),
+    "default",
+  );
+  assert.equal(
+    profileCreateMode({ ...base, profileMode: undefined, defaultModeId: "plan" }),
+    "plan",
+  );
+  assert.equal(
+    profileCreateMode({ ...base, profileMode: undefined, defaultModeId: "missing" }),
+    "default",
+  );
+  assert.equal(profileCreateMode({ ...base, profileMode: "plan", defaultModeId: null }), "plan");
+  // Same provider keeps inheriting the conversation's mode.
+  assert.equal(
+    profileCreateMode({
+      ...base,
+      targetProvider: "claude",
+      profileMode: undefined,
+      defaultModeId: null,
+    }),
+    undefined,
+  );
+  assert.equal(
+    profileCreateMode({
+      ...base,
+      parentProvider: undefined,
+      profileMode: undefined,
+      defaultModeId: null,
+    }),
+    undefined,
+  );
+  assert.equal(
+    profileCreateMode({ ...base, modes: [], profileMode: undefined, defaultModeId: null }),
+    undefined,
+  );
 });
 
 test("stopping skips sessions that are not loaded and reports a refused interrupt", async () => {

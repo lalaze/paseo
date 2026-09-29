@@ -14,6 +14,8 @@ import type { AgentStorage } from "../agent/agent-storage.js";
 import { ensureUnarchivedAgentLoaded } from "../agent/agent-loading.js";
 import { sendPromptToAgent } from "../agent/agent-prompt.js";
 import type { createAgentCommand } from "../agent/create-agent/create.js";
+import type { AgentMode } from "../agent/agent-sdk-types.js";
+import { resolveRequiredProviderModel } from "../agent/mcp-shared.js";
 import type {
   CreateIsolatedWorkspace,
   DiscardIsolatedWorkspace,
@@ -50,7 +52,30 @@ export interface CollaborationHost {
   findIsolatedWorkspace?: FindIsolatedWorkspace;
   discardIsolatedWorkspace?: DiscardIsolatedWorkspace;
   assertToolsEnabled: (agentId: string, tools?: readonly string[]) => void;
+  getProviderModes: (
+    provider: string,
+    cwd: string,
+  ) => Promise<{ defaultModeId?: string | null; modes?: AgentMode[] }>;
   logger: Logger;
+}
+
+/**
+ * Role agents are children of the conversation, and agent creation refuses to copy a caller's
+ * mode onto another provider. A profile saved without a mode (the provider declared no default
+ * when it was chosen) then gets the target provider's default, picked like the agent form does.
+ */
+export function profileCreateMode(input: {
+  profileMode: string | undefined;
+  parentProvider: string | undefined;
+  targetProvider: string;
+  defaultModeId: string | null | undefined;
+  modes: AgentMode[];
+}): string | undefined {
+  if (input.profileMode) return input.profileMode;
+  if (!input.parentProvider || input.parentProvider === input.targetProvider) return undefined;
+  if (input.defaultModeId && input.modes.some((mode) => mode.id === input.defaultModeId))
+    return input.defaultModeId;
+  return input.modes[0]?.id;
 }
 
 export function inspectMessages(items: AgentTimelineItem[], operationId: string) {
@@ -154,15 +179,17 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     systemPrompt: string,
     parent?: string,
   ) {
+    const cwd = await this.workspaceDirectory(workspaceId);
+    const mode = await this.createMode(profile, cwd, parent);
     const { snapshot } = await this.host.createAgent({
       kind: "mcp",
       provider: profile.provider,
       title,
       workspaceId,
-      cwd: await this.workspaceDirectory(workspaceId),
+      cwd,
       config: { systemPrompt },
       features: profile.featureValues,
-      mode: profile.modeId,
+      mode,
       thinking: profile.thinkingOptionId,
       labels,
       background: true,
@@ -171,6 +198,20 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     });
     this.host.assertToolsEnabled(snapshot.id, ROLE_TOOLS[labels["director-role"]]);
     return snapshot.id;
+  }
+  private async createMode(profile: Profile, cwd: string, parent: string | undefined) {
+    if (profile.modeId || !parent) return profile.modeId;
+    const targetProvider = resolveRequiredProviderModel(profile.provider).provider;
+    const parentProvider = this.host.agentManager.getAgent(parent)?.provider;
+    if (!parentProvider || parentProvider === targetProvider) return undefined;
+    const { defaultModeId, modes } = await this.host.getProviderModes(targetProvider, cwd);
+    return profileCreateMode({
+      profileMode: profile.modeId,
+      parentProvider,
+      targetProvider,
+      defaultModeId,
+      modes: modes ?? [],
+    });
   }
   async create(run: Run, op: Operation, profile: Profile) {
     const workspaceId = run.workspaceId ?? (await this.workspaceForDirectory(run.cwd));

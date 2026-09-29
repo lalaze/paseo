@@ -464,6 +464,10 @@ export class Engine {
     try {
       response = responseSchema(op.kind).parse(op.response ?? parseOutput(state.output));
     } catch (error) {
+      // Some providers finish a turn by emitting their API failure as assistant text.
+      // Sending a format correction to that session only makes another API call.
+      if (/^API error \(attempt \d+\):/im.test(state.output))
+        throw new Error(state.output.trim().slice(0, 2000), { cause: error });
       if (op.formatRetries >= 2)
         throw new Error(`结果格式连续无效：${String(error).slice(0, 1200)}`, { cause: error });
       op.state = "abandoned";

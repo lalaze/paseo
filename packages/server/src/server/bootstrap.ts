@@ -1392,6 +1392,8 @@ export async function createPaseoDaemon(
       logger,
       ensureWorkspace: (cwd) => ensureWorkspaceForCreateAndBroadcastExternal(cwd),
       emitWorkspace: (id) => emitWorkspaceUpdatesExternal([id]),
+      getProviderModes: (provider, cwd) =>
+        providerSnapshotManager.getProvider({ provider, cwd, wait: true }),
       createIsolatedWorkspace: async ({ repository, runId, baseCommit, branch, reuseBranch }) => {
         // Setup hooks come from the source checkout, so an untrusted change request stays
         // behind the same gate as its own workspace scripts.
