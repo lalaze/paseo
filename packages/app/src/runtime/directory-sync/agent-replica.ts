@@ -32,6 +32,7 @@ export class AgentDirectoryReplica {
   private readonly lifecycleVersions = new Map<string, number>();
   private readonly members = new Set<string>();
   private readonly pendingCacheReads = new Set<string>();
+  private hasAuthoritativeSnapshot = false;
   private readonly storeProjection: AgentStoreProjection;
 
   constructor(
@@ -56,6 +57,17 @@ export class AgentDirectoryReplica {
   }
 
   commitCached(agents: Map<string, Agent>): void {
+    // See WorkspaceDirectoryReplica.commitCached: a late cache read cannot add rows back
+    // beneath an authoritative snapshot.
+    if (this.hasAuthoritativeSnapshot) {
+      const stale = [...agents.keys()].filter((agentId) => !this.members.has(agentId));
+      if (stale.length > 0) {
+        this.persist(
+          stale.map((id): DirectoryReplicaMutation => ({ kind: "agent", type: "delete", id })),
+        );
+      }
+      return;
+    }
     const merged = this.storeProjection.commitCached(agents);
     this.members.clear();
     for (const agentId of merged.keys()) {
@@ -145,6 +157,7 @@ export class AgentDirectoryReplica {
     this.members.clear();
     this.pendingCacheReads.clear();
     for (const agentId of nextIds) this.members.add(agentId);
+    this.hasAuthoritativeSnapshot = true;
     const agents = this.storeProjection.replaceFetched(reconciled);
     for (const [agentId, previousAgent] of previous) {
       if (previousAgent.turn.phase === "open" && agents.get(agentId)?.turn.phase === "idle") {

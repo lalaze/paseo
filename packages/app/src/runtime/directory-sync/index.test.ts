@@ -16,7 +16,8 @@ import {
   normalizeWorkspaceDescriptor,
   useSessionStore,
 } from "@/stores/session-store";
-import { normalizeAgentSnapshot } from "@/utils/agent-snapshots";
+import { normalizeAgentSnapshot, projectAgentSnapshot } from "@/utils/agent-snapshots";
+import { resolveProjectPlacement } from "@/utils/project-placement";
 import { selectWorkspaceDirectoryServerIds } from "@/stores/session-store-hooks/selectors";
 import { useWorkspaceLabels } from "@/workspace-labels";
 import type { DirectoryReplicaMutation } from "@/runtime/replica-cache";
@@ -580,6 +581,75 @@ describe("DirectorySync session readiness", () => {
     });
     await refresh;
     expect(useSessionStore.getState().sessions[serverId]?.workspaces.size).toBe(0);
+    directory.dispose();
+  });
+
+  it("does not restore cached rows an earlier route snapshot already removed", async () => {
+    const serverId = "route-snapshot-before-directory-cache";
+    serverIds.add(serverId);
+    const client = new FakeDirectoryClient();
+    const staleWorkspace = normalizeWorkspaceDescriptor({
+      id: "archived-elsewhere",
+      projectId: "cached-project",
+      projectDisplayName: "Cached project",
+      projectRootPath: "/repo/cached",
+      workspaceDirectory: "/repo/cached-worktree",
+      projectKind: "git",
+      workspaceKind: "worktree",
+      name: "archived-elsewhere",
+      status: "done",
+      statusEnteredAt: null,
+      activityAt: null,
+      archivingAt: null,
+      diffStat: null,
+      scripts: [],
+    });
+    const staleAgent = createAgent(serverId, "archived-agent");
+    const committed: DirectoryReplicaMutation[] = [];
+    const directory = new DirectorySync(
+      serverId,
+      {
+        onAgentStoppedRunning: () => undefined,
+        markAgentLoading: () => undefined,
+        markAgentReady: () => undefined,
+        markAgentError: () => undefined,
+      },
+      {
+        readAgent: async () => undefined,
+        readWorkspace: async () => undefined,
+        readDirectory: async () => ({
+          agents: new Map([[staleAgent.id, staleAgent]]),
+          workspaces: new Map([[staleWorkspace.id, staleWorkspace]]),
+          projects: new Map(),
+          checkpoint: { workspaces: { generation: "generation-1", afterSeq: 1 } },
+        }),
+        commitDirectoryMutations: (_serverId, mutations) => committed.push(...mutations),
+      },
+    );
+    directory.connectionChanged({
+      client: client as unknown as DaemonClient,
+      status: "online",
+      source: { clientGeneration: 1, connectionEpoch: 1 },
+    });
+    const store = useSessionStore.getState();
+    store.initializeSession(serverId, client as unknown as DaemonClient, 1);
+    store.updateSessionServerInfo(serverId, {
+      serverId,
+      hostname: null,
+      version: "test",
+      features: { workspaceMultiplicity: true },
+    });
+
+    directory.setAgentRouteDemand(["agent-1"]);
+    await directory.refreshDemand();
+    directory.setDemand({}, true);
+    await directory.restoreCachedDirectory();
+
+    const session = useSessionStore.getState().sessions[serverId];
+    expect(session?.workspaces.has(staleWorkspace.id)).toBe(false);
+    expect(session?.agents.has(staleAgent.id)).toBe(false);
+    expect(committed).toContainEqual({ kind: "workspace", type: "delete", id: staleWorkspace.id });
+    expect(committed).toContainEqual({ kind: "agent", type: "delete", id: staleAgent.id });
     directory.dispose();
   });
 
@@ -1284,7 +1354,7 @@ function createSqliteCache() {
   };
 }
 
-it("fills every cached workspace beneath live updates received during the SQLite read", async () => {
+it("keeps live updates received during the SQLite read above cached rows", async () => {
   const serverId = "sqlite-directory-race";
   serverIds.add(serverId);
   const { cache, database, holdRead } = createSqliteCache();
@@ -1295,24 +1365,23 @@ it("fills every cached workspace beneath live updates received during the SQLite
     projectRootPath: "/repo",
     projectKind: "git",
   });
-  const workspaces = ["first", "second", "third"].map((id) =>
-    normalizeWorkspaceDescriptor({
-      id,
-      projectId: "project",
-      projectDisplayName: "Cached",
-      projectRootPath: "/repo",
-      workspaceDirectory: `/repo/${id}`,
-      projectKind: "git",
-      workspaceKind: "local_checkout",
-      name: id,
-      status: "done",
-      statusEnteredAt: null,
-      activityAt: null,
-      archivingAt: null,
-      diffStat: null,
-      scripts: [],
-    }),
-  );
+  const workspacePayloads = ["first", "second", "third"].map((id) => ({
+    id,
+    projectId: "project",
+    projectDisplayName: "Cached",
+    projectRootPath: "/repo",
+    workspaceDirectory: `/repo/${id}`,
+    projectKind: "git" as const,
+    workspaceKind: "local_checkout" as const,
+    name: id,
+    status: "done" as const,
+    statusEnteredAt: null,
+    activityAt: null,
+    archivingAt: null,
+    diffStat: null,
+    scripts: [],
+  }));
+  const workspaces = workspacePayloads.map((workspace) => normalizeWorkspaceDescriptor(workspace));
   cache.replaceDirectoryBaseline(serverId, {
     agents: new Map([["agent", createAgent(serverId, "agent")]]),
     workspaces: new Map(workspaces.map((workspace) => [workspace.id, workspace])),
@@ -1342,8 +1411,30 @@ it("fills every cached workspace beneath live updates received during the SQLite
     version: "test",
     features: { workspaceMultiplicity: true },
   });
+  const releaseAgents = client.holdAgentFetch();
+  const releaseWorkspaces = client.holdWorkspaceFetch();
   directory.setAgentRouteDemand(["agent"]);
-  await directory.refreshDemand();
+  const routeRefresh = directory.refreshDemand();
+  const agent = createAgent(serverId, "agent");
+  await expect.poll(() => client.fetchAgentsCalls).toBe(1);
+  releaseAgents({
+    requestId: "agents",
+    entries: [
+      {
+        agent: projectAgentSnapshot(agent),
+        project: resolveProjectPlacement({ projectPlacement: null, cwd: agent.cwd }),
+      },
+    ],
+    pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+  });
+  await expect.poll(() => client.fetchWorkspacesCalls).toBe(1);
+  releaseWorkspaces({
+    requestId: "workspaces",
+    entries: workspacePayloads,
+    emptyProjects: [],
+    pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+  });
+  await routeRefresh;
   let updated = false;
   holdRead(async () => {
     if (updated) return;

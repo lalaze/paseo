@@ -309,7 +309,7 @@ export class DirectorySync {
         : Promise.all([
             this.refreshAgentsInternal({ subscribe: {} }, false),
             this.refreshWorkspacesInternal({ subscribe: true }, false),
-          ]).then(() => undefined);
+          ]).then(() => this.persistDirectoryBaseline());
     this.demandRefresh = refresh
       .then(() => {
         this.satisfiedDemandSource = source;
@@ -375,7 +375,8 @@ export class DirectorySync {
       if (this.cacheAccepted) return;
       if (!useSessionStore.getState().sessions[this.serverId]) return;
       this.agents.commitCached(cached.agents);
-      this.workspaces.commitCached(cached);
+      const staleRows = this.workspaces.commitCached(cached);
+      if (staleRows.length > 0) checkpoints.commitDirectoryMutations(this.serverId, staleRows);
       if (this.revision === revision) this.cursors = cached.checkpoint ?? {};
       this.cacheAccepted = true;
     })();
@@ -565,12 +566,19 @@ export class DirectorySync {
       this.refreshAgents({ subscribe: {} }),
       this.refreshWorkspaces({ subscribe: true }),
     ]);
+    this.persistDirectoryBaseline();
+    if (this.getOnlineConnection()) await this.connectWorkspaceLabels();
+  }
+
+  // Route-only demand reconciles without reading the directory cache, so saved rows the host has
+  // since removed are unknown to it. Replacing the baseline keeps them from surviving beside the
+  // newer cursor, which would hide them from every later change read.
+  private persistDirectoryBaseline(): void {
     this.checkpoints?.replaceDirectoryBaseline?.(this.serverId, {
       agents: this.agents.snapshot(),
       ...this.workspaces.snapshot(),
       checkpoint: this.cursors,
     });
-    if (this.getOnlineConnection()) await this.connectWorkspaceLabels();
   }
 
   async connectWorkspaceLabels(): Promise<void> {

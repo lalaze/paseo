@@ -37,6 +37,7 @@ export class WorkspaceDirectoryReplica {
   private workspaces = new Map<string, WorkspaceDescriptor>();
   private projects = new Map<string, ProjectDescriptor>();
   private workspaceIdsByProject = new Map<string, Set<string>>();
+  private hasAuthoritativeSnapshot = false;
 
   constructor(private readonly serverId: string) {}
 
@@ -50,12 +51,16 @@ export class WorkspaceDirectoryReplica {
   commitCached(input: {
     workspaces: Map<string, WorkspaceDescriptor>;
     projects: Map<string, ProjectDescriptor>;
-  }): void {
+  }): DirectoryReplicaMutation[] {
+    useSessionStore.getState().setHasWorkspaceDirectorySnapshot(this.serverId, true);
+    // A cache read that resolves after an authoritative snapshot holds rows the host has since
+    // removed. Merging them would resurrect them, and later cursor reads never mention them again.
+    if (this.hasAuthoritativeSnapshot) return this.discardStaleCachedRows(input);
     this.replace({
       workspaces: new Map([...input.workspaces, ...this.workspaces]),
       projects: new Map([...input.projects, ...this.projects]),
     });
-    useSessionStore.getState().setHasWorkspaceDirectorySnapshot(this.serverId, true);
+    return [];
   }
 
   commitCachedWorkspace(
@@ -72,6 +77,7 @@ export class WorkspaceDirectoryReplica {
     deltas: readonly WorkspaceDirectoryDelta[],
   ): DirectoryReplicaMutation[] {
     this.replace(snapshot);
+    this.hasAuthoritativeSnapshot = true;
     const mutations = deltas.flatMap((delta) => this.applyDelta(delta));
     useSessionStore.getState().setHasHydratedWorkspaces(this.serverId, true);
     return mutations;
@@ -93,6 +99,20 @@ export class WorkspaceDirectoryReplica {
   removeWorkspaceSnapshot(workspaceId: string): DirectoryReplicaMutation[] {
     this.deleteWorkspace(workspaceId);
     return [{ kind: "workspace", type: "delete", id: workspaceId }];
+  }
+
+  private discardStaleCachedRows(input: {
+    workspaces: Map<string, WorkspaceDescriptor>;
+    projects: Map<string, ProjectDescriptor>;
+  }): DirectoryReplicaMutation[] {
+    const mutations: DirectoryReplicaMutation[] = [];
+    for (const id of input.workspaces.keys()) {
+      if (!this.workspaces.has(id)) mutations.push({ kind: "workspace", type: "delete", id });
+    }
+    for (const id of input.projects.keys()) {
+      if (!this.projects.has(id)) mutations.push({ kind: "project", type: "delete", id });
+    }
+    return mutations;
   }
 
   private replace(snapshot: WorkspaceDirectorySnapshot): void {
