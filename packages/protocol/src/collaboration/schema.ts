@@ -275,12 +275,22 @@ export interface Run {
   finalReview?: Review;
   events: { time: number; message: string }[];
 }
+/** The final review still requests changes to a task that has used every rework; the user decides. */
+export function reworksExhausted(run: Run): boolean {
+  return (
+    run.finalReview?.decision === "changes_requested" &&
+    run.finalReview.findings.some((finding) => {
+      const task = run.tasks.find((candidate) => candidate.spec.id === finding.taskId);
+      return !!task && task.reworks >= run.settings.maxReworks;
+    })
+  );
+}
 /** Legacy completed runs can still be accepted or revised by their user. */
 export function hasFinalResult(run: Run): boolean {
   return (
     ["awaiting_acceptance", "completed"].includes(run.phase) &&
     ["paused", "running"].includes(run.control) &&
-    run.finalReview?.decision === "approved" &&
+    (run.finalReview?.decision === "approved" || reworksExhausted(run)) &&
     !!run.finalEvidence &&
     !run.activeOperationId
   );
@@ -302,6 +312,11 @@ export function canResumeRun(run: Run): boolean {
     (!run.plan || run.planApproved)
   );
 }
+export function acceptanceMessage(run: Run): string {
+  if (reworksExhausted(run))
+    return `已返工 ${run.settings.maxReworks} 次，${operationLabel(run.settings, "final")}仍要求修改；请查看审核意见后验收、不采纳或提出修改意见`;
+  return `${operationLabel(run.settings, "final")}最终审核通过，等待你验收或提出修改意见`;
+}
 export type RunSummary = Pick<
   Run,
   "id" | "goal" | "cwd" | "phase" | "control" | "message" | "createdAt" | "updatedAt"
@@ -316,9 +331,7 @@ export function summarize(run: Run): RunSummary {
     cwd,
     phase: waiting ? "awaiting_acceptance" : phase,
     control: waiting ? "paused" : control,
-    message: waiting
-      ? `${operationLabel(run.settings, "final")}最终审核通过，等待你验收或提出修改意见`
-      : message,
+    message: waiting ? acceptanceMessage(run) : message,
     createdAt,
     updatedAt,
     done: run.tasks.filter(executionComplete).length,

@@ -21,12 +21,14 @@ import { LaunchIsolationOptions, LaunchModeOptions } from "./launch-mode-options
 import { LaunchGoal } from "./launch-goal";
 import { enableCollaboration, type CollaborationTarget } from "./launch";
 import {
+  MAX_REWORKS_LIMIT,
   openCollaborationLaunch,
   type LaunchSnapshot,
   type LaunchSelections,
   type LaunchRole,
 } from "./launch-model";
 import { closeCollaborationLaunch, useCollaborationLaunchStore } from "./launch-store";
+import { rememberLaunch, rememberedLaunch } from "./launch-preferences";
 import { useCollaboration } from "./use-collaboration";
 
 const launchSnapPoints = ["75%", "90%"];
@@ -55,10 +57,10 @@ function LaunchDialog({ target }: { target: CollaborationTarget }) {
     else if (pathname !== configPath) setClosing(true);
   }, [pathname, origin, configPath]);
   const configure = useCallback(
-    (selections: LaunchSelections) => {
+    (selections: LaunchSelections, maxReworks: number) => {
       useCollaborationLaunchStore.setState((state) => ({
         configuring: true,
-        request: state.request ? { ...state.request, selections } : null,
+        request: state.request ? { ...state.request, selections, maxReworks } : null,
       }));
       router.push(configPath);
     },
@@ -98,7 +100,7 @@ interface ModePickerProps {
   target: CollaborationTarget;
   snapshot: LaunchSnapshot;
   visible: boolean;
-  onConfigure: (selections: LaunchSelections) => void;
+  onConfigure: (selections: LaunchSelections, maxReworks: number) => void;
   onClose: () => void;
   onDismiss: () => void;
   onRetry: () => void;
@@ -130,7 +132,15 @@ function ModePicker({
     useHostFeatureAvailabilityMap([target.serverId], "collaborationWorktree").get(
       target.serverId,
     ) ?? null;
-  const [model] = useState(() => openCollaborationLaunch(snapshot, target.mode, target.selections));
+  const [model] = useState(() =>
+    openCollaborationLaunch(
+      snapshot,
+      target.mode,
+      target.selections,
+      target.maxReworks,
+      rememberedLaunch(target.serverId),
+    ),
+  );
   useEffect(() => () => model.close(), [model]);
   useEffect(() => model.applySnapshot(snapshot), [model, snapshot]);
   const cwd = useWorkspaceFields(
@@ -166,6 +176,8 @@ function ModePicker({
   const start = useCallback(() => {
     void model.start(async (mode, settings, isolation) => {
       await enableCollaboration({ ...target, mode, settings, isolation });
+      // Settings are only sent for a new task, which is what the next dialog should start from.
+      if (settings) rememberLaunch(target.serverId, model.preferences());
       onClose();
     });
   }, [model, target, onClose]);
@@ -175,10 +187,10 @@ function ModePicker({
     },
     [model],
   );
-  const configure = useCallback(
-    () => onConfigure(model.getState().selections),
-    [model, onConfigure],
-  );
+  const configure = useCallback(() => {
+    const current = model.getState();
+    onConfigure(current.selections, current.maxReworks);
+  }, [model, onConfigure]);
   const promptButton = useMemo(
     () => (
       <Button
@@ -267,6 +279,9 @@ function ModePicker({
                 <RoleModels role="reviewer" model={model} state={state} />
               </View>
             )}
+          </SettingsSection>
+          <SettingsSection title={t("collaboration.maxReworks")} flush>
+            <ReworkLimit model={model} state={state} />
           </SettingsSection>
           {catalog.error && (
             <View style={styles.roles}>
@@ -375,6 +390,38 @@ function RoleModels({ role, model, state }: RoleModelsProps) {
     </View>
   );
 }
+const reworkOptions = Array.from({ length: MAX_REWORKS_LIMIT + 1 }, (_, count) => ({
+  id: String(count),
+  value: String(count),
+  label: String(count),
+  testID: `collaboration-max-reworks-option-${count}`,
+}));
+function ReworkLimit({ model, state }: Omit<RoleModelsProps, "role">) {
+  const { t } = useTranslation();
+  const size = useIsCompactFormFactor() ? "md" : "sm";
+  const display = useMemo(() => ({ label: String(state.maxReworks) }), [state.maxReworks]);
+  const change = useCallback((value: string) => model.selectMaxReworks(Number(value)), [model]);
+  return (
+    <View style={styles.role}>
+      <View style={styles.reworkField}>
+        <SelectField
+          field={false}
+          size={size}
+          label={t("collaboration.maxReworks")}
+          triggerTestID="collaboration-max-reworks"
+          value={String(state.maxReworks)}
+          selectedDisplay={display}
+          options={reworkOptions}
+          onChange={change}
+          disabled={state.pending || state.agentsLocked}
+          placeholder={t("collaboration.maxReworks")}
+          emptyText={t("collaboration.maxReworks")}
+        />
+      </View>
+      <Text style={styles.secondary}>{t("collaboration.launch.maxReworksHint")}</Text>
+    </View>
+  );
+}
 const Spinner = withUnistyles(LoadingSpinner, (theme) => ({ color: theme.colors.foregroundMuted }));
 const styles = StyleSheet.create((theme) => ({
   content: { gap: theme.spacing[6] },
@@ -384,6 +431,7 @@ const styles = StyleSheet.create((theme) => ({
   fields: { flexDirection: "row", gap: theme.spacing[2] },
   compactFields: { flexDirection: "column" },
   field: { flex: 1, minWidth: 0 },
+  reworkField: { maxWidth: 160 },
   secondary: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
 }));

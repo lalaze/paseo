@@ -18,6 +18,15 @@ export interface ModelSelection {
   modelLabel: string;
 }
 export type LaunchSelections = Record<LaunchRole, ModelSelection | null>;
+export const DEFAULT_MAX_REWORKS = 2;
+/** The choices of the last task started on a host, which prefill the next new task. */
+export interface LaunchPreferences {
+  mode: CollaborationMode;
+  isolation: CollaborationIsolation;
+  selections: LaunchSelections;
+  maxReworks: number;
+}
+export const MAX_REWORKS_LIMIT = 10;
 export interface LaunchSnapshot {
   ready?: boolean;
   settings: Settings | null;
@@ -37,11 +46,22 @@ export function openCollaborationLaunch(
   initial: LaunchSnapshot,
   selected?: CollaborationMode,
   restored?: LaunchSelections,
+  restoredMaxReworks?: number,
+  remembered?: LaunchPreferences,
 ) {
+  // An existing conversation keeps its own choices; only a new task starts from the last one.
+  function defaultMode(next: LaunchSnapshot): CollaborationMode {
+    if (next.conversation) return collaborationMode(next.conversation);
+    return remembered?.mode ?? collaborationMode({});
+  }
+  function defaultIsolation(next: LaunchSnapshot): CollaborationIsolation {
+    if (next.conversation) return next.conversation.isolation ?? "local";
+    return remembered?.isolation ?? "local";
+  }
   let snapshot = initial;
-  let mode = selected ?? collaborationMode(initial.conversation ?? {});
+  let mode = selected ?? defaultMode(initial);
   let modeSelected = selected !== undefined;
-  let isolation: CollaborationIsolation = initial.conversation?.isolation ?? "local";
+  let isolation = defaultIsolation(initial);
   let isolationSelected = false;
   let seeded = initial.ready !== false;
   function seed(settings: Settings | null | undefined): LaunchSelections {
@@ -51,7 +71,14 @@ export function openCollaborationLaunch(
       reviewer: seedSelection(settings?.profiles.find((p) => p.id === settings.reviewerProfileId)),
     };
   }
-  let selections = restored ?? seed(initial.conversation?.settings ?? initial.settings);
+  function initialSelections(next: LaunchSnapshot): LaunchSelections {
+    if (restored) return restored;
+    if (!next.conversation && remembered) return remembered.selections;
+    return seed(next.conversation?.settings ?? next.settings);
+  }
+  let selections = initialSelections(initial);
+  // New tasks start from the built-in limit, not the host's legacy advanced settings.
+  let maxReworks = restoredMaxReworks ?? remembered?.maxReworks ?? DEFAULT_MAX_REWORKS;
   let entries: ProviderSnapshotEntry[] = [];
   let pending = false;
   let error = "";
@@ -85,6 +112,7 @@ export function openCollaborationLaunch(
       agentsLocked,
       showDirector,
       selections,
+      maxReworks: snapshot.conversation?.settings?.maxReworks ?? maxReworks,
       pending,
       error,
       canContinue: snapshot.ready !== false && !pending && (agentsLocked ? canReopen : complete),
@@ -136,6 +164,7 @@ export function openCollaborationLaunch(
       directorProfileId,
       workerProfileId: "worker",
       reviewerProfileId: selections.reviewer ? "reviewer" : undefined,
+      maxReworks,
     });
   }
   let state = read();
@@ -145,6 +174,12 @@ export function openCollaborationLaunch(
   }
   return {
     getState: () => state,
+    preferences: (): LaunchPreferences => ({
+      mode: state.mode,
+      isolation: state.isolation,
+      selections: state.selections,
+      maxReworks: state.maxReworks,
+    }),
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -154,11 +189,11 @@ export function openCollaborationLaunch(
     applySnapshot(next: LaunchSnapshot) {
       snapshot = next;
       if (!seeded && next.ready !== false) {
-        selections = restored ?? seed(next.conversation?.settings ?? next.settings);
+        selections = initialSelections(next);
         seeded = true;
       }
-      if (!modeSelected) mode = collaborationMode(next.conversation ?? {});
-      if (!isolationSelected) isolation = next.conversation?.isolation ?? "local";
+      if (!modeSelected) mode = defaultMode(next);
+      if (!isolationSelected) isolation = defaultIsolation(next);
       publish();
     },
     applyProviders(next: ProviderSnapshotEntry[]) {
@@ -176,6 +211,12 @@ export function openCollaborationLaunch(
     selectModel(role: LaunchRole, model: string, label: string) {
       if (pending || state.agentsLocked || !selections[role]) return;
       selections = { ...selections, [role]: { ...selections[role], model, modelLabel: label } };
+      error = "";
+      publish();
+    },
+    selectMaxReworks(next: number) {
+      if (pending || state.agentsLocked) return;
+      maxReworks = Math.min(MAX_REWORKS_LIMIT, Math.max(0, Math.trunc(next)));
       error = "";
       publish();
     },

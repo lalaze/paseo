@@ -22,6 +22,8 @@ export const en = {
     chooseMode: "Choose collaboration mode",
     launch: {
       prompts: "Instructions",
+      maxReworksHint:
+        "When reworks run out and review still requests changes, its findings come to you to accept, reject or request changes.",
       provider: "Provider",
       model: "Model",
       noProviders: "No providers available",

@@ -25,6 +25,8 @@ export const zhCN: TranslationResources = {
     chooseMode: "选择协作模式",
     launch: {
       prompts: "提示词",
+      maxReworksHint:
+        "返工次数用完后，若审核仍要求修改，将直接把审核意见交给你决定验收、不采纳或继续修改。",
       provider: "提供商",
       model: "模型",
       noProviders: "暂无可用提供商",

@@ -25,6 +25,8 @@ export const ko: TranslationResources = {
     chooseMode: "협업 모드 선택",
     launch: {
       prompts: en.collaboration.launch.prompts,
+      maxReworksHint:
+        "재작업 횟수를 모두 쓴 뒤에도 검토에서 수정을 요청하면, 검토 의견이 전달되어 수락·거절·추가 수정을 선택할 수 있습니다.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

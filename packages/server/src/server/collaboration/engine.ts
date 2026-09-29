@@ -10,6 +10,8 @@ import {
   ResultSchema,
   ReviewSchema,
   hasFinalResult,
+  reworksExhausted,
+  acceptanceMessage,
   canResumeRun,
   executionComplete,
   finalAcceptance,
@@ -631,7 +633,11 @@ export class Engine {
         this.hold(run, `审核受阻：${review.summary}`);
         return;
       }
-      if (review.decision === "changes_requested") this.rework(run, review);
+      if (review.decision === "changes_requested" && !task && reworksExhausted(run)) {
+        run.phase = "awaiting_acceptance";
+        run.control = "paused";
+        this.event(run, acceptanceMessage(run));
+      } else if (review.decision === "changes_requested") this.rework(run, review);
       else if (task) {
         task.status = "approved";
         run.phase = "executing";
@@ -854,7 +860,7 @@ export class Engine {
       !hasFinalResult(run) ||
       !run.plan ||
       !run.tasks.length ||
-      run.tasks.some((candidateEntry) => candidateEntry.status !== "approved")
+      !run.tasks.every(executionComplete)
     )
       throw new Error("当前没有可验收的最终成果");
     if (
@@ -899,13 +905,15 @@ export class Engine {
     if (["running", "permission"].includes(state.status))
       throw new Error("原 AI 仍在执行或等待权限，请先在 Paseo 中处理");
     // Recover valid completed work after an adapter fix, without another
-    // AI turn. Interrupted or blocked work still takes the retry path.
+    // AI turn. Interrupted or blocked work still takes the retry path. A final
+    // review is only recovered once it was submitted, so it can be rechecked
+    // against the same artifact.
     if (
       state.status === "idle" &&
       state.seen &&
       !state.interrupted &&
       ["sent", "sending"].includes(op.state) &&
-      ["plan", "execute"].includes(op.kind)
+      (["plan", "execute"].includes(op.kind) || (op.kind === "final" && !!op.response))
     ) {
       let response: unknown;
       try {
@@ -917,7 +925,7 @@ export class Engine {
       }
       if (
         response &&
-        (op.kind === "plan" || ResultSchema.parse(response).status === "ready_for_review")
+        (op.kind !== "execute" || ResultSchema.parse(response).status === "ready_for_review")
       ) {
         run.control = "running";
         await this.finish(run, op, response);
@@ -1025,7 +1033,7 @@ export class Engine {
           return this.finalControl(run, action, final, receipt);
         if (run.phase === "completed" || run.control === "canceled") throw new Error("任务已结束");
         if (run.phase === "awaiting_acceptance" && action !== "cancel")
-          throw new Error("AI 已审核通过，请验收成果或提交修改意见");
+          throw new Error("请验收成果或提交修改意见");
         if (action === "pause") {
           run.control = "paused";
           this.event(run, "已暂停后续派发；当前 AI 可完成本轮");

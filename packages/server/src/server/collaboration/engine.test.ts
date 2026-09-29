@@ -6,7 +6,9 @@ import {
   validatePlan,
   parseOutput,
   canResumeRun,
+  awaitingAcceptance,
 } from "@getpaseo/protocol/collaboration/schema";
+import { confirmationFor } from "@getpaseo/protocol/collaboration/conversation";
 import { inspectMessages } from "./gateway.js";
 import { buildPrompt } from "./prompts.js";
 describe("explicit retry replaces failed sessions with the original profile after restart", () => {
@@ -406,7 +408,7 @@ test("duplicate events, restart, and duplicate create request never duplicate a 
   await h.until("final");
   assert.equal(h.agents.created.length, 2);
 });
-test("rework returns precise instructions to original worker and respects limit", async (t) => {
+test("rework returns precise instructions to original worker and hands the review to the user at the limit", async (t) => {
   const h = await harness({ maxReworks: 1 });
   t.onTestFinished(() => h.cleanup());
   await h.until("plan");
@@ -424,8 +426,45 @@ test("rework returns precise instructions to original worker and respects limit"
   await h.complete(result);
   await h.until("final");
   await h.complete(review(true, "changes_requested"));
-  assert.equal(h.run().control, "needs_attention");
-  assert.match(h.run().message, /返工次数上限/);
+  const run = h.run();
+  assert.equal(run.phase, "awaiting_acceptance");
+  assert.equal(run.control, "paused");
+  assert.equal(run.activeOperationId, undefined);
+  assert.equal(run.operations.at(-1)!.state, "done");
+  assert.equal(run.finalReview!.decision, "changes_requested");
+  assert.ok(awaitingAcceptance(run));
+  assert.match(run.message, /已返工 1 次/);
+  assert.equal(confirmationFor(run)?.kind, "final");
+  await h.engine.control(h.id, "request_changes", undefined, {
+    artifactId: run.finalEvidence!.id,
+    expectedRevision: run.revision,
+    feedback: "按审核意见继续修改",
+  });
+  const next = await h.until("plan");
+  assert.match(next.prompt, /按审核意见继续修改/);
+});
+test("retry recovers a submitted final review left behind by the old rework-limit stop", async (t) => {
+  const h = await harness({ maxReworks: 0 });
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  await h.complete(plan);
+  await h.until("execute");
+  await h.complete(result);
+  const op = await h.until("final");
+  // Older hosts recorded the review, then threw before finishing the operation.
+  const stuck = h.run();
+  const current = stuck.operations.find((candidate) => candidate.id === op.id)!;
+  current.response = review(true, "changes_requested");
+  current.responseHash = "old-host";
+  stuck.control = "needs_attention";
+  h.store.save(stuck);
+  h.agents.states.set(op.agentId!, { status: "idle", seen: true, output: "" });
+  const sent = h.agents.sent.length;
+  await h.engine.control(h.id, "retry");
+  assert.equal(h.run().phase, "awaiting_acceptance");
+  assert.equal(h.run().finalReview!.decision, "changes_requested");
+  assert.ok(awaitingAcceptance(h.run()));
+  assert.equal(h.agents.sent.length, sent);
 });
 test("failed automatic verification cannot be overridden by director approval", async (t) => {
   const h = await harness();

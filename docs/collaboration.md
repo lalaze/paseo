@@ -4,13 +4,16 @@ Use **Collaboration** beside the Agent conversation's input, the workspace comma
 type `/director`. All three open the same mode dialog over the current workspace (a bottom sheet
 on phones). Choose a mode before continuing; canceling preserves the conversation and draft.
 `/director <goal>` also supplies the first request. Select each role’s provider and model directly
-in the dialog; you do not need saved Agent profiles. New Full workflow conversations also select
+in the dialog; you do not need saved Agent profiles. The dialog remembers, per host and on this
+device, the mode, isolation, models and rework limit of the last task you started, and pre-fills
+them for the next new task. New Full workflow conversations also select
 a lead. Enabling collaboration in an existing chat retains that chat’s lead. With no separate
 reviewer in Full workflow, the lead performs the final review.
 
 Host settings → Collaboration contains role instructions and conversation history. Instructions
 can be saved before choosing any models. New tasks use the built-in limits and verification
-defaults; legacy advanced settings are retained for existing conversations.
+defaults, except the rework limit, which you choose in the dialog (default 2); legacy advanced
+settings are retained for existing conversations.
 
 Open **Conversation history** from the top of host collaboration settings to see each task's
 status, mode and progress on a separate page. Its Back action returns to that host's collaboration
@@ -57,7 +60,9 @@ base, when the worktree is gone. Worktrees already stored under the collaboratio
 are reused. A repository must have an initial commit and no unresolved merge conflicts.
 
 In Full workflow, plan approval is optional. Final user acceptance is required even after the AI approves the
-result. Approval tools verify the latest real user message and the version of the confirmation
+result. When a task has used every rework and the final review still requests changes, the run
+goes to acceptance with that review instead of stopping: the main Agent lists the findings and you
+accept, reject, or request changes, which starts a new round with a fresh rework budget. Approval tools verify the latest real user message and the version of the confirmation
 shown in that conversation. Background notices and worker output cannot approve a plan or result.
 
 ## Conversation timeline

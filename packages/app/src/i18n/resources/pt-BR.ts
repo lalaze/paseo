@@ -25,6 +25,8 @@ export const ptBR: TranslationResources = {
     chooseMode: "Escolher modo de colaboração",
     launch: {
       prompts: en.collaboration.launch.prompts,
+      maxReworksHint:
+        "Quando os retrabalhos acabarem e a revisão ainda pedir mudanças, os apontamentos chegam a você para aceitar, rejeitar ou pedir alterações.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

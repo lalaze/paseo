@@ -25,6 +25,8 @@ export const ru: TranslationResources = {
     chooseMode: "Выбрать режим совместной работы",
     launch: {
       prompts: en.collaboration.launch.prompts,
+      maxReworksHint:
+        "Если доработки закончились, а проверка всё ещё требует изменений, её замечания придут вам: примите, отклоните или запросите изменения.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

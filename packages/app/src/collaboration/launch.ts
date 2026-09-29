@@ -18,6 +18,7 @@ export interface CollaborationTarget {
   mode?: CollaborationMode;
   isolation?: CollaborationIsolation;
   selections?: LaunchSelections;
+  maxReworks?: number;
   settings?: Settings;
 }
 export async function enableCollaboration(target: CollaborationTarget) {

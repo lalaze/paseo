@@ -57,6 +57,105 @@ test("new collaboration chooses models without profiles and uses default task se
   model.close();
 });
 
+test("a new task carries the chosen rework limit, existing conversations show their saved one", async () => {
+  const model = openCollaborationLaunch({ settings: null, currentAgent: false }, "execute_review");
+  model.applyProviders(providers);
+  choose(model, "worker");
+  choose(model, "reviewer");
+  expect(model.getState().maxReworks).toBe(2);
+  model.selectMaxReworks(5);
+  await model.start(async (_mode, settings) => {
+    expect(settings?.maxReworks).toBe(5);
+  });
+  const restored = openCollaborationLaunch(
+    { settings: null, currentAgent: false },
+    "execute_review",
+    undefined,
+    4,
+  );
+  expect(restored.getState().maxReworks).toBe(4);
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "worker", label: "Model A", provider: "codex/model-a" }],
+    directorProfileId: "worker",
+    workerProfileId: "worker",
+    reviewerProfileId: "worker",
+    maxReworks: 7,
+  });
+  const existing = openCollaborationLaunch({
+    settings: null,
+    currentAgent: true,
+    conversation: {
+      id: "chat",
+      workspaceId: "workspace",
+      title: "Existing",
+      settings,
+      mode: "execute_review",
+    },
+  });
+  existing.selectMaxReworks(1);
+  expect(existing.getState().maxReworks).toBe(7);
+  model.close();
+  restored.close();
+  existing.close();
+});
+
+test("a new task starts from the last launch, an existing conversation keeps its own", async () => {
+  const first = openCollaborationLaunch({ settings: null, currentAgent: false });
+  first.applyProviders(providers);
+  first.selectMode("execute_review");
+  first.selectIsolation("worktree");
+  choose(first, "worker");
+  first.selectProvider("reviewer", "claude", "Claude");
+  first.selectModel("reviewer", "sonnet", "Sonnet");
+  first.selectMaxReworks(4);
+  const remembered = first.preferences();
+  first.close();
+
+  const next = openCollaborationLaunch(
+    { settings: null, currentAgent: false },
+    undefined,
+    undefined,
+    undefined,
+    remembered,
+  );
+  next.applyProviders(providers);
+  expect(next.getState()).toMatchObject({
+    mode: "execute_review",
+    isolation: "worktree",
+    maxReworks: 4,
+    canContinue: true,
+  });
+  expect(next.getState().selections.reviewer?.model).toBe("sonnet");
+  await next.start(async (mode, settings, isolation) => {
+    expect(mode).toBe("execute_review");
+    expect(isolation).toBe("worktree");
+    expect(settings?.maxReworks).toBe(4);
+    expect(settings?.profiles.find((p) => p.id === "reviewer")?.provider).toBe("claude/sonnet");
+  });
+  next.close();
+
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "worker", label: "Model B", provider: "codex/model-b" }],
+    directorProfileId: "worker",
+    workerProfileId: "worker",
+  });
+  const existing = openCollaborationLaunch(
+    {
+      settings: null,
+      currentAgent: true,
+      conversation: { id: "chat", workspaceId: "workspace", title: "Existing", settings },
+    },
+    undefined,
+    undefined,
+    undefined,
+    remembered,
+  );
+  expect(existing.getState().mode).toBe("full");
+  expect(existing.getState().isolation).toBe("local");
+  expect(existing.getState().selections.worker?.model).toBe("model-b");
+  existing.close();
+});
+
 test("changing provider clears its model and catalog refresh preserves explicit selections", () => {
   const model = openCollaborationLaunch({ settings: null, currentAgent: true });
   model.applyProviders(providers);

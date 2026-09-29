@@ -25,6 +25,8 @@ export const ar: TranslationResources = {
     chooseMode: "اختيار وضع التعاون",
     launch: {
       prompts: en.collaboration.launch.prompts,
+      maxReworksHint:
+        "عند نفاد مرات إعادة العمل مع استمرار المراجعة في طلب تغييرات، تصلك ملاحظاتها لتقبل النتيجة أو ترفضها أو تطلب تعديلات.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,
