@@ -88,8 +88,13 @@ result that arrived in time, since that needs no new AI turn; anything that woul
 refused. Requesting changes starts a new round with a fresh budget. Runs saved before metering
 start with an empty budget.
 
-Pause stops subsequent dispatch; the current turn can finish. Cancel stops the active worker and
-retains the branch and files. Uncertain creation or delivery waits for inspection and explicit retry.
+Pause stops subsequent dispatch; the current turn can finish. Cancel ends the run immediately from
+any unfinished state and retains the branch and files. It then interrupts the active role session
+as a follow-up, never the main conversation. An interrupt that fails is recorded on the run and does
+not undo the cancel, because a session the daemon cannot reach, such as an archived one, would
+otherwise hold the run and its workspace. A timeout or a requirement change, unlike cancel, waits
+until the AI has stopped, so the next turn cannot overlap the old one.
+Uncertain creation or delivery waits for inspection and explicit retry.
 Verification commands run as executable plus literal arguments, without shell expansion. Quotes
 are supported; add separate lines instead of pipelines or `&&`.
 

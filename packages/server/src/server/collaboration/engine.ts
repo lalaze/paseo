@@ -284,20 +284,23 @@ export class Engine {
     this.save(run);
   }
 
+  /** Sessions a stop interrupts: the active role session, or children a crash left unbound. */
+  private async sessionsToStop(run: Run, op: Operation | undefined) {
+    if (op?.state === "creating" && !op.agentId) return this.agents.find(run.id, op.id);
+    // The main conversation is the user's own chat; stopping the run leaves its turn alone.
+    if (op?.agentId && op.agentId !== run.chat?.mainAgentId) return [op.agentId];
+    return [];
+  }
+
+  // Timeouts stop the AI before offering retry, so a retry cannot overlap the old turn. A stop
+  // can return before the turn settles; the next tick checks again.
   private async reconcileCancellation(run: Run, op: Operation | undefined) {
-    if (op?.state === "creating" && !op.agentId) {
-      const ids = await this.agents.find(run.id, op.id);
-      for (const agentId of ids) {
+    if (op)
+      for (const agentId of await this.sessionsToStop(run, op)) {
         await this.agents.stop(agentId);
         const state = await this.agents.inspect(agentId, op.id, op.createdAt);
         if (state.status === "running" || state.status === "permission") return;
       }
-    }
-    if (op?.agentId && op.agentId !== run.chat?.mainAgentId) {
-      await this.agents.stop(op.agentId);
-      const state = await this.agents.inspect(op.agentId, op.id, op.createdAt);
-      if (state.status === "running" || state.status === "permission") return;
-    }
     run.control = run.stopTarget ?? "canceled";
     this.event(
       run,
@@ -306,7 +309,22 @@ export class Engine {
         : "执行超时，已停止；可以检查结果后重试",
     );
     this.save(run);
-    return;
+  }
+
+  // Cancel is final as soon as the user asks: dispatch stops and late submissions are refused.
+  // Interrupting the AI afterwards is best effort, so an unusable session cannot hold the run.
+  private async interruptCanceled(run: Run) {
+    try {
+      for (const agentId of await this.sessionsToStop(run, this.current(run)))
+        await this.agents.stop(agentId);
+    } catch (error) {
+      const reason = String(error instanceof Error ? error.message : error).slice(0, 3000);
+      await this.locked(run.id, async () => {
+        const latest = this.store.get(run.id);
+        this.event(latest, `已取消；当前 AI 未能停止，可能仍在完成本轮：${reason}`);
+        this.save(latest);
+      });
+    }
   }
 
   private async enqueueExecution(run: Run) {
@@ -1045,6 +1063,7 @@ export class Engine {
     receipt?: string,
   ) {
     if (action === "cancel" || action === "revise") this.checks.get(id)?.abort();
+    let canceled: Run | undefined;
     const apply = () =>
       this.locked(id, async () => {
         const run = this.store.get(id);
@@ -1059,9 +1078,9 @@ export class Engine {
           this.event(run, "已暂停后续派发；当前 AI 可完成本轮");
         }
         if (action === "cancel") {
-          run.control = "canceling";
-          run.stopTarget = "canceled";
-          this.event(run, "正在停止当前执行");
+          run.control = "canceled";
+          this.event(run, "已取消；工作区与成果已保留");
+          canceled = run;
         }
         if (action === "approve_plan") {
           await this.approvePlan(run);
@@ -1080,6 +1099,8 @@ export class Engine {
         return { ok: true };
       });
     // Reopening an old result must not race with creation in the same checkout.
-    return action === "request_changes" ? this.locked("create", apply) : apply();
+    const outcome = await (action === "request_changes" ? this.locked("create", apply) : apply());
+    if (canceled) await this.interruptCanceled(canceled);
+    return outcome;
   }
 }

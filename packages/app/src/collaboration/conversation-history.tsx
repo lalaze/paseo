@@ -191,7 +191,8 @@ function availableControls(run: Conversation["run"]): Control[] {
   if (run.phase === "awaiting_acceptance") return ["cancel"];
   if (run.control === "paused") return ["resume", "cancel"];
   if (run.control === "needs_attention") return ["retry", "cancel"];
-  if (run.control === "canceling") return [];
+  // A timeout stop in progress can still be canceled; cancel does not wait for the AI.
+  if (run.control === "canceling") return ["cancel"];
   return ["pause", "cancel"];
 }
 

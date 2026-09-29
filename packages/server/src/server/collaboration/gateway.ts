@@ -304,7 +304,10 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     await this.load(agentId);
   }
   async stop(agentId: string) {
-    await this.load(agentId);
-    await this.host.agentManager.cancelAgentRun(agentId);
+    // Only a live session has a turn to interrupt. Archiving closes the runtime, and loading an
+    // archived session throws, which would leave cancel failing on every attempt.
+    if (!this.host.agentManager.getAgent(agentId)) return;
+    const { status } = await this.host.agentManager.cancelAgentRun(agentId);
+    if (status === "refused") throw new Error("AI 会话拒绝停止当前轮次");
   }
 }

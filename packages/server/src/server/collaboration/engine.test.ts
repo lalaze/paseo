@@ -9,7 +9,7 @@ import {
   awaitingAcceptance,
 } from "@getpaseo/protocol/collaboration/schema";
 import { confirmationFor } from "@getpaseo/protocol/collaboration/conversation";
-import { inspectMessages } from "./gateway.js";
+import { CollaborationGateway, inspectMessages, type CollaborationHost } from "./gateway.js";
 import { buildPrompt } from "./prompts.js";
 describe("explicit retry replaces failed sessions with the original profile after restart", () => {
   for (const kind of ["plan", "execute", "final"] as const) {
@@ -640,6 +640,52 @@ test("cancel stops the agent and rejects late MCP results", async (t) => {
   assert.deepEqual(h.agents.stopped, [op.agentId]);
   await assert.rejects(h.engine.submit(h.id, "director", op.id, plan), /已经结束/);
 });
+test("cancel ends the run at once even when the AI cannot be stopped", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  const op = await h.until("plan");
+  h.agents.stop = async () => {
+    throw new Error("会话已归档，请先恢复会话");
+  };
+  await h.engine.control(h.id, "cancel");
+  assert.equal(h.run().control, "canceled");
+  assert.match(h.run().message, /已取消.*未能停止.*会话已归档/);
+  await assert.rejects(h.engine.control(h.id, "cancel"), /任务已结束/);
+  await assert.rejects(h.engine.submit(h.id, "director", op.id, plan), /已经结束/);
+  await h.engine.tick();
+  assert.equal(h.run().control, "canceled");
+});
+test("a cancel saved by an older host while stopping finishes on the next tick", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  const op = await h.until("plan");
+  const run = h.run();
+  run.control = "canceling";
+  run.stopTarget = "canceled";
+  h.store.save(run);
+  await h.engine.tick();
+  assert.equal(h.run().control, "canceled");
+  assert.deepEqual(h.agents.stopped, [op.agentId]);
+});
+test("a timeout whose stop fails needs attention instead of stopping again every tick", async (t) => {
+  const h = await harness({ turnTimeoutMs: 1000 });
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  let attempts = 0;
+  h.agents.stop = async () => {
+    attempts++;
+    throw new Error("AI 会话拒绝停止当前轮次");
+  };
+  h.elapse(1001);
+  await h.engine.tick();
+  await h.engine.tick();
+  assert.equal(h.run().control, "needs_attention");
+  assert.match(h.run().message, /拒绝停止/);
+  await h.engine.tick();
+  assert.equal(attempts, 1);
+  await h.engine.control(h.id, "cancel");
+  assert.equal(h.run().control, "canceled");
+});
 test("crash after sending recovers from timeline marker, ambiguous delivery stops", async (t) => {
   const h = await harness();
   t.onTestFinished(() => h.cleanup());
@@ -795,4 +841,27 @@ test("unified review rework invalidates executed dependent tasks", async (t) => 
   );
   assert.equal(h.run().tasks[0].reworks, 1);
   assert.equal(h.run().tasks[1].review, undefined);
+});
+
+test("stopping skips sessions that are not loaded and reports a refused interrupt", async () => {
+  const canceled: string[] = [];
+  const host = {
+    agentManager: {
+      getAgent: (agentId: string) => (agentId === "archived" ? undefined : { id: agentId }),
+      cancelAgentRun: async (agentId: string) => {
+        canceled.push(agentId);
+        return { status: agentId === "stuck" ? "refused" : "settled" };
+      },
+    },
+    agentStorage: {
+      get: async () => {
+        throw new Error("stop must not read the archived record");
+      },
+    },
+  } as unknown as CollaborationHost;
+  const gateway = new CollaborationGateway(host);
+  await gateway.stop("archived");
+  await gateway.stop("live");
+  await assert.rejects(gateway.stop("stuck"), /拒绝停止/);
+  assert.deepEqual(canceled, ["live", "stuck"]);
 });
