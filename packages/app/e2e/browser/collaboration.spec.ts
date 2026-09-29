@@ -160,7 +160,7 @@ test("preserve inline models and slash-command goal through prompt settings, the
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("collaboration-launch-goal")).toContainText(goal);
     await expect(page.getByTestId("collaboration-mode-execute-review")).toHaveAttribute(
-      "aria-checked",
+      "aria-selected",
       "true",
     );
     await expect(page.getByTestId("collaboration-worker-model")).toContainText("Ten second stream");

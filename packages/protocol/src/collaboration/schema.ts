@@ -257,6 +257,10 @@ export interface Run {
   changeRequests?: ChangeRequest[];
   /** Explicit user-requested rounds get their own bounded execution budget. */
   roundStartedAt?: number;
+  /** Running time already spent this round. Paused, blocked and waiting time is not counted. */
+  budgetUsedMs?: number;
+  /** When the run last started running; absent while it is not running. */
+  runningSince?: number;
   roundOperationOffset?: number;
   tasks: {
     spec: Task;

@@ -5,14 +5,15 @@ type `/director`. All three open the same mode dialog over the current workspace
 on phones). Choose a mode before continuing; canceling preserves the conversation and draft.
 `/director <goal>` also supplies the first request. Select each role’s provider and model directly
 in the dialog; you do not need saved Agent profiles. The dialog remembers, per host and on this
-device, the mode, isolation, models and rework limit of the last task you started, and pre-fills
+device, the mode, isolation, models, rework limit and time budget of the last task you started, and pre-fills
 them for the next new task. New Full workflow conversations also select
 a lead. Enabling collaboration in an existing chat retains that chat’s lead. With no separate
 reviewer in Full workflow, the lead performs the final review.
 
 Host settings → Collaboration contains role instructions and conversation history. Instructions
 can be saved before choosing any models. New tasks use the built-in limits and verification
-defaults, except the rework limit, which you choose in the dialog (default 2); legacy advanced
+defaults, except the rework limit (default 2) and the time budget per round (default 4
+hours), which you choose in the dialog; legacy advanced
 settings are retained for existing conversations.
 
 Open **Conversation history** from the top of host collaboration settings to see each task's
@@ -79,6 +80,13 @@ alone to reject, or a description of the changes to request rework.
 The rows are parsed from message text (`packages/app/src/collaboration/message-summary.ts`), and
 messages persisted by older hosts must keep parsing. Keep a notice's instruction on the single line
 between its marker and its JSON, and keep new JSON fields optional.
+
+The time budget counts only time the run is running. Paused, blocked (needs attention), waiting
+for permission and awaiting acceptance time is free; the engine meters this at each control change
+(`runningSince`, `budgetUsedMs`). A round stops once its budget is used up. Retry still picks up a
+result that arrived in time, since that needs no new AI turn; anything that would dispatch again is
+refused. Requesting changes starts a new round with a fresh budget. Runs saved before metering
+start with an empty budget.
 
 Pause stops subsequent dispatch; the current turn can finish. Cancel stops the active worker and
 retains the branch and files. Uncertain creation or delivery waits for inspection and explicit retry.

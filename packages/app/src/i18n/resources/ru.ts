@@ -27,6 +27,12 @@ export const ru: TranslationResources = {
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "Если доработки закончились, а проверка всё ещё требует изменений, её замечания придут вам: примите, отклоните или запросите изменения.",
+      limits: "Ограничения",
+      runTimeout: "Бюджет времени",
+      runHours_one: "{{count}} ч",
+      runHours_other: "{{count}} ч",
+      runTimeoutHint:
+        "Учитывается только время, пока задача выполняется; паузы, блокировки и ожидание вас не считаются. Запрос изменений начинает новый цикл с новым бюджетом.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

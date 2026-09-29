@@ -457,14 +457,45 @@ test("retry recovers a submitted final review left behind by the old rework-limi
   current.response = review(true, "changes_requested");
   current.responseHash = "old-host";
   stuck.control = "needs_attention";
+  stuck.budgetUsedMs = stuck.settings.runTimeoutMs;
+  stuck.runningSince = undefined;
   h.store.save(stuck);
   h.agents.states.set(op.agentId!, { status: "idle", seen: true, output: "" });
   const sent = h.agents.sent.length;
+  // The review arrived before the budget ran out; recovering it needs no more running time.
+  h.elapse(1000);
   await h.engine.control(h.id, "retry");
   assert.equal(h.run().phase, "awaiting_acceptance");
   assert.equal(h.run().finalReview!.decision, "changes_requested");
   assert.ok(awaitingAcceptance(h.run()));
   assert.equal(h.agents.sent.length, sent);
+});
+test("the time budget counts running time only", async (t) => {
+  // A short budget keeps the pause below the separate per-turn timeout.
+  const h = await harness({ runTimeoutMs: 60000, turnTimeoutMs: 7200000 });
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  await h.complete(plan);
+  const op = await h.until("execute");
+  const budget = h.run().settings.runTimeoutMs;
+  await h.engine.control(h.id, "pause");
+  // Paused, blocked or waiting time is free.
+  h.elapse(budget * 3);
+  await h.engine.control(h.id, "resume");
+  await h.engine.tick();
+  assert.equal(h.run().control, "running");
+  assert.ok(h.run().budgetUsedMs! < budget);
+  // Running time counts, including a long turn that saves nothing in between.
+  h.elapse(budget);
+  await h.engine.tick();
+  assert.equal(h.run().control, "canceling");
+  assert.match(h.run().message, /总时间上限/);
+  // A retry that would dispatch another AI turn is refused once the budget is spent.
+  const stopped = h.run();
+  stopped.control = "needs_attention";
+  h.store.save(stopped);
+  h.agents.states.set(op.agentId!, { status: "idle", seen: true, output: "" });
+  await assert.rejects(h.engine.control(h.id, "retry"), /时间预算已耗尽/);
 });
 test("failed automatic verification cannot be overridden by director approval", async (t) => {
   const h = await harness();

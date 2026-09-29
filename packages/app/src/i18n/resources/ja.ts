@@ -27,6 +27,12 @@ export const ja: TranslationResources = {
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "修正回数を使い切っても審査が修正を求める場合、審査意見があなたに届き、承認・不採用・追加修正を選べます。",
+      limits: "タスクの上限",
+      runTimeout: "時間予算",
+      runHours_one: "{{count}} 時間",
+      runHours_other: "{{count}} 時間",
+      runTimeoutHint:
+        "タスクが実際に動いている時間だけを数えます。一時停止・停止中・あなたの対応待ちの時間は含みません。修正依頼を出すと新しいラウンドとして再計時されます。",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

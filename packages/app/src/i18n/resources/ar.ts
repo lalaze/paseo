@@ -27,6 +27,12 @@ export const ar: TranslationResources = {
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "عند نفاد مرات إعادة العمل مع استمرار المراجعة في طلب تغييرات، تصلك ملاحظاتها لتقبل النتيجة أو ترفضها أو تطلب تعديلات.",
+      limits: "الحدود",
+      runTimeout: "ميزانية الوقت",
+      runHours_one: "{{count}} ساعة",
+      runHours_other: "{{count}} ساعة",
+      runTimeoutHint:
+        "يُحتسب وقت تشغيل المهمة فقط؛ ولا تُحتسب أوقات الإيقاف المؤقت أو التعطل أو انتظارك. وطلب التعديلات يبدأ جولة جديدة بميزانية جديدة.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

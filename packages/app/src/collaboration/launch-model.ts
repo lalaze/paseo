@@ -19,14 +19,21 @@ export interface ModelSelection {
 }
 export type LaunchSelections = Record<LaunchRole, ModelSelection | null>;
 export const DEFAULT_MAX_REWORKS = 2;
+export const MAX_REWORKS_LIMIT = 10;
+const HOUR_MS = 3600000;
+export const DEFAULT_RUN_TIMEOUT_MS = 4 * HOUR_MS;
+/** Time budget choices; the schema caps a round at 24 hours. */
+export const RUN_TIMEOUT_HOURS = [1, 2, 4, 8, 12, 24] as const;
+export interface LaunchLimits {
+  maxReworks: number;
+  runTimeoutMs: number;
+}
 /** The choices of the last task started on a host, which prefill the next new task. */
-export interface LaunchPreferences {
+export interface LaunchPreferences extends LaunchLimits {
   mode: CollaborationMode;
   isolation: CollaborationIsolation;
   selections: LaunchSelections;
-  maxReworks: number;
 }
-export const MAX_REWORKS_LIMIT = 10;
 export interface LaunchSnapshot {
   ready?: boolean;
   settings: Settings | null;
@@ -46,7 +53,7 @@ export function openCollaborationLaunch(
   initial: LaunchSnapshot,
   selected?: CollaborationMode,
   restored?: LaunchSelections,
-  restoredMaxReworks?: number,
+  restoredLimits?: LaunchLimits,
   remembered?: LaunchPreferences,
 ) {
   // An existing conversation keeps its own choices; only a new task starts from the last one.
@@ -78,7 +85,9 @@ export function openCollaborationLaunch(
   }
   let selections = initialSelections(initial);
   // New tasks start from the built-in limit, not the host's legacy advanced settings.
-  let maxReworks = restoredMaxReworks ?? remembered?.maxReworks ?? DEFAULT_MAX_REWORKS;
+  let maxReworks = restoredLimits?.maxReworks ?? remembered?.maxReworks ?? DEFAULT_MAX_REWORKS;
+  let runTimeoutMs =
+    restoredLimits?.runTimeoutMs ?? remembered?.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
   let entries: ProviderSnapshotEntry[] = [];
   let pending = false;
   let error = "";
@@ -91,6 +100,14 @@ export function openCollaborationLaunch(
     return (
       selection !== null && models(selection.provider).some((model) => model.id === selection.model)
     );
+  }
+  /** An existing conversation shows its saved limits; a new task uses the chosen ones. */
+  function limits(): LaunchLimits {
+    const saved = snapshot.conversation?.settings;
+    return {
+      maxReworks: saved?.maxReworks ?? maxReworks,
+      runTimeoutMs: saved?.runTimeoutMs ?? runTimeoutMs,
+    };
   }
   function read() {
     const locked = Boolean(snapshot.conversation?.run);
@@ -112,7 +129,7 @@ export function openCollaborationLaunch(
       agentsLocked,
       showDirector,
       selections,
-      maxReworks: snapshot.conversation?.settings?.maxReworks ?? maxReworks,
+      ...limits(),
       pending,
       error,
       canContinue: snapshot.ready !== false && !pending && (agentsLocked ? canReopen : complete),
@@ -165,6 +182,7 @@ export function openCollaborationLaunch(
       workerProfileId: "worker",
       reviewerProfileId: selections.reviewer ? "reviewer" : undefined,
       maxReworks,
+      runTimeoutMs,
     });
   }
   let state = read();
@@ -179,6 +197,7 @@ export function openCollaborationLaunch(
       isolation: state.isolation,
       selections: state.selections,
       maxReworks: state.maxReworks,
+      runTimeoutMs: state.runTimeoutMs,
     }),
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -217,6 +236,12 @@ export function openCollaborationLaunch(
     selectMaxReworks(next: number) {
       if (pending || state.agentsLocked) return;
       maxReworks = Math.min(MAX_REWORKS_LIMIT, Math.max(0, Math.trunc(next)));
+      error = "";
+      publish();
+    },
+    selectRunTimeout(next: number) {
+      if (pending || state.agentsLocked) return;
+      runTimeoutMs = Math.min(24 * HOUR_MS, Math.max(HOUR_MS, Math.trunc(next)));
       error = "";
       publish();
     },

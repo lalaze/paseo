@@ -6,7 +6,7 @@ import type {
   CollaborationMode,
   Settings,
 } from "@getpaseo/protocol/collaboration/schema";
-import type { LaunchSelections } from "./launch-model";
+import type { LaunchLimits, LaunchSelections } from "./launch-model";
 import { useCollaborationLaunchStore } from "./launch-store";
 
 export interface CollaborationTarget {
@@ -18,7 +18,7 @@ export interface CollaborationTarget {
   mode?: CollaborationMode;
   isolation?: CollaborationIsolation;
   selections?: LaunchSelections;
-  maxReworks?: number;
+  limits?: LaunchLimits;
   settings?: Settings;
 }
 export async function enableCollaboration(target: CollaborationTarget) {

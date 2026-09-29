@@ -22,7 +22,9 @@ import { LaunchGoal } from "./launch-goal";
 import { enableCollaboration, type CollaborationTarget } from "./launch";
 import {
   MAX_REWORKS_LIMIT,
+  RUN_TIMEOUT_HOURS,
   openCollaborationLaunch,
+  type LaunchLimits,
   type LaunchSnapshot,
   type LaunchSelections,
   type LaunchRole,
@@ -57,10 +59,10 @@ function LaunchDialog({ target }: { target: CollaborationTarget }) {
     else if (pathname !== configPath) setClosing(true);
   }, [pathname, origin, configPath]);
   const configure = useCallback(
-    (selections: LaunchSelections, maxReworks: number) => {
+    (selections: LaunchSelections, limits: LaunchLimits) => {
       useCollaborationLaunchStore.setState((state) => ({
         configuring: true,
-        request: state.request ? { ...state.request, selections, maxReworks } : null,
+        request: state.request ? { ...state.request, selections, limits } : null,
       }));
       router.push(configPath);
     },
@@ -100,7 +102,7 @@ interface ModePickerProps {
   target: CollaborationTarget;
   snapshot: LaunchSnapshot;
   visible: boolean;
-  onConfigure: (selections: LaunchSelections, maxReworks: number) => void;
+  onConfigure: (selections: LaunchSelections, limits: LaunchLimits) => void;
   onClose: () => void;
   onDismiss: () => void;
   onRetry: () => void;
@@ -137,7 +139,7 @@ function ModePicker({
       snapshot,
       target.mode,
       target.selections,
-      target.maxReworks,
+      target.limits,
       rememberedLaunch(target.serverId),
     ),
   );
@@ -189,7 +191,10 @@ function ModePicker({
   );
   const configure = useCallback(() => {
     const current = model.getState();
-    onConfigure(current.selections, current.maxReworks);
+    onConfigure(current.selections, {
+      maxReworks: current.maxReworks,
+      runTimeoutMs: current.runTimeoutMs,
+    });
   }, [model, onConfigure]);
   const promptButton = useMemo(
     () => (
@@ -280,8 +285,8 @@ function ModePicker({
               </View>
             )}
           </SettingsSection>
-          <SettingsSection title={t("collaboration.maxReworks")} flush>
-            <ReworkLimit model={model} state={state} />
+          <SettingsSection title={t("collaboration.launch.limits")} flush>
+            <TaskLimits model={model} state={state} />
           </SettingsSection>
           {catalog.error && (
             <View style={styles.roles}>
@@ -396,29 +401,76 @@ const reworkOptions = Array.from({ length: MAX_REWORKS_LIMIT + 1 }, (_, count) =
   label: String(count),
   testID: `collaboration-max-reworks-option-${count}`,
 }));
-function ReworkLimit({ model, state }: Omit<RoleModelsProps, "role">) {
+function TaskLimits({ model, state }: Omit<RoleModelsProps, "role">) {
   const { t } = useTranslation();
-  const size = useIsCompactFormFactor() ? "md" : "sm";
-  const display = useMemo(() => ({ label: String(state.maxReworks) }), [state.maxReworks]);
-  const change = useCallback((value: string) => model.selectMaxReworks(Number(value)), [model]);
+  const compact = useIsCompactFormFactor();
+  const size = compact ? "md" : "sm";
+  const disabled = state.pending || state.agentsLocked;
+  const reworkDisplay = useMemo(() => ({ label: String(state.maxReworks) }), [state.maxReworks]);
+  const hoursLabel = useCallback(
+    (ms: number) => t("collaboration.launch.runHours", { count: Math.round(ms / 3600000) }),
+    [t],
+  );
+  const timeoutOptions = useMemo(
+    () =>
+      RUN_TIMEOUT_HOURS.map((hours) => ({
+        id: String(hours),
+        value: String(hours * 3600000),
+        label: t("collaboration.launch.runHours", { count: hours }),
+        testID: `collaboration-run-timeout-option-${hours}`,
+      })),
+    [t],
+  );
+  const timeoutDisplay = useMemo(
+    () => ({ label: hoursLabel(state.runTimeoutMs) }),
+    [hoursLabel, state.runTimeoutMs],
+  );
+  const changeReworks = useCallback(
+    (value: string) => model.selectMaxReworks(Number(value)),
+    [model],
+  );
+  const changeTimeout = useCallback(
+    (value: string) => model.selectRunTimeout(Number(value)),
+    [model],
+  );
   return (
     <View style={styles.role}>
-      <View style={styles.reworkField}>
-        <SelectField
-          field={false}
-          size={size}
-          label={t("collaboration.maxReworks")}
-          triggerTestID="collaboration-max-reworks"
-          value={String(state.maxReworks)}
-          selectedDisplay={display}
-          options={reworkOptions}
-          onChange={change}
-          disabled={state.pending || state.agentsLocked}
-          placeholder={t("collaboration.maxReworks")}
-          emptyText={t("collaboration.maxReworks")}
-        />
+      <View style={[styles.fields, compact && styles.compactFields]}>
+        <View style={styles.limitField}>
+          <Text style={styles.roleLabel}>{t("collaboration.maxReworks")}</Text>
+          <SelectField
+            field={false}
+            size={size}
+            label={t("collaboration.maxReworks")}
+            triggerTestID="collaboration-max-reworks"
+            value={String(state.maxReworks)}
+            selectedDisplay={reworkDisplay}
+            options={reworkOptions}
+            onChange={changeReworks}
+            disabled={disabled}
+            placeholder={t("collaboration.maxReworks")}
+            emptyText={t("collaboration.maxReworks")}
+          />
+        </View>
+        <View style={styles.limitField}>
+          <Text style={styles.roleLabel}>{t("collaboration.launch.runTimeout")}</Text>
+          <SelectField
+            field={false}
+            size={size}
+            label={t("collaboration.launch.runTimeout")}
+            triggerTestID="collaboration-run-timeout"
+            value={String(state.runTimeoutMs)}
+            selectedDisplay={timeoutDisplay}
+            options={timeoutOptions}
+            onChange={changeTimeout}
+            disabled={disabled}
+            placeholder={t("collaboration.launch.runTimeout")}
+            emptyText={t("collaboration.launch.runTimeout")}
+          />
+        </View>
       </View>
       <Text style={styles.secondary}>{t("collaboration.launch.maxReworksHint")}</Text>
+      <Text style={styles.secondary}>{t("collaboration.launch.runTimeoutHint")}</Text>
     </View>
   );
 }
@@ -431,7 +483,7 @@ const styles = StyleSheet.create((theme) => ({
   fields: { flexDirection: "row", gap: theme.spacing[2] },
   compactFields: { flexDirection: "column" },
   field: { flex: 1, minWidth: 0 },
-  reworkField: { maxWidth: 160 },
+  limitField: { flex: 1, minWidth: 0, gap: theme.spacing[2] },
   secondary: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
 }));

@@ -27,6 +27,12 @@ export const zhCN: TranslationResources = {
       prompts: "提示词",
       maxReworksHint:
         "返工次数用完后，若审核仍要求修改，将直接把审核意见交给你决定验收、不采纳或继续修改。",
+      limits: "任务限制",
+      runTimeout: "时间预算",
+      runHours_one: "{{count}} 小时",
+      runHours_other: "{{count}} 小时",
+      runTimeoutHint:
+        "只计算任务实际运行的时间，暂停、受阻和等待你的时间不计入；提出修改意见会开始新一轮并重新计时。",
       provider: "提供商",
       model: "模型",
       noProviders: "暂无可用提供商",

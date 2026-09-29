@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { z } from "zod";
 import { createValidatedPersistStorage } from "@/storage/validated-persist-storage";
-import type { LaunchPreferences } from "./launch-model";
+import { DEFAULT_RUN_TIMEOUT_MS, type LaunchPreferences } from "./launch-model";
 
 const Selection = z
   .object({
@@ -18,12 +18,15 @@ const PreferencesSchema = z.object({
   isolation: z.enum(["local", "worktree"]),
   selections: z.object({ director: Selection, worker: Selection, reviewer: Selection }),
   maxReworks: z.number().int().min(0).max(10),
+  // Absent in preferences saved before the time budget became selectable.
+  runTimeoutMs: z.number().int().min(3600000).max(86400000).optional(),
 });
 const PersistedSchema = z.object({ byServer: z.record(z.string(), PreferencesSchema) });
+type StoredPreferences = z.infer<typeof PreferencesSchema>;
 
 interface LaunchPreferencesState {
   // Providers and models differ per host, so the last launch is remembered per host.
-  byServer: Record<string, LaunchPreferences>;
+  byServer: Record<string, StoredPreferences>;
 }
 
 export const useCollaborationLaunchPreferences = create<LaunchPreferencesState>()(
@@ -35,7 +38,8 @@ export const useCollaborationLaunchPreferences = create<LaunchPreferencesState>(
 );
 
 export function rememberedLaunch(serverId: string): LaunchPreferences | undefined {
-  return useCollaborationLaunchPreferences.getState().byServer[serverId];
+  const stored = useCollaborationLaunchPreferences.getState().byServer[serverId];
+  return stored && { ...stored, runTimeoutMs: stored.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS };
 }
 
 export function rememberLaunch(serverId: string, preferences: LaunchPreferences) {

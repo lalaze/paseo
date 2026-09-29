@@ -27,6 +27,12 @@ export const ko: TranslationResources = {
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "재작업 횟수를 모두 쓴 뒤에도 검토에서 수정을 요청하면, 검토 의견이 전달되어 수락·거절·추가 수정을 선택할 수 있습니다.",
+      limits: "작업 한도",
+      runTimeout: "시간 예산",
+      runHours_one: "{{count}}시간",
+      runHours_other: "{{count}}시간",
+      runTimeoutHint:
+        "작업이 실제로 실행된 시간만 계산합니다. 일시정지·차단·사용자 대기 시간은 포함되지 않으며, 수정 요청을 보내면 새 라운드가 시작되고 시간이 다시 계산됩니다.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

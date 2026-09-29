@@ -133,6 +133,7 @@ export class Engine {
         updatedAt: this.now(),
         phase: "planning",
         control: "running",
+        runningSince: this.now(),
         message: `等待${operationLabel(settings, "plan")}制定计划`,
         planApproved: !requiresPlanApproval({ mode, settings }),
         tasks: [],
@@ -198,10 +199,27 @@ export class Engine {
           outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
         );
   }
+  /** Every run save goes through here so running time is metered at each control change. */
+  private save(run: Run) {
+    const now = this.now();
+    const running =
+      run.control === "running" && !["awaiting_acceptance", "completed"].includes(run.phase);
+    if (running) run.runningSince ??= now;
+    else if (run.runningSince !== undefined) {
+      run.budgetUsedMs = (run.budgetUsedMs ?? 0) + Math.max(0, now - run.runningSince);
+      run.runningSince = undefined;
+    }
+    this.store.save(run);
+  }
+  // Runs saved before metering existed start with an empty budget.
+  private budgetExhausted(run: Run): boolean {
+    const running = run.runningSince === undefined ? 0 : this.now() - run.runningSince;
+    return (run.budgetUsedMs ?? 0) + running >= run.settings.runTimeoutMs;
+  }
   private hold(run: Run, message: string) {
     run.control = "needs_attention";
     this.event(run, message);
-    this.store.save(run);
+    this.save(run);
   }
   /** Forget evidence the run no longer shows; its files are removed in the background. */
   private release(...evidence: (Evidence | undefined)[]) {
@@ -263,7 +281,7 @@ export class Engine {
     run.activeOperationId = id;
     const { actor, action, detail } = this.describe(run, op);
     this.event(run, `准备交给${actor}${action}${detail}`);
-    this.store.save(run);
+    this.save(run);
   }
 
   private async reconcileCancellation(run: Run, op: Operation | undefined) {
@@ -287,7 +305,7 @@ export class Engine {
         ? "已取消；工作区与成果已保留"
         : "执行超时，已停止；可以检查结果后重试",
     );
-    this.store.save(run);
+    this.save(run);
     return;
   }
 
@@ -314,7 +332,7 @@ export class Engine {
     } else if (run.tasks.length && run.tasks.every(executionComplete)) {
       run.phase = "final_review";
       this.event(run, `全部任务已执行，准备交给${operationLabel(run.settings, "final")}统一审核`);
-      this.store.save(run);
+      this.save(run);
     } else throw new Error("没有可以执行的任务，请检查依赖和状态");
   }
   private async enqueueNext(run: Run) {
@@ -357,7 +375,7 @@ export class Engine {
       return;
     }
     this.bindAgent(run, op, ids[0]);
-    this.store.save(run);
+    this.save(run);
     return;
   }
 
@@ -365,15 +383,15 @@ export class Engine {
     await this.repository.assertBranch(run);
     if (op.agentId) {
       op.state = "ready";
-      this.store.save(run);
+      this.save(run);
       return;
     }
     op.state = "creating";
-    this.store.save(run);
+    this.save(run);
     const profile = run.settings.profiles.find((p) => p.id === op!.profileId)!;
     const agentId = await this.agents.create(run, op, profile);
     this.bindAgent(run, op, agentId);
-    this.store.save(run);
+    this.save(run);
     return;
   }
 
@@ -390,7 +408,7 @@ export class Engine {
       if (run.message !== message || run.control !== control) {
         run.control = control;
         this.event(run, message);
-        this.store.save(run);
+        this.save(run);
       }
       return;
     }
@@ -399,12 +417,12 @@ export class Engine {
     run.control = "running";
     op.state = "sending";
     op.sentAt = this.now();
-    this.store.save(run);
+    this.save(run);
     await this.agents.send(op.agentId!, op.id, op.prompt);
     op.state = "sent";
     op.deliveryConfirmedAt = this.now();
     this.event(run, `已发送${action}指令，等待${actor}开始${detail}`);
-    this.store.save(run);
+    this.save(run);
     return;
   }
   private async collectResult(
@@ -435,7 +453,7 @@ export class Engine {
       this.enqueue(run, op.kind, op.taskId, op.formatRetries + 1);
       const replacement = this.current(run)!;
       replacement.prompt += `\n上一轮结果格式错误，请补交正确格式，不要重复实施已完成的修改。错误：${String(error).slice(0, 2000)}`;
-      this.store.save(run);
+      this.save(run);
       return;
     }
     await this.finish(run, op, response);
@@ -453,13 +471,13 @@ export class Engine {
         return;
       }
       op.state = "sent";
-      this.store.save(run);
+      this.save(run);
     }
     if (state.status === "permission") {
       if (run.control !== "waiting_permission") {
         run.control = "waiting_permission";
         this.event(run, `${this.describe(run, op).actor}等待权限或回答，请打开当前 AI 会话处理`);
-        this.store.save(run);
+        this.save(run);
       }
       return;
     }
@@ -467,13 +485,13 @@ export class Engine {
     if (resumed) {
       run.control = "running";
       this.event(run, `权限或提问已处理，继续跟进${this.describe(run, op).actor}本轮结果`);
-      this.store.save(run);
+      this.save(run);
     }
     if (this.now() - (op.sentAt ?? op.createdAt) >= run.settings.turnTimeoutMs) {
       run.control = "canceling";
       run.stopTarget = "needs_attention";
       this.event(run, "当前步骤超时，正在停止 AI");
-      this.store.save(run);
+      this.save(run);
       return;
     }
     if (state.status === "running" && !(conversational && op.response !== undefined)) {
@@ -482,7 +500,7 @@ export class Engine {
         const { actor, action, detail } = this.describe(run, op);
         if (!resumed && op.response === undefined)
           this.event(run, `${actor} 正在${action}${detail}`);
-        this.store.save(run);
+        this.save(run);
       }
       return;
     }
@@ -503,7 +521,7 @@ export class Engine {
       run.activeOperationId = undefined;
       run.phase = "executing";
       this.event(run, "已改为全部任务执行完成后统一审核，继续串行执行后续任务");
-      this.store.save(run);
+      this.save(run);
       return true;
     }
     return false;
@@ -529,11 +547,11 @@ export class Engine {
       let op = this.current(run);
       if (run.control === "canceling") return await this.reconcileCancellation(run, op);
       if (run.phase === "awaiting_acceptance") return;
-      if (this.now() - (run.roundStartedAt ?? run.createdAt) >= run.settings.runTimeoutMs) {
+      if (this.budgetExhausted(run)) {
         run.control = "canceling";
         run.stopTarget = "needs_attention";
         this.event(run, "已达到任务总时间上限，正在停止");
-        this.store.save(run);
+        this.save(run);
         return;
       }
       if (await this.upgradeReview(run, op)) return;
@@ -656,7 +674,7 @@ export class Engine {
     op.state = "done";
     op.completedAt = this.now();
     run.activeOperationId = undefined;
-    this.store.save(run);
+    this.save(run);
   }
   private rework(run: Run, review: Review) {
     const ids = new Set(review.findings.map((f) => f.taskId));
@@ -723,7 +741,7 @@ export class Engine {
         op.response = response;
         op.responseHash = hash;
         this.event(run, `已收到${this.describe(run, op).actor}提交的结果，等待本轮结束后校验`);
-        this.store.save(run);
+        this.save(run);
       }
       return { accepted: true };
     });
@@ -733,7 +751,7 @@ export class Engine {
       const run = this.store.get(id);
       if (run.chat || run.migrationConversationId === conversationId) return;
       run.migrationConversationId = conversationId;
-      this.store.save(run);
+      this.save(run);
     });
   }
   async attachConversation(id: string, conversationId: string, mainAgentId: string) {
@@ -751,7 +769,7 @@ export class Engine {
       const op = this.current(run);
       if (op?.kind === "plan" && op.state === "pending" && !op.agentId) op.agentId = mainAgentId;
       run.migrationConversationId = undefined;
-      this.store.save(run);
+      this.save(run);
     });
   }
   async recoverMain(id: string, agentId?: string) {
@@ -770,7 +788,7 @@ export class Engine {
         run.chat.recovering = false;
         run.directorAgentId = agentId;
       }
-      this.store.save(run);
+      this.save(run);
     });
   }
   async dispatch(id: string, taskId: string) {
@@ -785,7 +803,7 @@ export class Engine {
       const task = run.tasks.find((candidateEntry) => candidateEntry.spec.id === taskId);
       if (task && task.status !== "pending") throw new Error("任务已派发或已通过");
       run.dispatchOrder = [...new Set([...(run.dispatchOrder ?? []), taskId])];
-      this.store.save(run);
+      this.save(run);
       return {
         taskId,
         executorId: profileForTask(run.settings, spec),
@@ -828,6 +846,8 @@ export class Engine {
       },
     ];
     run.roundStartedAt = this.now();
+    run.budgetUsedMs = 0;
+    run.runningSince = undefined;
     run.roundOperationOffset = run.operations.length;
     this.release(run.finalEvidence, ...run.tasks.map((candidateEntry) => candidateEntry.evidence));
     const executionAgentId = run.tasks[0]?.agentId;
@@ -895,7 +915,7 @@ export class Engine {
       await this.requestChanges(run, input);
     }
     if (receipt) (run.chatReceipts ??= {})[receipt] = action;
-    this.store.save(run);
+    this.save(run);
     return { ok: true };
   }
 
@@ -943,8 +963,6 @@ export class Engine {
   }
   private async retryRun(run: Run) {
     if (run.control !== "needs_attention") throw new Error("仅受阻任务可以重试");
-    if (this.now() - (run.roundStartedAt ?? run.createdAt) >= run.settings.runTimeoutMs)
-      throw new Error("本轮任务总时间预算已耗尽，请创建新任务");
     await this.repository.assertBranch(run);
     const op = this.current(run);
     let outputError: string | undefined;
@@ -958,6 +976,8 @@ export class Engine {
       if (result.recovered) return true;
       outputError = result.outputError;
     }
+    // Recovering a result that already arrived spends no time; only another AI turn needs budget.
+    if (this.budgetExhausted(run)) throw new Error("本轮任务总时间预算已耗尽，请创建新任务");
     run.control = "running";
     if (op) {
       op.state = "abandoned";
@@ -1056,7 +1076,7 @@ export class Engine {
           if (await this.retryRun(run)) return { ok: true };
         }
         if (action === "revise") await this.reviseRun(run, goal);
-        this.store.save(run);
+        this.save(run);
         return { ok: true };
       });
     // Reopening an old result must not race with creation in the same checkout.

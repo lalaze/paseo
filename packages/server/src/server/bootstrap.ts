@@ -142,6 +142,7 @@ import { AgentManager } from "./agent/agent-manager.js";
 import { AgentStorage } from "./agent/agent-storage.js";
 import { attachAgentStoragePersistence } from "./persistence-hooks.js";
 import { createAgentMcpServer } from "./agent/mcp-server.js";
+import { downgradeNewerMcpProtocolVersion } from "./agent/mcp-protocol-version.js";
 import {
   createPaseoToolCatalog,
   type PaseoToolHostDependencies,
@@ -1660,6 +1661,7 @@ export async function createPaseoDaemon(
           void server.close();
         });
 
+        downgradeNewerMcpProtocolVersion(req as unknown as IncomingMessage);
         await transport.handleRequest(
           req as unknown as IncomingMessage,
           res as unknown as ServerResponse,

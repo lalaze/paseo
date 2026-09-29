@@ -24,6 +24,12 @@ export const en = {
       prompts: "Instructions",
       maxReworksHint:
         "When reworks run out and review still requests changes, its findings come to you to accept, reject or request changes.",
+      limits: "Limits",
+      runTimeout: "Time budget",
+      runHours_one: "{{count}} hour",
+      runHours_other: "{{count}} hours",
+      runTimeoutHint:
+        "Counts only time the task is running; paused, blocked and waiting time is free. Requesting changes starts a new round with a fresh budget.",
       provider: "Provider",
       model: "Model",
       noProviders: "No providers available",

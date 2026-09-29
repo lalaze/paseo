@@ -27,6 +27,12 @@ export const fr: TranslationResources = {
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "Une fois les corrections épuisées, si la revue demande encore des changements, ses remarques vous sont transmises pour accepter, refuser ou demander des modifications.",
+      limits: "Limites",
+      runTimeout: "Budget de temps",
+      runHours_one: "{{count}} heure",
+      runHours_other: "{{count}} heures",
+      runTimeoutHint:
+        "Seul le temps d’exécution de la tâche est compté ; les pauses, blocages et attentes ne le sont pas. Une demande de modifications démarre un nouveau cycle avec un budget neuf.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,
