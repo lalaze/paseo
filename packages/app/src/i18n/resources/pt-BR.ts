@@ -117,6 +117,25 @@ export const ptBR: TranslationResources = {
       acceptanceCriteria: "Critérios de aceite",
     },
   },
+  delegation: {
+    title: "Delegação",
+    description:
+      "Permite que um agente entregue uma tarefa independente a outro agente, que roda como seu subagente. Digite @ em uma mensagem e escolha um agente para delegar a ele.",
+    updateHost: "Atualize este host para usar a delegação.",
+    enabled: "Permitir delegação",
+    enabledHint: "Dá aos agentes a ferramenta delegate_to_agent. Vale para novos turnos.",
+    depth: "Profundidade de delegação",
+    depthHint: "Quantos níveis de agentes podem delegar. Com 1, só o agente principal delega.",
+    agentDefaults: "Padrões dos agentes",
+    agentDefaultsDescription:
+      "O modelo e o modo com que um agente delegado começa. Sem eles, é usado o padrão do provedor.",
+    providerDefaults: "Padrão do provedor",
+    customDefaults: "Personalizado",
+    mode: "Modo",
+    defaultMode: "Modo padrão",
+    reset: "Redefinir",
+    saveError: "Não foi possível salvar as configurações de delegação",
+  },
   paneFind: {
     connectionFailure:
       "Não foi possível pesquisar nesta conversa. Verifique a conexão com o host e tente novamente.",
@@ -1688,6 +1707,7 @@ export const ptBR: TranslationResources = {
     noFiles: "Nenhum arquivo ou diretório encontrado",
     noCommands: "Nenhum comando encontrado",
     failedToLoad: "Falha ao carregar",
+    delegateTo: "Delegar a este agente",
   },
   loadOlderHistory: {
     failed: "Não foi possível carregar o histórico mais antigo",

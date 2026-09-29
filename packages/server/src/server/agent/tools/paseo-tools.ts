@@ -33,7 +33,12 @@ import {
   requireActiveWorkspaceForArchive,
   type ArchiveDependencies,
 } from "../../workspace-archive-service.js";
-import { createAgentCommand, type CreateAgentFromMcpInput } from "../create-agent/create.js";
+import {
+  createAgentCommand,
+  formatProviderModel,
+  type CreateAgentFromMcpInput,
+} from "../create-agent/create.js";
+import { delegatedTaskTitle, registerDelegationTools } from "./delegation-tools.js";
 import type { VoiceCallerContext, VoiceSpeakHandler } from "../../voice-types.js";
 import type { FirstAgentContext } from "../../messages.js";
 import { everyMsToFiveFieldCron } from "@getpaseo/protocol/schedule/cadence";
@@ -3201,6 +3206,70 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
       registerTool(tool.name, tool, tool.handler);
     }
   }
+  if (callerAgentId) {
+    registerDelegationTools({
+      callerAgentId,
+      registerTool,
+      readConfig: () => options.daemonConfigStore?.get().delegation,
+      listProviders: () => {
+        const configured = options.daemonConfigStore?.get().providers ?? {};
+        return providerSnapshotManager
+          .listRegisteredProviderIds()
+          .filter((provider) => configured[provider]?.enabled !== false);
+      },
+      getAgent: (agentId) => agentManager.getAgent(agentId) ?? null,
+      getLastAssistantMessage: (agentId) => agentManager.getLastAssistantMessage(agentId),
+      createChild: async (input) => {
+        const caller = resolveCallerAgent();
+        if (!caller?.workspaceId) {
+          throw new Error(`Caller agent ${callerAgentId} has no current workspace`);
+        }
+        const { snapshot, initialPromptStarted, initialPromptError } = await createAgentCommand(
+          {
+            agentManager,
+            agentStorage,
+            logger: childLogger,
+            paseoHome: options.paseoHome,
+            worktreesRoot: options.worktreesRoot,
+            terminalManager,
+            providerSnapshotManager,
+          },
+          {
+            kind: "mcp",
+            provider: formatProviderModel(input.provider, input.model),
+            title: delegatedTaskTitle(input.task),
+            initialPrompt: input.task,
+            config: resolveInheritedProviderConfig(input.provider),
+            cwd: input.cwd,
+            workspaceId: caller.workspaceId,
+            thinking: input.thinkingOptionId,
+            mode: input.modeId,
+            labels: input.labels,
+            background: true,
+            notifyOnFinish: true,
+            callerAgentId,
+            callerContext,
+          },
+        );
+        if (!initialPromptStarted) {
+          throw new Error(
+            `The ${input.provider} agent was created but did not start the task: ${
+              initialPromptError instanceof Error
+                ? initialPromptError.message
+                : String(initialPromptError ?? "unknown error")
+            }`,
+          );
+        }
+        await waitForAgentRunStartWithTimeout(agentManager, snapshot.id);
+        return { agentId: snapshot.id };
+      },
+      cancelRun: async (agentId) => {
+        await cancelAgentRunCommand({ agentManager, logger: childLogger }, agentId);
+      },
+      setLabels: (agentId, labels) => agentManager.setLabels(agentId, labels),
+    });
+  }
+
   return toCatalog();
 }
 

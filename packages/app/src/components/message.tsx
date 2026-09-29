@@ -1,5 +1,6 @@
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { TaskListRow } from "@/components/task-list-row";
+import { splitAgentMentions } from "@/utils/agent-mention";
 import {
   View,
   Text,
@@ -367,6 +368,10 @@ const userMessageStylesheet = StyleSheet.create((theme) => ({
         }
       : {}),
   },
+  agentMention: {
+    color: theme.colors.accent,
+    fontWeight: "600",
+  },
   imagePreviewContainer: {
     flexDirection: "row",
     gap: theme.spacing[2],
@@ -425,6 +430,21 @@ function UserMessageImagePill({ image, onOpen, accessibilityLabel }: UserMessage
 }
 
 const MESSAGE_TEXT_DATASET = { messageText: "true" };
+
+// Agent mentions arrive as `[@Label](paseo://agent/<provider>)`; show them as `@Label`.
+function UserMessageText({ message }: { message: string }) {
+  const segments = useMemo(() => splitAgentMentions(message), [message]);
+  if (segments.every((segment) => segment.kind === "text")) return message;
+  return segments.map((segment) =>
+    segment.kind === "text" ? (
+      segment.text
+    ) : (
+      <Text key={segment.start} style={userMessageStylesheet.agentMention}>
+        @{segment.label}
+      </Text>
+    ),
+  );
+}
 
 export const UserMessage = memo(function UserMessage({
   serverId,
@@ -546,7 +566,7 @@ export const UserMessage = memo(function UserMessage({
           ) : null}
           {hasText ? (
             <Text selectable style={userMessageStylesheet.text} dataSet={MESSAGE_TEXT_DATASET}>
-              {message}
+              <UserMessageText message={message} />
             </Text>
           ) : null}
         </View>

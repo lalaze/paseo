@@ -23,6 +23,7 @@ interface SupportedMutableConfigPatch {
   providers?: MutableDaemonConfig["providers"];
   removeProviders?: string[];
   metadataGeneration?: MutableDaemonConfig["metadataGeneration"];
+  delegation?: Partial<NonNullable<MutableDaemonConfig["delegation"]>>;
   autoArchiveAfterMerge?: boolean;
   enableTerminalAgentHooks?: boolean;
   appendSystemPrompt?: string;
@@ -187,6 +188,7 @@ const RELOADABLE_PATHS = [
   "agents.providers",
   "agents.catalogRefreshTimeoutMs",
   "agents.metadataGeneration",
+  "agents.delegation",
   "agents.skills.selection",
   "pluginsEnabled",
 ] as const;
@@ -210,6 +212,7 @@ const PERSISTED_TO_MUTABLE_PATH = new Map<string, string>([
   ["agents.providers", "providers"],
   ["agents.catalogRefreshTimeoutMs", "catalogRefreshTimeoutMs"],
   ["agents.metadataGeneration", "metadataGeneration"],
+  ["agents.delegation", "delegation"],
   ["agents.skills.selection", "skills.selection"],
   ["pluginsEnabled", "pluginsEnabled"],
 ]);
@@ -249,6 +252,32 @@ function compactOwnedPaths(paths: readonly string[], owners: readonly string[]):
   return Array.from(compacted).sort();
 }
 
+// The wire schema passes unknown keys through; the persisted schema is strict.
+function pickDelegationPatch(
+  patch: NonNullable<MutableDaemonConfigPatch["delegation"]>,
+): NonNullable<SupportedMutableConfigPatch["delegation"]> {
+  return {
+    ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+    ...(patch.depthLimit !== undefined ? { depthLimit: patch.depthLimit } : {}),
+    ...(patch.agentDefaults !== undefined
+      ? {
+          agentDefaults: Object.fromEntries(
+            Object.entries(patch.agentDefaults).map(([provider, defaults]) => [
+              provider,
+              {
+                ...(defaults.model ? { model: defaults.model } : {}),
+                ...(defaults.modeId ? { modeId: defaults.modeId } : {}),
+                ...(defaults.thinkingOptionId
+                  ? { thinkingOptionId: defaults.thinkingOptionId }
+                  : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
+  };
+}
+
 function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMutableConfigPatch {
   return {
     ...(patch.relay?.enabled !== undefined ? { relay: { enabled: patch.relay.enabled } } : {}),
@@ -262,6 +291,9 @@ function pickSupportedPatchFields(patch: MutableDaemonConfigPatch): SupportedMut
     ...(patch.removeProviders !== undefined ? { removeProviders: patch.removeProviders } : {}),
     ...(patch.metadataGeneration?.providers !== undefined
       ? { metadataGeneration: { providers: patch.metadataGeneration.providers } }
+      : {}),
+    ...(patch.delegation !== undefined
+      ? { delegation: pickDelegationPatch(patch.delegation) }
       : {}),
     ...(patch.autoArchiveAfterMerge !== undefined
       ? { autoArchiveAfterMerge: patch.autoArchiveAfterMerge }
@@ -368,6 +400,13 @@ export class DaemonConfigStore {
       merged.skills = { selection: parsedPatch.skills.selection };
     }
     if (parsedPatch.plugins !== undefined) merged.plugins = parsedPatch.plugins;
+    // Per-agent defaults are replaced as a whole so clearing one actually removes it.
+    if (parsedPatch.delegation?.agentDefaults !== undefined && merged.delegation) {
+      merged.delegation = {
+        ...merged.delegation,
+        agentDefaults: parsedPatch.delegation.agentDefaults,
+      };
+    }
     const next = MutableDaemonConfigSchema.parse(
       omitMetadataGenerationProvidersFromConfig(
         omitProvidersFromConfig(merged, removedProviders),
@@ -601,6 +640,7 @@ function mergeMutableAgentPatch(
   if (
     patch.providers === undefined &&
     patch.metadataGeneration === undefined &&
+    patch.delegation === undefined &&
     patch.skills === undefined &&
     removeProviders.length === 0
   ) {
@@ -632,6 +672,10 @@ function mergeMutableAgentPatch(
 
   if (patch.skills?.selection !== undefined) {
     next["skills"] = { selection: patch.skills.selection };
+  }
+
+  if (patch.delegation !== undefined) {
+    next["delegation"] = { ...persistedAgents?.delegation, ...patch.delegation };
   }
 
   return Object.keys(next).length > 0 ? (next as PersistedConfig["agents"]) : undefined;

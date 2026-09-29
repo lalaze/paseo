@@ -27,6 +27,13 @@ import {
   findActiveFileMention,
   type FileMentionRange,
 } from "@/utils/file-mention-autocomplete";
+import {
+  applyAgentMentionReplacement,
+  filterMentionableAgents,
+  type MentionableAgent,
+} from "@/utils/agent-mention";
+import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
+import { useHostFeature } from "@/runtime/host-features";
 
 interface UseAgentAutocompleteInput {
   userInput: string;
@@ -62,6 +69,11 @@ type AgentAutocompleteOption =
   | (AutocompleteOption & {
       type: "workspace_entry";
       entryPath: string;
+      mention: FileMentionRange;
+    })
+  | (AutocompleteOption & {
+      type: "agent_mention";
+      agent: MentionableAgent;
       mention: FileMentionRange;
     });
 
@@ -204,6 +216,7 @@ interface BuildAutocompleteOptionsInput {
   activeSlashCommand: SlashCommandRange | null;
   activeFileMention: FileMentionRange | null;
   fileSuggestions: DirectorySuggestionEntry[];
+  mentionableAgents: readonly MentionableAgent[];
   t: TFunction;
 }
 
@@ -246,8 +259,20 @@ function buildCommandAutocompleteOptions(input: BuildAutocompleteOptionsInput) {
 
   const activeFileMention = input.activeFileMention;
   if (input.mode === "file" && activeFileMention) {
+    const agentOptions = filterMentionableAgents(
+      input.mentionableAgents,
+      activeFileMention.query,
+    ).map((agent) => ({
+      type: "agent_mention" as const,
+      id: `agent:${agent.provider}`,
+      label: `@${agent.label}`,
+      description: input.t("agentAutocomplete.delegateTo"),
+      kind: "agent" as const,
+      agent,
+      mention: activeFileMention,
+    }));
     const orderedEntries = orderAutocompleteOptions(input.fileSuggestions);
-    return orderedEntries.map((entry) => ({
+    const fileOptions = orderedEntries.map((entry) => ({
       type: "workspace_entry" as const,
       id: `${entry.kind}:${entry.path}`,
       label: entry.path,
@@ -255,6 +280,7 @@ function buildCommandAutocompleteOptions(input: BuildAutocompleteOptionsInput) {
       entryPath: entry.path,
       mention: activeFileMention,
     }));
+    return [...agentOptions, ...fileOptions];
   }
 
   return [];
@@ -424,6 +450,20 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
 
   const isVisible = canShowAutocomplete && !(mode === "command" && isCommandsLoading);
 
+  const supportsDelegation = useHostFeature(serverId, "delegation");
+  const providersSnapshot = useProvidersSnapshot(serverId, {
+    enabled: mode === "file" && supportsDelegation,
+  });
+  const mentionableAgents = useMemo<MentionableAgent[]>(
+    () =>
+      supportsDelegation
+        ? (providersSnapshot.entries ?? [])
+            .filter((entry) => entry.enabled)
+            .map((entry) => ({ provider: entry.provider, label: entry.label ?? entry.provider }))
+        : [],
+    [providersSnapshot.entries, supportsDelegation],
+  );
+
   const fileSuggestionsQuery = useQuery({
     queryKey: [
       "directorySuggestions",
@@ -469,6 +509,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
         pluginCommands: pluginClientSlashCommands,
         activeSlashCommand,
         fileSuggestions: fileSuggestionsQuery.data ?? [],
+        mentionableAgents,
         isDraftContext,
         isVisible,
         mode,
@@ -481,6 +522,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
       commands,
       pluginClientSlashCommands,
       fileSuggestionsQuery.data,
+      mentionableAgents,
       isDraftContext,
       isVisible,
       mode,
@@ -531,6 +573,17 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
       }
 
       if (!current.fileMention) return;
+      if (selected.type === "agent_mention") {
+        setUserInput(
+          applyAgentMentionReplacement({
+            text: current.text,
+            mention: current.fileMention,
+            agent: selected.agent,
+          }),
+        );
+        onAutocompleteApplied?.();
+        return;
+      }
       const nextInput = applyFileMentionReplacement({
         text: current.text,
         mention: current.fileMention,

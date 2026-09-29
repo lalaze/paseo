@@ -115,6 +115,26 @@ export const ar: TranslationResources = {
       acceptanceCriteria: "معايير القبول",
     },
   },
+  delegation: {
+    title: "التفويض",
+    description:
+      "يتيح للوكيل تسليم مهمة مستقلة إلى وكيل آخر يعمل كوكيل فرعي له. اكتب @ في رسالة واختر وكيلًا لتفويضه.",
+    updateHost: "حدّث هذا المضيف لاستخدام التفويض.",
+    enabled: "السماح بالتفويض",
+    enabledHint: "يمنح الوكلاء أداة delegate_to_agent. يسري على الأدوار الجديدة.",
+    depth: "عمق التفويض",
+    depthHint:
+      "عدد مستويات الوكلاء المسموح لها بالتفويض. القيمة 1 تسمح لوكيلك الرئيسي فقط بالتفويض.",
+    agentDefaults: "الإعدادات الافتراضية للوكلاء",
+    agentDefaultsDescription:
+      "النموذج والوضع اللذان يبدأ بهما الوكيل المفوَّض. بدونهما يُستخدم الافتراضي لدى المزوّد.",
+    providerDefaults: "افتراضي المزوّد",
+    customDefaults: "مخصص",
+    mode: "الوضع",
+    defaultMode: "الوضع الافتراضي",
+    reset: "إعادة تعيين",
+    saveError: "تعذّر حفظ إعدادات التفويض",
+  },
   paneFind: {
     connectionFailure: "تعذر البحث في هذه المحادثة. تحقق من الاتصال بالمضيف وأعد المحاولة.",
     historyChangedFailure: "تغيّرت المحادثة أثناء البحث. أعد البحث.",
@@ -1654,6 +1674,7 @@ export const ar: TranslationResources = {
     noFiles: "لم يتم العثور على ملفات أو أدلة",
     noCommands: "لم يتم العثور على أي أوامر",
     failedToLoad: "فشل التحميل",
+    delegateTo: "فوّض إلى هذا الوكيل",
   },
   loadOlderHistory: {
     failed: "تعذر تحميل السجل الأقدم",

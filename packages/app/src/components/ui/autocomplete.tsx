@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useTranslation } from "react-i18next";
-import { File, Folder } from "lucide-react-native";
+import { Bot, File, Folder } from "lucide-react-native";
 import type { Theme } from "@/styles/theme";
 import { getAutocompleteScrollOffset } from "./autocomplete-utils";
 
@@ -20,7 +20,7 @@ export interface AutocompleteOption {
   label: string;
   detail?: string;
   description?: string;
-  kind?: "command" | "file" | "directory";
+  kind?: "command" | "file" | "directory" | "agent";
 }
 
 interface AutocompleteProps {
@@ -63,7 +63,8 @@ function AutocompleteRow({
 }: AutocompleteRowProps) {
   const optionLabel = removeBoltGlyphs(option.label) ?? option.label;
   const optionDescription = removeBoltGlyphs(option.description);
-  const isFileOrDir = option.kind === "directory" || option.kind === "file";
+  const hasLeadingIcon =
+    option.kind === "directory" || option.kind === "file" || option.kind === "agent";
 
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => onRowLayout(index, event),
@@ -80,14 +81,10 @@ function AutocompleteRow({
 
   return (
     <Pressable onLayout={handleLayout} onPress={handlePress} style={pressableStyle}>
-      {isFileOrDir ? (
+      {hasLeadingIcon ? (
         <>
           <View style={styles.itemLeading}>
-            {option.kind === "directory" ? (
-              <Folder size={14} color={mutedColor} />
-            ) : (
-              <File size={14} color={mutedColor} />
-            )}
+            <AutocompleteRowIcon kind={option.kind} color={mutedColor} />
           </View>
           <View style={styles.itemMain}>
             <View style={styles.itemHeader}>
@@ -115,6 +112,12 @@ function AutocompleteRow({
       )}
     </Pressable>
   );
+}
+
+function AutocompleteRowIcon({ kind, color }: { kind: AutocompleteOption["kind"]; color: string }) {
+  if (kind === "agent") return <Bot size={14} color={color} />;
+  if (kind === "directory") return <Folder size={14} color={color} />;
+  return <File size={14} color={color} />;
 }
 
 export function Autocomplete({

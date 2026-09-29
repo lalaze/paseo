@@ -117,6 +117,26 @@ export const ja: TranslationResources = {
       acceptanceCriteria: "受け入れ基準",
     },
   },
+  delegation: {
+    title: "委任",
+    description:
+      "エージェントが独立したタスクを別のエージェントに任せ、そのサブエージェントとして実行させます。メッセージで @ を入力してエージェントを選ぶと委任できます。",
+    updateHost: "委任を使うにはこのホストを更新してください。",
+    enabled: "委任を許可",
+    enabledHint:
+      "エージェントに delegate_to_agent ツールを提供します。新しいターンから適用されます。",
+    depth: "委任の深さ",
+    depthHint: "委任できるエージェントの階層数。1 ではメインエージェントだけが委任できます。",
+    agentDefaults: "エージェントの既定値",
+    agentDefaultsDescription:
+      "委任されたエージェントが開始時に使うモデルとモード。未設定の場合はプロバイダーの既定値を使います。",
+    providerDefaults: "プロバイダーの既定値",
+    customDefaults: "カスタム",
+    mode: "モード",
+    defaultMode: "既定のモード",
+    reset: "リセット",
+    saveError: "委任の設定を保存できませんでした",
+  },
   paneFind: {
     connectionFailure:
       "このチャットを検索できませんでした。ホストへの接続を確認して再試行してください。",
@@ -1674,6 +1694,7 @@ export const ja: TranslationResources = {
     noFiles: "ファイルまたはディレクトリが見つかりません",
     noCommands: "コマンドが見つかりません",
     failedToLoad: "読み込みに失敗しました",
+    delegateTo: "このエージェントに委任",
   },
   loadOlderHistory: {
     failed: "古い履歴を読み込めませんでした",

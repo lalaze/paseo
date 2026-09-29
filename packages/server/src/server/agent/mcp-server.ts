@@ -8,6 +8,7 @@ import type {
 
 import { addModelVisibleStructuredContent } from "./tools/paseo-tool-serialization.js";
 import { createPaseoToolCatalog, type PaseoToolHostDependencies } from "./tools/paseo-tools.js";
+import { DELEGATION_MCP_INSTRUCTIONS } from "./tools/delegation-tools.js";
 import type { PaseoToolResult } from "./tools/types.js";
 
 export type AgentMcpServerOptions = PaseoToolHostDependencies;
@@ -30,10 +31,13 @@ function toMcpToolResult(result: PaseoToolResult): CallToolResult {
 
 export async function createAgentMcpServer(options: AgentMcpServerOptions): Promise<McpServer> {
   const catalog = await createPaseoToolCatalog(options);
-  const server = new McpServer({
-    name: "agent-mcp",
-    version: "2.0.0",
-  });
+  const server = new McpServer(
+    {
+      name: "agent-mcp",
+      version: "2.0.0",
+    },
+    catalog.tools.has("delegate_to_agent") ? { instructions: DELEGATION_MCP_INSTRUCTIONS } : {},
+  );
 
   for (const tool of catalog.tools.values()) {
     server.registerTool(

@@ -42,6 +42,7 @@ At the start of non-trivial work, list `docs/` and skim anything relevant to the
 | [docs/custom-providers.md](docs/custom-providers.md)                 | Custom provider config: Z.AI, Alibaba/Qwen, ACP agents, profiles, custom binaries                                              |
 | [docs/plugins.md](docs/plugins.md)                                   | Local plugin manifest, directory source config, RPCs, native surfaces, and attachment sources                                  |
 | [docs/collaboration.md](docs/collaboration.md)                       | Built-in multi-agent collaboration, confirmation, and migration from Director                                                  |
+| [docs/delegation.md](docs/delegation.md)                             | `@agent` delegation: mentions, the delegate/status/cancel tools, per-agent defaults, depth limit                               |
 | [docs/service-proxy.md](docs/service-proxy.md)                       | Service proxy: exposing workspace scripts at public URLs, DNS setup, reverse proxy config                                      |
 | [docs/development.md](docs/development.md)                           | Dev server, build sync gotchas, CLI reference, agent state, Playwright MCP                                                     |
 | [docs/rpc-namespacing.md](docs/rpc-namespacing.md)                   | WebSocket RPC naming convention — dotted namespaces and `.request`/`.response` pairs                                           |

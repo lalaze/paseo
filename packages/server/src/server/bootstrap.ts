@@ -461,6 +461,7 @@ export interface PaseoDaemonConfig {
       thinkingOptionId?: string;
     }>;
   };
+  delegation?: NonNullable<PersistedConfig["agents"]>["delegation"];
   providerOverrides?: Record<string, ProviderOverride>;
   log?: PersistedConfig["log"];
   onLifecycleIntent?: (intent: DaemonLifecycleIntent) => void;
@@ -541,6 +542,16 @@ function resolveExpressTrustProxySetting(config: PaseoDaemonConfig): true | stri
   return config.trustedProxies ?? ["loopback"];
 }
 
+function resolveDelegationConfig(
+  delegation: PaseoDaemonConfig["delegation"],
+): NonNullable<MutableDaemonConfig["delegation"]> {
+  return {
+    enabled: delegation?.enabled ?? true,
+    depthLimit: delegation?.depthLimit ?? 1,
+    agentDefaults: delegation?.agentDefaults ?? {},
+  };
+}
+
 function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDaemonConfig {
   const providers = config.providerOverrides ?? {};
 
@@ -563,6 +574,7 @@ function createInitialMutableDaemonConfig(config: PaseoDaemonConfig): MutableDae
     metadataGeneration: {
       providers: config.metadataGeneration?.providers ?? [],
     },
+    delegation: resolveDelegationConfig(config.delegation),
     autoArchiveAfterMerge: config.autoArchiveAfterMerge ?? false,
     enableTerminalAgentHooks: config.enableTerminalAgentHooks ?? false,
     appendSystemPrompt: config.appendSystemPrompt ?? "",

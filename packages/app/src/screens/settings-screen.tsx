@@ -1,5 +1,6 @@
 import { CollaborationPage } from "@/collaboration/settings-page";
 import { CollaborationHistoryPage } from "@/collaboration/history-page";
+import { DelegationSettingsPage } from "@/delegation/settings-page";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import {
@@ -24,6 +25,7 @@ import {
   Server,
   Network,
   Bot,
+  AtSign,
   Boxes,
   Gauge,
   Keyboard,
@@ -247,6 +249,7 @@ const HOST_SECTION_ITEMS: HostSectionItem[] = [
   { id: "pair-device", labelKey: "openProject.tiles.pairDevice.title", icon: Smartphone },
   { id: "agents", labelKey: "settings.hostSections.agents", icon: Bot },
   { id: "collaboration", labelKey: "collaboration.title", icon: Bot },
+  { id: "delegation", labelKey: "delegation.title", icon: AtSign },
   { id: "metadata", labelKey: "settings.hostSections.metadata", icon: Sparkles },
   { id: "workspaces", labelKey: "settings.hostSections.workspaces", icon: FolderGit2 },
   { id: "providers", labelKey: "settings.hostSections.providers", icon: Boxes },
@@ -260,6 +263,8 @@ function renderHostSettingsContent(
   onHostRemoved: () => void,
 ): ReactNode {
   switch (view.section) {
+    case "delegation":
+      return <DelegationSettingsPage serverId={view.serverId} />;
     case "collaboration":
       return <CollaborationPage serverId={view.serverId} />;
     case "projects":

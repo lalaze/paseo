@@ -159,6 +159,34 @@ const MutableMetadataGenerationConfigSchema = z
   })
   .passthrough();
 
+export const DELEGATION_DEPTH_LIMIT_MAX = 8;
+
+const MutableDelegationAgentDefaultsSchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    modeId: z.string().min(1).optional(),
+    thinkingOptionId: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+export const MutableDelegationConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    depthLimit: z.number().int().min(1).max(DELEGATION_DEPTH_LIMIT_MAX).default(1),
+    agentDefaults: z.record(z.string(), MutableDelegationAgentDefaultsSchema).default({}),
+  })
+  .passthrough();
+export type MutableDelegationConfig = z.infer<typeof MutableDelegationConfigSchema>;
+
+// No defaults: a partial patch must not reset fields it leaves out.
+const MutableDelegationConfigPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    depthLimit: z.number().int().min(1).max(DELEGATION_DEPTH_LIMIT_MAX).optional(),
+    agentDefaults: z.record(z.string(), MutableDelegationAgentDefaultsSchema).optional(),
+  })
+  .passthrough();
+
 const MutableBrowserToolsConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -199,6 +227,7 @@ export const MutableDaemonConfigSchema = z
     browserTools: MutableBrowserToolsConfigSchema.default({ enabled: false }),
     providers: z.record(z.string(), MutableDaemonProviderConfigSchema).default({}),
     metadataGeneration: MutableMetadataGenerationConfigSchema.default({ providers: [] }),
+    delegation: MutableDelegationConfigSchema.optional(),
     autoArchiveAfterMerge: z.boolean().default(false),
     enableTerminalAgentHooks: z.boolean().default(false),
     appendSystemPrompt: z.string().default(""),
@@ -220,6 +249,7 @@ export const MutableDaemonConfigPatchSchema = z
       .optional(),
     removeProviders: z.array(z.string().min(1)).optional(),
     metadataGeneration: MutableMetadataGenerationConfigSchema.partial().optional(),
+    delegation: MutableDelegationConfigPatchSchema.optional(),
     autoArchiveAfterMerge: z.boolean().optional(),
     enableTerminalAgentHooks: z.boolean().optional(),
     appendSystemPrompt: z.string().optional(),
@@ -3613,6 +3643,8 @@ export const ServerInfoStatusPayloadSchema = z
         daemonStatusRpc: z.boolean().optional(),
         bingWallpaper: z.boolean().optional(),
         bingWallpaperArchive: z.boolean().optional(),
+        // Agent-to-agent delegation tools and `delegation` daemon config.
+        delegation: z.boolean().optional(),
         // COMPAT(daemonConfigReload): added in v0.4.0, remove gate after 2027-02-14.
         daemonConfigReload: z.boolean().optional(),
         // COMPAT(relayConfig): added in v0.2.6, remove gate after 2027-01-31.

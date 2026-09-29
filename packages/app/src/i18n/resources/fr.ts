@@ -119,6 +119,26 @@ export const fr: TranslationResources = {
       acceptanceCriteria: "Critères de validation",
     },
   },
+  delegation: {
+    title: "Délégation",
+    description:
+      "Permet à un agent de confier une tâche autonome à un autre agent, qui s'exécute comme son sous-agent. Tapez @ dans un message et choisissez un agent pour lui déléguer.",
+    updateHost: "Mettez à jour cet hôte pour utiliser la délégation.",
+    enabled: "Autoriser la délégation",
+    enabledHint: "Donne aux agents l'outil delegate_to_agent. S'applique aux nouveaux tours.",
+    depth: "Profondeur de délégation",
+    depthHint:
+      "Nombre de niveaux d'agents pouvant déléguer. Avec 1, seul votre agent principal délègue.",
+    agentDefaults: "Valeurs par défaut des agents",
+    agentDefaultsDescription:
+      "Le modèle et le mode avec lesquels démarre un agent délégué. Sinon, la valeur par défaut du fournisseur est utilisée.",
+    providerDefaults: "Valeur par défaut du fournisseur",
+    customDefaults: "Personnalisé",
+    mode: "Mode",
+    defaultMode: "Mode par défaut",
+    reset: "Réinitialiser",
+    saveError: "Impossible d'enregistrer les paramètres de délégation",
+  },
   paneFind: {
     connectionFailure:
       "Impossible de rechercher dans cette conversation. Vérifiez la connexion à l’hôte et réessayez.",
@@ -1709,6 +1729,7 @@ export const fr: TranslationResources = {
     noFiles: "Aucun fichier ou répertoire trouvé",
     noCommands: "Aucune commande trouvée",
     failedToLoad: "Échec du chargement",
+    delegateTo: "Déléguer à cet agent",
   },
   loadOlderHistory: {
     failed: "Impossible de charger l'ancien historique",

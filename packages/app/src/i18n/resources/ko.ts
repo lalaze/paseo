@@ -115,6 +115,25 @@ export const ko: TranslationResources = {
       acceptanceCriteria: "인수 기준",
     },
   },
+  delegation: {
+    title: "위임",
+    description:
+      "에이전트가 독립적인 작업을 다른 에이전트에게 맡기고, 그 에이전트는 하위 에이전트로 실행됩니다. 메시지에서 @를 입력하고 에이전트를 선택해 위임하세요.",
+    updateHost: "위임을 사용하려면 이 호스트를 업데이트하세요.",
+    enabled: "위임 허용",
+    enabledHint: "에이전트에게 delegate_to_agent 도구를 제공합니다. 새 턴부터 적용됩니다.",
+    depth: "위임 깊이",
+    depthHint: "위임할 수 있는 에이전트 단계 수입니다. 1이면 메인 에이전트만 위임할 수 있습니다.",
+    agentDefaults: "에이전트 기본값",
+    agentDefaultsDescription:
+      "위임된 에이전트가 시작할 때 사용할 모델과 모드입니다. 설정하지 않으면 공급자 기본값을 사용합니다.",
+    providerDefaults: "공급자 기본값",
+    customDefaults: "사용자 지정",
+    mode: "모드",
+    defaultMode: "기본 모드",
+    reset: "초기화",
+    saveError: "위임 설정을 저장할 수 없습니다",
+  },
   paneFind: {
     connectionFailure: "이 채팅을 검색할 수 없습니다. 호스트 연결을 확인하고 다시 시도하세요.",
     historyChangedFailure: "검색 중에 채팅이 변경되었습니다. 다시 검색하세요.",
@@ -1664,6 +1683,7 @@ export const ko: TranslationResources = {
     noFiles: "파일 또는 디렉터리를 찾을 수 없습니다",
     noCommands: "명령을 찾을 수 없습니다",
     failedToLoad: "불러오지 못했습니다",
+    delegateTo: "이 에이전트에게 위임",
   },
   loadOlderHistory: {
     failed: "이전 기록을 불러올 수 없습니다",

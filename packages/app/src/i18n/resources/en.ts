@@ -113,6 +113,25 @@ export const en = {
       acceptanceCriteria: "Acceptance criteria",
     },
   },
+  delegation: {
+    title: "Delegation",
+    description:
+      "Let an agent hand a self-contained task to another agent, which runs as its subagent. Type @ in a message and pick an agent to delegate to it.",
+    updateHost: "Update this host to use delegation.",
+    enabled: "Allow delegation",
+    enabledHint: "Gives agents the delegate_to_agent tool. Applies to new turns.",
+    depth: "Delegation depth",
+    depthHint: "How many levels of agents may delegate. 1 lets only your main agent delegate.",
+    agentDefaults: "Agent defaults",
+    agentDefaultsDescription:
+      "The model and mode a delegated agent starts with. Without one, the provider's default is used.",
+    providerDefaults: "Provider default",
+    customDefaults: "Custom",
+    mode: "Mode",
+    defaultMode: "Default mode",
+    reset: "Reset",
+    saveError: "Couldn't save delegation settings",
+  },
   paneFind: {
     connectionFailure: "Could not search this chat. Check the host connection and retry.",
     historyChangedFailure: "The chat changed while searching. Search again.",
@@ -1680,6 +1699,7 @@ export const en = {
     noFiles: "No files or directories found",
     noCommands: "No commands found",
     failedToLoad: "Failed to load",
+    delegateTo: "Delegate to this agent",
   },
   loadOlderHistory: {
     failed: "Couldn't load older history",

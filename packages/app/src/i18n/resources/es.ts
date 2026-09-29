@@ -118,6 +118,26 @@ export const es: TranslationResources = {
       acceptanceCriteria: "Criterios de aceptación",
     },
   },
+  delegation: {
+    title: "Delegación",
+    description:
+      "Permite que un agente entregue una tarea independiente a otro agente, que se ejecuta como su subagente. Escribe @ en un mensaje y elige un agente para delegarle.",
+    updateHost: "Actualiza este host para usar la delegación.",
+    enabled: "Permitir delegación",
+    enabledHint:
+      "Da a los agentes la herramienta delegate_to_agent. Se aplica a los turnos nuevos.",
+    depth: "Profundidad de delegación",
+    depthHint: "Cuántos niveles de agentes pueden delegar. Con 1 solo delega tu agente principal.",
+    agentDefaults: "Valores predeterminados de agentes",
+    agentDefaultsDescription:
+      "El modelo y el modo con los que empieza un agente delegado. Sin ellos, se usa el predeterminado del proveedor.",
+    providerDefaults: "Predeterminado del proveedor",
+    customDefaults: "Personalizado",
+    mode: "Modo",
+    defaultMode: "Modo predeterminado",
+    reset: "Restablecer",
+    saveError: "No se pudo guardar la configuración de delegación",
+  },
   paneFind: {
     connectionFailure:
       "No se pudo buscar en este chat. Comprueba la conexión con el host y vuelve a intentarlo.",
@@ -1704,6 +1724,7 @@ export const es: TranslationResources = {
     noFiles: "No se encontraron archivos ni directorios",
     noCommands: "No se encontraron comandos",
     failedToLoad: "No se pudo cargar",
+    delegateTo: "Delegar a este agente",
   },
   loadOlderHistory: {
     failed: "No se pudo cargar el historial anterior",

@@ -114,6 +114,24 @@ export const zhCN: TranslationResources = {
       acceptanceCriteria: "验收标准",
     },
   },
+  delegation: {
+    title: "委派",
+    description:
+      "让智能体把一个独立的子任务交给另一个智能体，后者作为它的子智能体运行。在消息中输入 @ 并选择智能体即可委派给它。",
+    updateHost: "请更新此主机以使用委派。",
+    enabled: "允许委派",
+    enabledHint: "为智能体提供 delegate_to_agent 工具，对新的回合生效。",
+    depth: "委派层级",
+    depthHint: "允许多少层智能体继续委派。1 表示只有主智能体可以委派。",
+    agentDefaults: "智能体默认设置",
+    agentDefaultsDescription: "被委派的智能体启动时使用的模型和模式。未设置时使用供应商默认值。",
+    providerDefaults: "供应商默认",
+    customDefaults: "自定义",
+    mode: "模式",
+    defaultMode: "默认模式",
+    reset: "重置",
+    saveError: "无法保存委派设置",
+  },
   paneFind: {
     connectionFailure: "无法搜索此聊天。请检查主机连接后重试。",
     historyChangedFailure: "搜索期间聊天已更改。请重新搜索。",
@@ -1636,6 +1654,7 @@ export const zhCN: TranslationResources = {
     noFiles: "没有找到文件或目录",
     noCommands: "没有找到 commands",
     failedToLoad: "加载失败",
+    delegateTo: "委派给此智能体",
   },
   loadOlderHistory: {
     failed: "无法加载更早历史",

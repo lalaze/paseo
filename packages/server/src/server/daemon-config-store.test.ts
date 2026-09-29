@@ -120,6 +120,40 @@ describe("DaemonConfigStore", () => {
     expect(loadPersistedConfig(paseoHome).daemon?.relay?.enabled).toBe(true);
   });
 
+  test("patch replaces delegation agent defaults so a cleared default is removed", () => {
+    const paseoHome = mkdtempSync(path.join(tmpdir(), "paseo-daemon-config-store-"));
+    tempDirs.push(paseoHome);
+    const store = new DaemonConfigStore(paseoHome, {
+      relay: { enabled: false },
+      mcp: { injectIntoAgents: false },
+      browserTools: { enabled: false },
+      providers: {},
+      metadataGeneration: { providers: [] },
+      delegation: { enabled: true, depthLimit: 1, agentDefaults: {} },
+      autoArchiveAfterMerge: false,
+      enableTerminalAgentHooks: false,
+      appendSystemPrompt: "",
+    });
+
+    store.patch({
+      delegation: {
+        depthLimit: 2,
+        agentDefaults: { claude: { model: "sonnet" }, codex: { model: "gpt-5.4" } },
+      },
+    });
+    store.patch({ delegation: { agentDefaults: { codex: { model: "gpt-5.4" } } } });
+
+    expect(store.get().delegation).toEqual({
+      enabled: true,
+      depthLimit: 2,
+      agentDefaults: { codex: { model: "gpt-5.4" } },
+    });
+    expect(loadPersistedConfig(paseoHome).agents?.delegation).toEqual({
+      depthLimit: 2,
+      agentDefaults: { codex: { model: "gpt-5.4" } },
+    });
+  });
+
   test("patch round-trips agent profiles through the strictly-parsed persisted config", () => {
     const paseoHome = mkdtempSync(path.join(tmpdir(), "paseo-daemon-config-store-"));
     tempDirs.push(paseoHome);

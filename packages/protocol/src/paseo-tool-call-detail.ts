@@ -106,6 +106,13 @@ const TOOL_SPECS: Readonly<Record<string, ToolDetailSpec>> = {
     inputOrder: AGENT_FIELDS,
     outputFields: ["status", "lastMessage", "permission"],
   },
+  delegate_to_agent: {
+    promptField: "task",
+    inputOrder: ["agent", "cwd"],
+    outputFields: ["taskId", "agent", "status"],
+  },
+  get_delegation_status: { inputOrder: ["taskIds", "waitMs"] },
+  cancel_delegation: { inputOrder: ["taskId"] },
   get_agent_status: { inputOrder: ["agentId"] },
   list_agents: { inputOrder: ["cwd", "statuses", "sinceHours", "limit", "includeArchived"] },
   cancel_agent: { inputOrder: ["agentId"] },
