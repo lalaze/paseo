@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Image,
   ScrollView,
@@ -29,6 +29,8 @@ const ESTIMATED_CARD_TEXT_HEIGHT = 150;
 interface WallpaperLibraryPageProps {
   onBack: () => void;
   showBack: boolean;
+  /** The desktop settings page title, rendered inside this page's own scroll view. */
+  title?: ReactNode;
 }
 
 interface WallpaperColumn {
@@ -58,7 +60,7 @@ function layoutColumns(
   return columns;
 }
 
-export function WallpaperLibraryPage({ onBack, showBack }: WallpaperLibraryPageProps) {
+export function WallpaperLibraryPage({ onBack, showBack, title }: WallpaperLibraryPageProps) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const bing = useBingWallpaper();
@@ -136,6 +138,7 @@ export function WallpaperLibraryPage({ onBack, showBack }: WallpaperLibraryPageP
       onContentSizeChange={handleContentSizeChange}
       scrollEventThrottle={100}
     >
+      {title}
       {showBack ? (
         <Button variant="ghost" size="sm" leftIcon={ArrowLeft} onPress={onBack} style={styles.back}>
           {t("settings.appearance.bing.back")}
