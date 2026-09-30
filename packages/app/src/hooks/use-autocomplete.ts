@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getAutocompleteFallbackIndex,
   getAutocompleteNextIndex,
+  resolveAutocompleteSelectedIndex,
   type AutocompleteOptionsPosition,
 } from "@/components/ui/autocomplete-utils";
 
@@ -33,10 +34,16 @@ export function useAutocomplete<
 >(input: UseAutocompleteInput<TOption, TKeyPressEvent>): UseAutocompleteResult<TKeyPressEvent> {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const previousQueryRef = useRef("");
+  const previousItemCountRef = useRef(0);
 
   useEffect(() => {
+    const itemCount = input.options.length;
+    const previousItemCount = previousItemCountRef.current;
+    previousItemCountRef.current = itemCount;
+
     if (!input.isVisible) {
       previousQueryRef.current = input.query;
+      previousItemCountRef.current = 0;
       setSelectedIndex(-1);
       return;
     }
@@ -44,24 +51,15 @@ export function useAutocomplete<
     const queryChanged = previousQueryRef.current !== input.query;
     previousQueryRef.current = input.query;
 
-    setSelectedIndex((current) => {
-      if (input.options.length === 0) {
-        return -1;
-      }
-
-      const fallbackIndex = getAutocompleteFallbackIndex(
-        input.options.length,
-        input.optionsPosition,
-      );
-
-      if (queryChanged) {
-        return fallbackIndex;
-      }
-      if (current < 0 || current >= input.options.length) {
-        return fallbackIndex;
-      }
-      return current;
-    });
+    setSelectedIndex((current) =>
+      resolveAutocompleteSelectedIndex({
+        currentIndex: current,
+        previousItemCount,
+        itemCount,
+        queryChanged,
+        position: input.optionsPosition,
+      }),
+    );
   }, [input.isVisible, input.options.length, input.query, input.optionsPosition]);
 
   const onKeyPress = useCallback(

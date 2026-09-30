@@ -4,6 +4,7 @@ import {
   getAutocompleteFallbackIndex,
   getAutocompleteScrollOffset,
   orderAutocompleteOptions,
+  resolveAutocompleteSelectedIndex,
 } from "./autocomplete-utils";
 
 const OPTIONS = ["alpha", "beta", "gamma"];
@@ -26,6 +27,53 @@ describe("getAutocompleteFallbackIndex", () => {
 
   it("picks top item when below-input ordering is used", () => {
     expect(getAutocompleteFallbackIndex(3, "below-input")).toBe(0);
+  });
+});
+
+describe("resolveAutocompleteSelectedIndex", () => {
+  it("keeps the current selection when the list is unchanged", () => {
+    expect(
+      resolveAutocompleteSelectedIndex({
+        currentIndex: 1,
+        previousItemCount: 3,
+        itemCount: 3,
+        queryChanged: false,
+      }),
+    ).toBe(1);
+  });
+
+  it("re-anchors next to the input when options arrive late for the same query", () => {
+    // Agent options render first; the file search then prepends 50 rows above them.
+    expect(
+      resolveAutocompleteSelectedIndex({
+        currentIndex: 3,
+        previousItemCount: 4,
+        itemCount: 54,
+        queryChanged: false,
+      }),
+    ).toBe(53);
+  });
+
+  it("re-anchors when the query changes", () => {
+    expect(
+      resolveAutocompleteSelectedIndex({
+        currentIndex: 0,
+        previousItemCount: 3,
+        itemCount: 3,
+        queryChanged: true,
+      }),
+    ).toBe(2);
+  });
+
+  it("clears the selection when there are no options", () => {
+    expect(
+      resolveAutocompleteSelectedIndex({
+        currentIndex: 2,
+        previousItemCount: 3,
+        itemCount: 0,
+        queryChanged: false,
+      }),
+    ).toBe(-1);
   });
 });
 

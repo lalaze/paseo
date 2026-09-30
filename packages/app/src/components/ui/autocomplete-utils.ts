@@ -22,6 +22,25 @@ export function getAutocompleteFallbackIndex(
   return position === "above-input" ? itemCount - 1 : 0;
 }
 
+// A different option count means the list was rebuilt (e.g. agent options render before the
+// file search returns), so the old index points at an unrelated row. Re-anchor next to the input.
+export function resolveAutocompleteSelectedIndex(args: {
+  currentIndex: number;
+  previousItemCount: number;
+  itemCount: number;
+  queryChanged: boolean;
+  position?: AutocompleteOptionsPosition;
+}): number {
+  const fallbackIndex = getAutocompleteFallbackIndex(args.itemCount, args.position);
+  if (args.queryChanged || args.itemCount !== args.previousItemCount) {
+    return fallbackIndex;
+  }
+  if (args.currentIndex < 0 || args.currentIndex >= args.itemCount) {
+    return fallbackIndex;
+  }
+  return args.currentIndex;
+}
+
 export function getAutocompleteNextIndex(args: {
   currentIndex: number;
   itemCount: number;
