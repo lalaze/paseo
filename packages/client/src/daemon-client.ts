@@ -1051,6 +1051,7 @@ const DEFAULT_LIVENESS_TIMEOUT_MS = 5000;
 const LIVENESS_HEARTBEAT_INTERVAL_MS = 10_000;
 const LIVENESS_HEARTBEAT_TIMEOUT_MS = 15_000;
 const LIVENESS_FAILURE_RECONNECT_THRESHOLD = 2;
+const FOREGROUND_LIVENESS_TIMEOUT_MS = 3_000;
 
 /** Default timeout for waiting for connection before sending queued messages */
 const DEFAULT_SEND_QUEUE_TIMEOUT_MS = DEFAULT_SESSION_RPC_TIMEOUT_MS;
@@ -1576,9 +1577,18 @@ export class DaemonClient {
     const transport = this.transport;
     if (!transport || this.connectionVerification === transport) return;
     this.connectionVerification = transport;
-    // A session probe has its own deadline, independent of a heartbeat that the OS
-    // may have suspended. A successful response also proves the session can serve RPCs.
-    void this.ping({ timeoutMs: 3_000 })
+    // Discard a heartbeat deadline that elapsed while the OS suspended the app.
+    // Transport pongs prove liveness without waiting behind session RPC work.
+    this.stopLivenessHeartbeat();
+    this.rejectPingProbe(new Error("Foreground verification superseded the pending probe"));
+    this.consecutiveLivenessFailures = 0;
+    void this.measureLatency({ timeoutMs: FOREGROUND_LIVENESS_TIMEOUT_MS })
+      .catch(() => {
+        if (this.transport !== transport || this.connectionState.status !== "connected") return;
+        // Allow one missed response while the mobile network resumes. A delayed
+        // pong from the first probe can satisfy the second probe on this socket.
+        return this.measureLatency({ timeoutMs: FOREGROUND_LIVENESS_TIMEOUT_MS });
+      })
       .catch((error: unknown) => {
         if (this.transport !== transport || this.connectionState.status !== "connected") return;
         this.disposeTransport(1001, "Connection verification failed");
@@ -1590,7 +1600,9 @@ export class DaemonClient {
         this.ensureConnected();
       })
       .finally(() => {
-        if (this.connectionVerification === transport) this.connectionVerification = null;
+        if (this.connectionVerification !== transport) return;
+        this.connectionVerification = null;
+        if (this.transport === transport) this.scheduleNextLivenessHeartbeat();
       });
   }
 

@@ -2070,6 +2070,8 @@ test("foreground verification replaces a silently broken socket without waiting 
 
   client.ensureConnected({ verify: true });
   await vi.advanceTimersByTimeAsync(3_000);
+  expect(attempts).toBe(1);
+  await vi.advanceTimersByTimeAsync(3_000);
   expect(attempts).toBe(2);
   second.openConnection();
   expect(client.getConnectionState()).toEqual({ status: "connected" });
@@ -2095,6 +2097,84 @@ test("foreground verification preserves a healthy socket and deduplicates simult
   expect(client.getConnectionState()).toEqual({ status: "connected" });
   expect(daemon.pingTimestamps()).toEqual(["0s"]);
   expect(daemon.closesFromClient()).toEqual([]);
+});
+
+test("foreground verification preserves a relay connection whose replies take five seconds", async () => {
+  useHeartbeatClock();
+  const daemon = new FakeDaemon();
+  daemon.daemonAnswersPingsAfter("5.5s");
+  let attempts = 0;
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "slow-relay-resume",
+    logger: noopLogger,
+    transportFactory: () => {
+      attempts += 1;
+      return daemon.transport;
+    },
+  });
+  clients.push(client);
+  const connection = client.connect();
+  daemon.openConnection();
+  await connection;
+
+  client.ensureConnected({ verify: true });
+  await vi.advanceTimersByTimeAsync(6_000);
+
+  expect(attempts).toBe(1);
+  expect(client.getConnectionState()).toEqual({ status: "connected" });
+  expect(daemon.closesFromClient()).toEqual([]);
+});
+
+test("foreground verification does not disconnect a live transport when session RPCs are stalled", async () => {
+  useHeartbeatClock();
+  const mock = createMockTransport();
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "busy-session-resume",
+    logger: noopLogger,
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+  const connection = client.connect();
+  mock.triggerOpen();
+  await connection;
+
+  client.ensureConnected({ verify: true });
+  await vi.advanceTimersByTimeAsync(6_000);
+
+  expect(client.getConnectionState()).toEqual({ status: "connected" });
+});
+
+test("foreground verification discards an outstanding heartbeat before it can close a recovered socket", async () => {
+  useHeartbeatClock();
+  const daemon = new FakeDaemon();
+  daemon.daemonGoesSilent();
+  let attempts = 0;
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "suspended-heartbeat-resume",
+    logger: noopLogger,
+    transportFactory: () => {
+      attempts += 1;
+      return daemon.transport;
+    },
+  });
+  clients.push(client);
+  const connection = client.connect();
+  daemon.openConnection();
+  await connection;
+
+  // One heartbeat has failed; the suspended second probe has one second left.
+  await vi.advanceTimersByTimeAsync(49_000);
+  daemon.daemonAnswersPingsAfter("2s");
+  client.ensureConnected({ verify: true });
+  await vi.advanceTimersByTimeAsync(20_000);
+
+  expect(attempts).toBe(1);
+  expect(client.getConnectionState()).toEqual({ status: "connected" });
+  expect(daemon.closesFromClient()).toEqual([]);
+  expect(daemon.pingTimestamps()).toEqual(["10s", "35s", "49s", "59s"]);
 });
 
 test("an obsolete foreground probe cannot close a replacement connection", async () => {
