@@ -90,6 +90,8 @@ import { useShortcutKeys } from "@/hooks/use-shortcut-keys";
 import { AutocompletePopover } from "@/components/ui/autocomplete-popover";
 import type { AutocompleteOption } from "@/components/ui/autocomplete";
 import { useAgentAutocomplete } from "@/hooks/use-agent-autocomplete";
+import { useMentionableAgents } from "@/hooks/use-mentionable-agents";
+import { expandAgentMentions } from "@/utils/agent-mention";
 import { usePluginClientSlashCommands } from "@/plugins/client-slash-commands";
 import {
   executePluginClientSlashCommand,
@@ -1663,6 +1665,8 @@ function ComposerContentImpl({
     ],
   );
 
+  const mentionableAgents = useMentionableAgents(serverId, { enabled: true });
+
   const sendMessageWithContent = useCallback(
     async (
       outgoingMessage: string,
@@ -1681,13 +1685,16 @@ function ComposerContentImpl({
         // transport is disconnected, because the parent decides the failure mode.
         canSubmit: Boolean(sendAgentMessageRef.current || onSubmitMessageRef.current),
         queueMessage: ({ message: queuedText, attachments: queuedAttachments }) => {
-          queueMessage(queuedText, queuedAttachments);
+          queueMessage(expandAgentMentions(queuedText, mentionableAgents), queuedAttachments);
         },
         submitMessage: async ({ message: submitText, attachments: submitAttachments }) => {
           if (submitBehavior !== "preserve-and-lock") {
             beginSubmit(submitAttachments);
           }
-          await submitMessage(submitText, submitAttachments);
+          await submitMessage(
+            expandAgentMentions(submitText, mentionableAgents),
+            submitAttachments,
+          );
         },
         clearDraft,
         setUserInput: replaceUserInput,
@@ -1713,6 +1720,7 @@ function ComposerContentImpl({
       completeSubmit,
       hasExternalContent,
       isAgentRunning,
+      mentionableAgents,
       queueMessage,
       setSelectedAttachments,
       replaceUserInput,

@@ -32,8 +32,7 @@ import {
   filterMentionableAgents,
   type MentionableAgent,
 } from "@/utils/agent-mention";
-import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
-import { useHostFeature } from "@/runtime/host-features";
+import { useMentionableAgents } from "@/hooks/use-mentionable-agents";
 
 interface UseAgentAutocompleteInput {
   userInput: string;
@@ -259,10 +258,10 @@ function buildCommandAutocompleteOptions(input: BuildAutocompleteOptionsInput) {
 
   const activeFileMention = input.activeFileMention;
   if (input.mode === "file" && activeFileMention) {
-    const agentOptions = filterMentionableAgents(
-      input.mentionableAgents,
-      activeFileMention.query,
-    ).map((agent) => ({
+    const orderedAgents = orderAutocompleteOptions(
+      filterMentionableAgents(input.mentionableAgents, activeFileMention.query),
+    );
+    const agentOptions = orderedAgents.map((agent) => ({
       type: "agent_mention" as const,
       id: `agent:${agent.provider}`,
       label: `@${agent.label}`,
@@ -280,7 +279,9 @@ function buildCommandAutocompleteOptions(input: BuildAutocompleteOptionsInput) {
       entryPath: entry.path,
       mention: activeFileMention,
     }));
-    return [...agentOptions, ...fileOptions];
+    // The list renders above the input, bottom-up: the end of the array sits next to the input,
+    // so agents go last to stay visible above the files.
+    return [...fileOptions, ...agentOptions];
   }
 
   return [];
@@ -450,19 +451,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
 
   const isVisible = canShowAutocomplete && !(mode === "command" && isCommandsLoading);
 
-  const supportsDelegation = useHostFeature(serverId, "delegation");
-  const providersSnapshot = useProvidersSnapshot(serverId, {
-    enabled: mode === "file" && supportsDelegation,
-  });
-  const mentionableAgents = useMemo<MentionableAgent[]>(
-    () =>
-      supportsDelegation
-        ? (providersSnapshot.entries ?? [])
-            .filter((entry) => entry.enabled)
-            .map((entry) => ({ provider: entry.provider, label: entry.label ?? entry.provider }))
-        : [],
-    [providersSnapshot.entries, supportsDelegation],
-  );
+  const mentionableAgents = useMentionableAgents(serverId, { enabled: mode === "file" });
 
   const fileSuggestionsQuery = useQuery({
     queryKey: [

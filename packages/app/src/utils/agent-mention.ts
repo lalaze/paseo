@@ -27,6 +27,27 @@ export function formatAgentMention(agent: MentionableAgent): string {
   return `[@${escapeLabel(agent.label)}](${AGENT_MENTION_URL_PREFIX}${agent.provider})`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// The composer shows mentions as plain `@Label`; the link form only exists on the wire.
+export function expandAgentMentions(text: string, agents: readonly MentionableAgent[]): string {
+  const byName = new Map<string, MentionableAgent>();
+  for (const agent of agents) {
+    byName.set(agent.label.toLowerCase(), agent);
+    if (!byName.has(agent.provider.toLowerCase())) byName.set(agent.provider.toLowerCase(), agent);
+  }
+  if (byName.size === 0) return text;
+  // Longest first so `@Claude Code` wins over a shorter `@Claude`.
+  const names = [...byName.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp);
+  const pattern = new RegExp(`(^|[\\s(])@(${names.join("|")})(?=$|[\\s.,;:!?)])`, "gi");
+  return text.replace(pattern, (_match, lead: string, name: string) => {
+    const agent = byName.get(name.toLowerCase());
+    return agent ? `${lead}${formatAgentMention(agent)}` : _match;
+  });
+}
+
 export function applyAgentMentionReplacement(input: {
   text: string;
   mention: FileMentionRange;
@@ -35,7 +56,7 @@ export function applyAgentMentionReplacement(input: {
   const before = input.text.slice(0, input.mention.start);
   const after = input.text.slice(input.mention.end);
   const separator = after.startsWith(" ") ? "" : " ";
-  return `${before}${formatAgentMention(input.agent)}${separator}${after}`;
+  return `${before}@${input.agent.label}${separator}${after}`;
 }
 
 export function filterMentionableAgents(

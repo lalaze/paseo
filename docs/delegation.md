@@ -11,8 +11,9 @@ tools with it, and both can be on at once.
 ## Mentioning an agent
 
 Type `@` in the composer. Enabled providers are listed above workspace files, filtered by what you
-type. Picking one inserts `[@Codex](paseo://agent/codex)`; the sent message shows it as `@Codex`.
-Mention two agents and they get one delegation each and run side by side.
+type. Picking one inserts `@Codex`. On send or queue, the composer rewrites every `@Label` or
+`@provider` that names an enabled provider into `[@Codex](paseo://agent/codex)`, and the sent
+message shows it as `@Codex` again. Mention two agents and they get one delegation each and run side by side.
 
 The mention is plain text the agent reads. Nothing out of band tells the daemon to delegate: the
 agent sees the link, and both the `delegate_to_agent` description and the MCP server

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyAgentMentionReplacement,
+  expandAgentMentions,
   filterMentionableAgents,
   formatAgentMention,
   splitAgentMentions,
@@ -12,14 +13,26 @@ const agents = [
 ];
 
 describe("agent mentions", () => {
-  it("replaces the typed @query with a mention link", () => {
+  it("replaces the typed @query with a plain @Label", () => {
     expect(
       applyAgentMentionReplacement({
         text: "ask @cod to review",
         mention: { start: 4, end: 8, query: "cod" },
         agent: agents[1]!,
       }),
-    ).toBe("ask [@Codex](paseo://agent/codex) to review");
+    ).toBe("ask @Codex to review");
+  });
+
+  it("expands composer @Label mentions into links on send", () => {
+    expect(expandAgentMentions("@Claude Code, ask @codex (and @Codex).", agents)).toBe(
+      "[@Claude Code](paseo://agent/claude), ask [@Codex](paseo://agent/codex) (and [@Codex](paseo://agent/codex)).",
+    );
+  });
+
+  it("leaves unknown names, emails, and existing links alone", () => {
+    const text = "mail a@codex.dev, ping @Codexy, keep [@Codex](paseo://agent/codex)";
+    expect(expandAgentMentions(text, agents)).toBe(text);
+    expect(expandAgentMentions("@Codex", [])).toBe("@Codex");
   });
 
   it("filters by provider id or label ignoring spaces", () => {
