@@ -5,8 +5,9 @@ type `/director`. All three open the same mode dialog over the current workspace
 on phones). Choose a mode before continuing; canceling preserves the conversation and draft.
 `/director <goal>` also supplies the first request. Select each role’s provider and model directly
 in the dialog; you do not need saved Agent profiles. The dialog remembers, per host and on this
-device, the mode, isolation, models, rework limit and time budget of the last task you started, and pre-fills
-them for the next new task. New Full workflow conversations also select
+device, the mode, isolation, models, rework limit and time budget of the last task you started. A new task
+then opens on a summary of that setup, so Continue starts it in one tap; **Change** opens the full
+form, which also opens by itself when a remembered model is no longer available. New Full workflow conversations also select
 a lead. Enabling collaboration in an existing chat retains that chat’s lead. With no separate
 reviewer in Full workflow, the lead performs the final review.
 
@@ -48,7 +49,12 @@ starts; create another conversation to change them.
 
 ## Execution and confirmation
 
-Tasks execute serially in dependency order within one workspace. The launch dialog's
+Tasks execute serially in dependency order within one workspace. Each worker profile keeps one
+session for the whole run: the next task, a retry and a revised requirement continue in it, so the
+environment, scripts and data it built carry over. A session that has been archived or has failed
+is replaced with a fresh one at the next step. Every worker also receives the results of the tasks
+completed before it. A turn that ends without submitting a result is asked to report in the same
+session, up to twice, before the run needs attention. The launch dialog's
 [Isolation](glossary.md) choice decides where the task runs. Local creates a `director/<run-id>`
 branch in the source checkout while retaining staged, unstaged and untracked changes, so it must
 start from the project root. New worktree creates a Paseo worktree workspace on `director/<run-id>`
@@ -65,6 +71,9 @@ result. When a task has used every rework and the final review still requests ch
 goes to acceptance with that review instead of stopping: the main Agent lists the findings and you
 accept, reject, or request changes, which starts a new round with a fresh rework budget. Approval tools verify the latest real user message and the version of the confirmation
 shown in that conversation. Background notices and worker output cannot approve a plan or result.
+The buttons on the pending approval or acceptance card send the same exact reply as a user
+message, so they pass the same check; the host reports which notice is pending
+(`confirmation.noticeId` in collaboration status) so only that card shows them.
 
 ## Conversation timeline
 
@@ -87,6 +96,18 @@ for permission and awaiting acceptance time is free; the engine meters this at e
 result that arrived in time, since that needs no new AI turn; anything that would dispatch again is
 refused. Requesting changes starts a new round with a fresh budget. Runs saved before metering
 start with an empty budget.
+
+To add a detail without changing the goal ("don't commit the measurements"), tell the main Agent.
+It records a note with `control_task` `note`; every later execution and review step receives the
+notes, and a step already queued gets them when it is sent. No re-plan happens. Revise is for a
+changed goal and re-plans from scratch.
+
+A permission request from an implementation or review session also appears in the main
+conversation, labeled with the session it came from, so you can answer it there.
+
+Network and server-side provider failures (`EOF`, connection resets, 5xx, overloaded) retry by
+themselves after 30 seconds, 2 minutes and 5 minutes before the run needs attention. Quota,
+billing and auth failures do not clear by retrying soon, so they stop at once.
 
 Pause stops subsequent dispatch; the current turn can finish. Cancel ends the run immediately from
 any unfinished state and retains the branch and files. It then interrupts the active role session

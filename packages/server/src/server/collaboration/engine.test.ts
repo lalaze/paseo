@@ -43,7 +43,7 @@ describe("explicit retry replaces failed sessions with the original profile afte
           status: "error",
           seen: failedState === "sent",
           output: "",
-          error: "EOF",
+          error: "agent process exited",
         });
         await h.engine.tick();
         assert.equal(h.run().control, "needs_attention");
@@ -932,4 +932,200 @@ test("stopping skips sessions that are not loaded and reports a refused interrup
   await gateway.stop("live");
   await assert.rejects(gateway.stop("stuck"), /拒绝停止/);
   assert.deepEqual(canceled, ["live", "stuck"]);
+});
+
+describe("worker session continuity", () => {
+  const twoTasks = {
+    ...plan,
+    tasks: [
+      plan.tasks[0],
+      { ...plan.tasks[0], id: "task-2", title: "复测", description: "复测并记录" },
+    ],
+  };
+  test("serial tasks on one profile continue in the same session with earlier results handed over", async (t) => {
+    const h = await harness();
+    t.onTestFinished(() => h.cleanup());
+    await h.until("plan");
+    await h.complete(twoTasks);
+    const first = await h.until("execute");
+    await h.complete({ ...result, summary: "基线脚本位于 scripts/measure.mjs" });
+    const second = await h.until("execute");
+    assert.equal(second.taskId, "task-2");
+    assert.equal(second.agentId, first.agentId);
+    assert.equal(h.agents.created.length, 2);
+    assert.match(second.prompt, /基线脚本位于 scripts\/measure\.mjs/);
+    assert.match(second.prompt, /同一执行会话/);
+  });
+  test("revised requirements keep the worker session", async (t) => {
+    const h = await harness();
+    t.onTestFinished(() => h.cleanup());
+    await h.until("plan");
+    await h.complete(plan);
+    const worker = await h.until("execute");
+    await h.engine.control(h.id, "pause");
+    await h.engine.control(h.id, "revise", "实现新功能，并补充错误处理");
+    await h.until("plan");
+    await h.complete(plan);
+    const resumed = await h.until("execute");
+    assert.equal(resumed.agentId, worker.agentId);
+    assert.equal(h.agents.created.length, 2);
+  });
+  test("a reused session that is gone is replaced instead of stopping the run", async (t) => {
+    const h = await harness();
+    t.onTestFinished(() => h.cleanup());
+    await h.until("plan");
+    await h.complete(twoTasks);
+    const first = await h.until("execute");
+    await h.complete(result);
+    h.agents.states.set(first.agentId!, { status: "missing", seen: false, output: "" });
+    const second = await h.until("execute");
+    assert.notEqual(second.agentId, first.agentId);
+    assert.equal(h.run().control, "running");
+    assert.doesNotMatch(second.prompt, /同一执行会话/);
+  });
+  test("a turn that ends without a result is asked to report in the same session", async (t) => {
+    const h = await harness();
+    t.onTestFinished(() => h.cleanup());
+    await h.until("plan");
+    await h.complete(plan);
+    const worker = await h.until("execute");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      h.agents.states.set(worker.agentId!, { status: "idle", seen: true, output: "" });
+      h.elapse(21000);
+      await h.engine.tick();
+      assert.equal(h.run().control, "running");
+      const nudge = await h.until("execute");
+      assert.equal(nudge.agentId, worker.agentId);
+      assert.match(nudge.prompt, /没有提交任务结果/);
+    }
+    h.agents.states.set(worker.agentId!, { status: "idle", seen: true, output: "" });
+    h.elapse(21000);
+    await h.engine.tick();
+    assert.equal(h.run().control, "needs_attention");
+  });
+});
+
+describe("automatic retry of transient provider errors", () => {
+  async function failingExecution(error: string) {
+    const h = await harness();
+    await h.until("plan");
+    await h.complete(plan);
+    const worker = await h.until("execute");
+    h.agents.states.set(worker.agentId!, { status: "error", seen: true, output: "", error });
+    return { h, worker };
+  }
+  test("a connection failure retries by itself after a delay", async (t) => {
+    const { h, worker } = await failingExecution(
+      'request failed: Post "https://example.invalid/v1:streamGenerateContent": EOF',
+    );
+    t.onTestFinished(() => h.cleanup());
+    await h.engine.tick();
+    assert.equal(h.run().control, "running");
+    assert.match(h.run().message, /自动重试/);
+    const sends = h.agents.sent.length;
+    await h.engine.tick();
+    assert.equal(h.agents.sent.length, sends);
+    h.elapse(31000);
+    await h.engine.tick();
+    const retried = await h.until("execute");
+    assert.notEqual(retried.id, worker.id);
+    assert.equal(h.agents.sent.length, sends + 1);
+    assert.match(retried.prompt, /本轮是重试/);
+    await h.complete(result);
+    assert.equal(h.run().autoRetry, undefined);
+  });
+  test("automatic retries stop after three attempts", async (t) => {
+    const { h } = await failingExecution("503 Service Unavailable: model overloaded");
+    t.onTestFinished(() => h.cleanup());
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await h.engine.tick();
+      assert.equal(h.run().control, "running");
+      h.elapse(301000);
+      await h.engine.tick();
+      const retried = await h.until("execute");
+      h.agents.states.set(retried.agentId!, {
+        status: "error",
+        seen: true,
+        output: "",
+        error: "503 Service Unavailable: model overloaded",
+      });
+    }
+    await h.engine.tick();
+    assert.equal(h.run().control, "needs_attention");
+  });
+  test("quota and usage limits still wait for the user", async (t) => {
+    const { h } = await failingExecution(
+      "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 162h20m34s.",
+    );
+    t.onTestFinished(() => h.cleanup());
+    await h.engine.tick();
+    assert.equal(h.run().control, "needs_attention");
+    assert.equal(h.run().autoRetry, undefined);
+  });
+  test("pausing during the wait keeps the retry for later", async (t) => {
+    const { h, worker } = await failingExecution("socket hang up");
+    t.onTestFinished(() => h.cleanup());
+    await h.engine.tick();
+    await h.engine.control(h.id, "pause");
+    h.elapse(31000);
+    await h.engine.tick();
+    assert.equal(h.run().activeOperationId, worker.id);
+    await h.engine.control(h.id, "resume");
+    await h.engine.tick();
+    const retried = await h.until("execute");
+    assert.notEqual(retried.id, worker.id);
+  });
+});
+
+describe("quick corrections", () => {
+  test("a note reaches the next worker and the reviewer without re-planning", async (t) => {
+    const h = await harness();
+    t.onTestFinished(() => h.cleanup());
+    await h.until("plan");
+    await h.complete({
+      ...plan,
+      tasks: [plan.tasks[0], { ...plan.tasks[0], id: "task-2", title: "复测" }],
+    });
+    const first = await h.until("execute");
+    await h.engine.control(h.id, "note", undefined, { feedback: "测量数据不要提交到仓库" });
+    assert.equal(h.run().phase, "executing");
+    assert.equal(h.run().control, "running");
+    assert.equal(h.run().planVersion ?? 1, 1);
+    assert.equal(h.run().activeOperationId, first.id);
+    assert.match(h.run().message, /补充要求/);
+    await h.complete(result);
+    const second = await h.until("execute");
+    assert.match(second.prompt, /测量数据不要提交到仓库/);
+    await h.complete(result);
+    const final = await h.until("final");
+    assert.match(final.prompt, /测量数据不要提交到仓库/);
+    assert.equal(h.run().operations.filter((o) => o.kind === "plan").length, 1);
+  });
+  test("a note added after a step was queued is attached when it is sent", async (t) => {
+    const h = await harness();
+    t.onTestFinished(() => h.cleanup());
+    await h.until("plan");
+    await h.complete(plan);
+    await h.engine.tick();
+    assert.equal(h.op()?.state, "pending");
+    await h.engine.control(h.id, "note", undefined, { feedback: "保留原有画质设置" });
+    const worker = await h.until("execute");
+    assert.match(worker.prompt, /保留原有画质设置/);
+    assert.equal(worker.prompt.match(/保留原有画质设置/g)?.length, 1);
+  });
+  test("a note needs text and is refused at acceptance", async (t) => {
+    const h = await harness();
+    t.onTestFinished(() => h.cleanup());
+    await h.until("plan");
+    await assert.rejects(h.engine.control(h.id, "note"), /补充要求不能为空/);
+    await h.complete(plan);
+    await h.until("execute");
+    await h.complete(result);
+    await h.until("final");
+    await h.complete(review(true));
+    await assert.rejects(
+      h.engine.control(h.id, "note", undefined, { feedback: "再改一下" }),
+      /请验收成果或提交修改意见/,
+    );
+  });
 });

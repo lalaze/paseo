@@ -440,6 +440,28 @@ test("chat revision stops workers, rejects stale submissions, and doesn't cancel
   assert.equal(h.chats.summary(c.id).run?.goal, "实现功能并增加登录");
 });
 
+test("a chat note is recorded once without pausing or re-planning the run", async (t) => {
+  const h = await fixture(t),
+    c = await h.chats.open({ requestId: "note", workspaceId: "workspace", goal: "实现功能" });
+  await h.chats.start(c.id, {
+    goal: "实现功能",
+    sourceMessageId: (await h.chats.status(c.id)).latestUserMessage!.id,
+  });
+  h.gateway.idle(c.agentId!);
+  for (let i = 0; i < 3; i++) await h.engine.tick();
+  h.gateway.user(c.agentId!, "note", "测量数据不要提交");
+  const input = { action: "note" as const, sourceMessageId: "note", feedback: "测量数据不要提交" };
+  await h.chats.control(c.id, input);
+  await h.chats.control(c.id, input);
+  const run = h.chats.summary(c.id).run!;
+  assert.deepEqual(
+    run.notes?.map((note) => note.text),
+    ["测量数据不要提交"],
+  );
+  assert.equal(run.control, "running");
+  assert.equal(run.goal, "实现功能");
+});
+
 test("chat history with later user turns does not invalidate a main operation's submitted tool result", async (t) => {
   const h = await harness();
   t.onTestFinished(() => h.cleanup());

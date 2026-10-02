@@ -40,6 +40,8 @@ export const CollaborationStateSchema = z.object({
       agentId: z.string().optional(),
       title: z.string(),
       error: z.string().optional(),
+      /** The notice awaiting the user's plan approval or acceptance, when one is pending. */
+      confirmation: z.object({ kind: z.enum(["plan", "final"]), noticeId: z.string() }).optional(),
       run: z
         .object({
           id: z.string(),

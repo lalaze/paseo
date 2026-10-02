@@ -386,6 +386,38 @@ test("saved snapshot patches apply cleanly and preserve exact text and binary co
   }
 });
 
+test("snapshots larger than the git output buffer are saved in full", async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "director-large-")));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  for (const args of [
+    ["init", "-b", "main"],
+    ["config", "user.name", "Test"],
+    ["config", "user.email", "test@example.invalid"],
+  ])
+    await exec("git", args, { cwd: repo });
+  await writeFile(join(repo, "app.txt"), "before\n");
+  await exec("git", ["add", "."], { cwd: repo });
+  await exec("git", ["commit", "-m", "base"], { cwd: repo });
+  const repository = new GitRepository(join(root, "state"));
+  const work = await repository.prepare(repo, "large"),
+    run = { ...work, id: "large", settings: settings() } as Run;
+  // Measurement evidence committed alongside a change: ~20 MB of text.
+  const line = "frame,timestamp,worker_ms,main_ms,gpu_upload_ms,bytes\n";
+  await writeFile(
+    join(work.cwd, "evidence.csv"),
+    line.repeat(Math.ceil((20 * 1024 * 1024) / line.length)),
+  );
+  const evidence = await repository.capture(run);
+  assert.deepEqual(evidence.changedFiles, ["evidence.csv"]);
+  assert.equal(evidence.diff.length, 48000);
+  assert.match(evidence.diff, /^diff --git a\/evidence\.csv/);
+  const patch = await readFile(evidence.diffPath, "utf8");
+  assert.ok(patch.length > 20 * 1024 * 1024);
+  assert.ok(patch.startsWith(evidence.diff));
+});
+
 test("verification timeout and cancellation terminate the subprocess", async () => {
   const controller = new AbortController();
   const pending = executeCheck(

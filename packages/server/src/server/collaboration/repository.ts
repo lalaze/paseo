@@ -1,6 +1,8 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, open, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import { join, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { Run, Evidence, Command } from "@getpaseo/protocol/collaboration/schema";
@@ -69,6 +71,25 @@ export class GitRepository implements Repository {
   }
   private async git(cwd: string, args: string[], env?: NodeJS.ProcessEnv) {
     return (await this.gitOutput(cwd, args, env)).trimEnd();
+  }
+  /** Stream git output to a file. Snapshot patches can exceed any in-memory buffer. */
+  private async gitToFile(cwd: string, args: string[], path: string) {
+    const child = spawn("git", args, {
+      cwd,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (data: Buffer) => {
+      if (stderr.length < 4096) stderr += data.toString();
+    });
+    const exited = new Promise<number | null>((resolve, reject) => {
+      child.on("error", reject);
+      child.on("close", resolve);
+    });
+    await pipeline(child.stdout, createWriteStream(path, { mode: 0o600 }));
+    const exitCode = await exited;
+    if (exitCode !== 0) throw new Error(`git ${args[0]} failed (${exitCode}): ${stderr.trim()}`);
   }
   async prepare(repository: string, runId: string, currentWorkspace = false) {
     if (!isAbsolute(repository)) throw new Error("仓库路径必须是绝对路径");
@@ -182,7 +203,8 @@ export class GitRepository implements Repository {
     const directory = join(this.root, "artifacts", run.id);
     const { tree, id } = await this.writeTree(run, directory);
     // Patches and NUL-delimited paths must retain their exact whitespace.
-    const diff = await this.gitOutput(run.cwd, ["diff", "--binary", run.baseCommit, tree, "--"]);
+    const diffPath = join(directory, `${id}.patch`);
+    await this.gitToFile(run.cwd, ["diff", "--binary", run.baseCommit, tree, "--"], diffPath);
     const names = await this.gitOutput(run.cwd, [
       "diff",
       "--name-only",
@@ -191,8 +213,6 @@ export class GitRepository implements Repository {
       tree,
       "--",
     ]);
-    const diffPath = join(directory, `${id}.patch`);
-    await writeFile(diffPath, diff, { mode: 0o600 });
     // Keep the tree reachable even if Git prunes loose objects later.
     await this.git(run.cwd, ["update-ref", `refs/paseo-director/${run.id}/${id}`, tree]);
     return {
@@ -200,7 +220,7 @@ export class GitRepository implements Repository {
       tree,
       diffPath,
       changedFiles: names.split("\0").filter(Boolean),
-      diff: diff.slice(0, 48000),
+      diff: await readPreview(diffPath, 48000),
       capturedAt: Date.now(),
     };
   }
@@ -231,6 +251,18 @@ export class GitRepository implements Repository {
       throw new Error("验收命令改变了源文件，请使用不修改源文件的验证命令后重试");
     const passed = checks.every((candidateConversation) => candidateConversation.exitCode === 0);
     return { ...snapshot, checks, passed, verificationStatus: passed ? "passed" : "failed" };
+  }
+}
+
+/** The first `length` characters of a UTF-8 file, reading only as many bytes as they can occupy. */
+async function readPreview(path: string, length: number) {
+  const file = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(length * 4);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead).toString("utf8").slice(0, length);
+  } finally {
+    await file.close();
   }
 }
 

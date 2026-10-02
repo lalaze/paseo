@@ -205,7 +205,8 @@ export type ControlAction =
   | "revise"
   | "accept_final"
   | "reject_final"
-  | "request_changes";
+  | "request_changes"
+  | "note";
 export interface Run {
   mode?: CollaborationMode;
   id: string;
@@ -255,6 +256,8 @@ export interface Run {
   dispatchOrder?: string[];
   userAcceptance?: UserAcceptance;
   changeRequests?: ChangeRequest[];
+  /** Additions the user made during the run without changing the goal; every later step follows them. */
+  notes?: { text: string; at: number }[];
   /** Explicit user-requested rounds get their own bounded execution budget. */
   roundStartedAt?: number;
   /** Running time already spent this round. Paused, blocked and waiting time is not counted. */
@@ -262,6 +265,8 @@ export interface Run {
   /** When the run last started running; absent while it is not running. */
   runningSince?: number;
   roundOperationOffset?: number;
+  /** A transient provider failure retries by itself; `at` is when the next attempt starts. */
+  autoRetry?: { attempts: number; at?: number };
   tasks: {
     spec: Task;
     profileId: string;

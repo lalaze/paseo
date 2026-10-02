@@ -33,7 +33,7 @@ import {
 } from "@getpaseo/protocol/collaboration/schema";
 import type { Repository } from "./repository.js";
 import { Store } from "./store.js";
-import { buildPrompt, responseSchema } from "./prompts.js";
+import { buildPrompt, CONTINUED_SESSION_NOTE, responseSchema } from "./prompts.js";
 
 export interface AgentSnapshot {
   status: "idle" | "running" | "permission" | "error" | "missing";
@@ -51,6 +51,16 @@ export interface AgentGateway {
   inspect(agentId: string, operationId: string, since?: number): Promise<AgentSnapshot>;
   send(agentId: string, operationId: string, prompt: string): Promise<void>;
   stop(agentId: string): Promise<void>;
+}
+
+const AUTO_RETRY_DELAYS_MS = [30_000, 120_000, 300_000];
+// Quota, billing and auth failures do not clear by retrying soon; they still wait for the user.
+const LASTING_PROVIDER_ERROR =
+  /quota|usage limit|RESOURCE_EXHAUSTED|\b429\b|rate.?limit|billing|credit|insufficient|unauthori[sz]ed|\b40[13]\b|forbidden|api key|invalid.?(request|argument)/i;
+const TRANSIENT_PROVIDER_ERROR =
+  /\bEOF\b|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|socket hang up|fetch failed|network|connection (reset|closed|lost|error)|stream (closed|disconnected|ended)|\b50[0234]\b|internal server error|bad gateway|service unavailable|gateway timeout|overloaded|temporarily unavailable/i;
+export function isTransientProviderError(message: string) {
+  return !LASTING_PROVIDER_ERROR.test(message) && TRANSIENT_PROVIDER_ERROR.test(message);
 }
 
 export class Engine {
@@ -257,24 +267,26 @@ export class Engine {
       throw new Error("全部任务执行完成后才能统一审核");
     const id = randomUUID();
     const role = operationRole(run.settings, kind);
+    const profileId = {
+      worker: task?.profileId,
+      reviewer: run.settings.reviewerProfileId,
+      director: run.settings.directorProfileId,
+    }[role]!;
+    const agentId = {
+      worker: task?.agentId ?? this.workerSession(run, profileId),
+      reviewer: run.reviewerAgentId,
+      director: run.directorAgentId,
+    }[role];
     const op: Operation = {
       id,
       kind,
       taskId,
       state: "pending",
-      profileId: {
-        worker: task?.profileId,
-        reviewer: run.settings.reviewerProfileId,
-        director: run.settings.directorProfileId,
-      }[role]!,
-      agentId: {
-        worker: task?.agentId,
-        reviewer: run.reviewerAgentId,
-        director: run.directorAgentId,
-      }[role],
+      profileId,
+      agentId,
       createdAt: this.now(),
       formatRetries,
-      prompt: buildPrompt(run, kind, id, taskId),
+      prompt: buildPrompt(run, kind, id, taskId, { agentId }),
     };
     if (kind === "final") op.reviewScope = "all_tasks";
     run.operations.push(op);
@@ -282,6 +294,20 @@ export class Engine {
     const { actor, action, detail } = this.describe(run, op);
     this.event(run, `准备交给${actor}${action}${detail}`);
     this.save(run);
+  }
+
+  /**
+   * Tasks run serially in one workspace, so a profile's worker session carries over to its next
+   * task and across revised requirements, keeping the environment, scripts and data it built.
+   */
+  private workerSession(run: Run, profileId: string) {
+    return run.operations.findLast(
+      (candidate) =>
+        candidate.kind === "execute" &&
+        candidate.profileId === profileId &&
+        candidate.agentId !== undefined &&
+        candidate.agentId !== run.chat?.mainAgentId,
+    )?.agentId;
   }
 
   /** Sessions a stop interrupts: the active role session, or children a crash left unbound. */
@@ -399,8 +425,18 @@ export class Engine {
 
   private async createOperation(run: Run, op: Operation) {
     await this.repository.assertBranch(run);
+    if (op.agentId && op.agentId !== run.chat?.mainAgentId) {
+      // A carried-over session can be archived or failed by now; start this step in a fresh one.
+      const { status } = await this.agents.inspect(op.agentId, op.id, op.createdAt);
+      if (status === "missing" || status === "error") {
+        op.agentId = undefined;
+        op.prompt = op.prompt.replace(CONTINUED_SESSION_NOTE, "");
+        this.setSession(run, op);
+      }
+    }
     if (op.agentId) {
       op.state = "ready";
+      this.setSession(run, op, op.agentId);
       this.save(run);
       return;
     }
@@ -421,7 +457,7 @@ export class Engine {
       const control = before.status === "permission" ? "waiting_permission" : "running";
       const message =
         before.status === "permission"
-          ? `${actor}等待权限或回答，${action}指令尚未发送；请打开当前 AI 会话处理`
+          ? `${actor}等待权限或回答，${action}指令尚未发送；可在主对话或该 AI 会话中处理`
           : `${actor}仍在完成上一轮，${action}指令尚未发送`;
       if (run.message !== message || run.control !== control) {
         run.control = control;
@@ -432,6 +468,12 @@ export class Engine {
     }
     if (before.status === "missing") throw new Error("AI 会话已不存在，请重试以建立替代会话");
     if (before.status === "error") throw new Error(before.error ?? "AI 会话出错，指令尚未发送");
+    // Notes added after this step was queued are not in its prompt yet.
+    const late = (run.notes ?? []).filter(
+      (note) => !op.prompt.includes(JSON.stringify(note.text).slice(1, -1)),
+    );
+    if (late.length)
+      op.prompt += `\n用户在此步骤排队后补充了要求，与 goal 同等有效：\n${late.map((note) => `- ${note.text}`).join("\n")}`;
     run.control = "running";
     op.state = "sending";
     op.sentAt = this.now();
@@ -457,7 +499,15 @@ export class Engine {
     // A normal reply or canceled chat turn is not an invalid operation result.
     if (conversational && op.response === undefined) return;
     if (op.response === undefined && !state.output.trim()) {
-      if (this.now() - (op.sentAt ?? op.createdAt) > 20000) throw new Error("本轮没有返回任务结果");
+      if (this.now() - (op.sentAt ?? op.createdAt) <= 20000) return;
+      if (op.formatRetries >= 2) throw new Error("本轮没有返回任务结果");
+      // The turn ended without reporting, often after the work itself is done. Ask the same
+      // session to report instead of stopping the run for a manual retry.
+      this.retryInSession(
+        run,
+        op,
+        "上一轮结束时没有提交任务结果。先核对已完成的工作，补齐未完成的部分后按要求提交结果；不要重复实施已完成的修改。",
+      );
       return;
     }
     let response: unknown;
@@ -470,15 +520,22 @@ export class Engine {
         throw new Error(state.output.trim().slice(0, 2000), { cause: error });
       if (op.formatRetries >= 2)
         throw new Error(`结果格式连续无效：${String(error).slice(0, 1200)}`, { cause: error });
-      op.state = "abandoned";
-      run.activeOperationId = undefined;
-      this.enqueue(run, op.kind, op.taskId, op.formatRetries + 1);
-      const replacement = this.current(run)!;
-      replacement.prompt += `\n上一轮结果格式错误，请补交正确格式，不要重复实施已完成的修改。错误：${String(error).slice(0, 2000)}`;
-      this.save(run);
+      this.retryInSession(
+        run,
+        op,
+        `上一轮结果格式错误，请补交正确格式，不要重复实施已完成的修改。错误：${String(error).slice(0, 2000)}`,
+      );
       return;
     }
     await this.finish(run, op, response);
+  }
+  /** Re-send the operation to its session with a correction; bounded by `formatRetries`. */
+  private retryInSession(run: Run, op: Operation, correction: string) {
+    op.state = "abandoned";
+    run.activeOperationId = undefined;
+    this.enqueue(run, op.kind, op.taskId, op.formatRetries + 1);
+    this.current(run)!.prompt += `\n${correction}`;
+    this.save(run);
   }
   private async observeOperation(run: Run, op: Operation) {
     const state = await this.agents.inspect(op.agentId!, op.id, op.createdAt);
@@ -498,7 +555,10 @@ export class Engine {
     if (state.status === "permission") {
       if (run.control !== "waiting_permission") {
         run.control = "waiting_permission";
-        this.event(run, `${this.describe(run, op).actor}等待权限或回答，请打开当前 AI 会话处理`);
+        this.event(
+          run,
+          `${this.describe(run, op).actor}等待权限或回答，可在主对话或该 AI 会话中处理`,
+        );
         this.save(run);
       }
       return;
@@ -577,13 +637,41 @@ export class Engine {
         return;
       }
       if (await this.upgradeReview(run, op)) return;
+      if (run.autoRetry?.at !== undefined) return await this.autoRetry(run);
       await this.advanceOperation(run, op);
     } catch (error) {
       // Re-read after a failed compare-and-swap rather than overwriting another control action.
       run = this.store.get(id);
-      if (!this.stopped && run.control !== "canceled" && run.phase !== "completed")
-        this.hold(run, String(error instanceof Error ? error.message : error).slice(0, 3000));
+      const message = String(error instanceof Error ? error.message : error).slice(0, 3000);
+      if (this.stopped || run.control === "canceled" || run.phase === "completed") return;
+      if (!this.scheduleAutoRetry(run, message)) this.hold(run, message);
     }
+  }
+  /** Network and server-side provider failures retry with backoff instead of waiting for the user. */
+  private scheduleAutoRetry(run: Run, message: string) {
+    const op = this.current(run);
+    const attempts = run.autoRetry?.attempts ?? 0;
+    if (
+      !op?.agentId ||
+      op.agentId === run.chat?.mainAgentId ||
+      attempts >= AUTO_RETRY_DELAYS_MS.length ||
+      !isTransientProviderError(message)
+    )
+      return false;
+    const delay = AUTO_RETRY_DELAYS_MS[attempts];
+    run.autoRetry = { attempts: attempts + 1, at: this.now() + delay };
+    this.event(
+      run,
+      `AI 服务连接出错，${delay / 1000} 秒后自动重试（第 ${attempts + 1}/${AUTO_RETRY_DELAYS_MS.length} 次）：${message.slice(0, 300)}`,
+    );
+    this.save(run);
+    return true;
+  }
+  private async autoRetry(run: Run) {
+    if (this.now() < run.autoRetry!.at!) return;
+    run.autoRetry = { attempts: run.autoRetry!.attempts };
+    await this.retryCurrent(run, "自动重试当前步骤");
+    this.save(run);
   }
   private bindAgent(run: Run, op: Operation, agentId: string) {
     op.agentId = agentId;
@@ -639,6 +727,7 @@ export class Engine {
       throw new Error("审核未覆盖全部原始验收标准");
   }
   private async finish(run: Run, op: Operation, value: unknown) {
+    run.autoRetry = undefined;
     if (op.kind === "plan") {
       await this.finishPlan(run, value);
     } else if (op.kind === "execute") {
@@ -985,6 +1074,11 @@ export class Engine {
   }
   private async retryRun(run: Run) {
     if (run.control !== "needs_attention") throw new Error("仅受阻任务可以重试");
+    // A manual retry starts a fresh automatic retry budget.
+    run.autoRetry = undefined;
+    return this.retryCurrent(run, "用户检查后重试当前步骤");
+  }
+  private async retryCurrent(run: Run, message: string) {
     await this.repository.assertBranch(run);
     const op = this.current(run);
     let outputError: string | undefined;
@@ -1013,7 +1107,7 @@ export class Engine {
             `\n上一轮结果无效，请修正后重新提交，不要重复实施已完成的修改。错误：${outputError}`;
       }
     }
-    this.event(run, "用户检查后重试当前步骤");
+    this.event(run, message);
 
     return false;
   }
@@ -1051,6 +1145,11 @@ export class Engine {
       return;
     }
     this.event(run, `需求已更新为第 ${run.planVersion} 版，保留现有代码，重新设计并验收`);
+  }
+  private addNote(run: Run, text: string | undefined) {
+    if (!text?.trim()) throw new Error("补充要求不能为空");
+    run.notes = [...(run.notes ?? []), { text: text.trim(), at: this.now() }];
+    this.event(run, "已记录补充要求，后续步骤的 AI 会一并遵循");
   }
   private async approvePlan(run: Run) {
     if (!run.plan || run.planApproved) throw new Error("没有待批准的总纲");
@@ -1099,6 +1198,7 @@ export class Engine {
           if (await this.retryRun(run)) return { ok: true };
         }
         if (action === "revise") await this.reviseRun(run, goal);
+        if (action === "note") this.addNote(run, final.feedback);
         this.save(run);
         return { ok: true };
       });

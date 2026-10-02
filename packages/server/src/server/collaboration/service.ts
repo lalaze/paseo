@@ -50,6 +50,7 @@ const controlSchema = z.object({
     "accept_final",
     "reject_final",
     "request_changes",
+    "note",
   ]),
   confirmationKey: z.string().optional(),
   goal: z.string().trim().min(1).max(32000).optional(),
@@ -162,6 +163,14 @@ export class CollaborationService {
               title: summary.title,
               error: candidateConversation.error,
             },
+            summary.confirmation
+              ? {
+                  confirmation: {
+                    kind: summary.confirmation.kind,
+                    noticeId: summary.confirmation.noticeId,
+                  },
+                }
+              : {},
             summary.run ? { run: summarize(summary.run) } : {},
           );
         }),
@@ -288,7 +297,7 @@ export class CollaborationService {
       ),
       define(
         "control_task",
-        "按最新用户要求控制协作；批准需要真实用户消息与当前确认版本。",
+        "按最新用户要求控制协作；批准需要真实用户消息与当前确认版本。note 记录用户在执行中补充的要求（写在 feedback），不重新设计；目标本身改变才用 revise。",
         controlSchema,
         async (input) => {
           const c = chat();
