@@ -24,6 +24,8 @@ export const ru: TranslationResources = {
     },
     chooseMode: "Выбрать режим совместной работы",
     launch: {
+      lastSetup: "Последние настройки",
+      change: "Изменить",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "Если доработки закончились, а проверка всё ещё требует изменений, её замечания придут вам: примите, отклоните или запросите изменения.",
@@ -114,6 +116,15 @@ export const ru: TranslationResources = {
       acceptance: "Совместная работа · ожидает приёмки",
       enabled: "Совместная работа · включена",
       acceptanceCriteria: "Критерии приёмки",
+    },
+    confirmation: {
+      approvePlan: "Одобрить план",
+      accept: "Принять",
+      reject: "Отклонить",
+      planHint: "Чтобы изменить план, опишите изменения в поле сообщения.",
+      changesHint: "Чтобы запросить изменения, опишите их в поле сообщения.",
+      rejectTitle: "Отклонить результат?",
+      rejectMessage: "Задача завершится без принятия изменений. Ветка и файлы сохранятся.",
     },
   },
   delegation: {
@@ -370,6 +381,7 @@ export const ru: TranslationResources = {
     historyLoadFailed: "Не удалось загрузить историю агента",
     messageCapped: "Это сообщение было обрезано ({{bytes}} байт).",
     permission: {
+      from: "Запрос от {{agent}}",
       rejectedPlan: "Отклонённый план",
       approvedPlan: "Одобренный план",
       canceledPlan: "Отменённый план",

@@ -6,9 +6,18 @@ import { Users } from "lucide-react-native";
 import type { UserMessageItem } from "@/types/stream";
 import { ExpandableBadge } from "@/components/message";
 import { collaborationMessageSummary } from "./message-summary";
+import { CollaborationConfirmationActions } from "./confirmation-actions";
 
 /** A stage row in the main conversation; the row itself discloses the Agent's instructions. */
-export function CollaborationMessage({ item }: { item: UserMessageItem }) {
+export function CollaborationMessage({
+  item,
+  serverId,
+  agentId,
+}: {
+  item: UserMessageItem;
+  serverId: string;
+  agentId: string;
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(() => collaborationMessageSummary(item), [item]);
@@ -41,7 +50,8 @@ export function CollaborationMessage({ item }: { item: UserMessageItem }) {
     );
   }, [summary, t]);
   if (!summary) return null;
-  return (
+  const noticeId = item.clientMessageId ?? item.messageId;
+  const badge = (
     <ExpandableBadge
       testID="collaboration-stage"
       label={t(`collaboration.message.${summary.stage}`)}
@@ -53,6 +63,13 @@ export function CollaborationMessage({ item }: { item: UserMessageItem }) {
       isLastInSequence
       style={styles.row}
     />
+  );
+  if ((summary.stage !== "approval" && summary.stage !== "acceptance") || !noticeId) return badge;
+  return (
+    <View>
+      {badge}
+      <CollaborationConfirmationActions serverId={serverId} agentId={agentId} noticeId={noticeId} />
+    </View>
   );
 }
 

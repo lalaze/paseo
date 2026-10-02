@@ -19,6 +19,7 @@ import { useHostFeatureAvailabilityMap } from "@/runtime/host-features";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { LaunchIsolationOptions, LaunchModeOptions } from "./launch-mode-options";
 import { LaunchGoal } from "./launch-goal";
+import { LaunchSummary } from "./launch-summary";
 import { enableCollaboration, type CollaborationTarget } from "./launch";
 import {
   MAX_REWORKS_LIMIT,
@@ -129,7 +130,6 @@ function ModePicker({
   supported,
 }: ModePickerProps) {
   const { t } = useTranslation();
-  const size = useIsCompactFormFactor() ? "md" : "sm";
   const supportsWorktree =
     useHostFeatureAvailabilityMap([target.serverId], "collaborationWorktree").get(
       target.serverId,
@@ -155,21 +155,21 @@ function ModePicker({
     if (catalog.entries) model.applyProviders(catalog.entries);
   }, [model, catalog.entries]);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
+  // With a remembered setup, a new task starts from a summary; the full form is one tap away.
+  const [editing, setEditing] = useState(() => !rememberedLaunch(target.serverId));
+  const summarized = !editing && !state.agentsLocked;
+  const incomplete =
+    Boolean(catalog.entries) && snapshot.ready && !state.pending && !state.canContinue;
+  useEffect(() => {
+    if (incomplete) setEditing(true);
+  }, [incomplete]);
+  const edit = useCallback(() => setEditing(true), []);
   const header = useMemo(
     () => ({
       title: t("collaboration.chooseMode"),
       subtitle: <Text style={styles.secondary}>{t("collaboration.launch.subtitle")}</Text>,
     }),
     [t],
-  );
-  const select = useCallback(
-    (mode: CollaborationMode) => {
-      model.selectMode(mode);
-      useCollaborationLaunchStore.setState((current) => ({
-        request: current.request ? { ...current.request, mode: model.getState().mode } : null,
-      }));
-    },
-    [model],
   );
   const close = useCallback(() => {
     if (useCollaborationLaunchStore.getState().request?.requestId !== target.requestId) return;
@@ -183,33 +183,6 @@ function ModePicker({
       onClose();
     });
   }, [model, target, onClose]);
-  const selectIsolation = useCallback(
-    (isolation: CollaborationIsolation) => {
-      model.selectIsolation(isolation);
-    },
-    [model],
-  );
-  const configure = useCallback(() => {
-    const current = model.getState();
-    onConfigure(current.selections, {
-      maxReworks: current.maxReworks,
-      runTimeoutMs: current.runTimeoutMs,
-    });
-  }, [model, onConfigure]);
-  const promptButton = useMemo(
-    () => (
-      <Button
-        onPress={configure}
-        size={size}
-        variant="ghost"
-        disabled={state.pending}
-        testID="collaboration-manage-prompts"
-      >
-        {t("collaboration.launch.prompts")}
-      </Button>
-    ),
-    [configure, size, state.pending, t],
-  );
   const retryCatalog = useCallback(() => {
     catalog.refetchIfStale();
   }, [catalog]);
@@ -259,35 +232,21 @@ function ModePicker({
     >
       {ready ? (
         <View style={styles.content}>
-          <LaunchModeOptions
-            mode={state.mode}
-            disabled={state.locked || state.pending}
-            supportsExecuteReview
-            onSelect={select}
-          />
-          <SettingsSection title={t("newWorkspace.isolation.label")} flush>
-            <LaunchIsolationOptions
-              isolation={state.isolation}
-              disabled={state.locked || state.pending}
+          {summarized ? (
+            <>
+              {target.goal && <LaunchGoal goal={target.goal} />}
+              <LaunchSummary state={state} loading={!catalog.entries} onEdit={edit} />
+            </>
+          ) : (
+            <LaunchForm
+              target={target}
+              model={model}
+              state={state}
               supportsWorktree={supportsWorktree}
-              onSelect={selectIsolation}
+              catalogLoaded={Boolean(catalog.entries)}
+              onConfigure={onConfigure}
             />
-          </SettingsSection>
-          {target.goal && <LaunchGoal goal={target.goal} />}
-          <SettingsSection title={t("collaboration.launch.agents")} flush trailing={promptButton}>
-            {!catalog.entries && !state.agentsLocked ? (
-              <Spinner />
-            ) : (
-              <View style={styles.roles}>
-                {state.showDirector && <RoleModels role="director" model={model} state={state} />}
-                <RoleModels role="worker" model={model} state={state} />
-                <RoleModels role="reviewer" model={model} state={state} />
-              </View>
-            )}
-          </SettingsSection>
-          <SettingsSection title={t("collaboration.launch.limits")} flush>
-            <TaskLimits model={model} state={state} />
-          </SettingsSection>
+          )}
           {catalog.error && (
             <View style={styles.roles}>
               <Text style={styles.error}>{catalog.error}</Text>
@@ -308,6 +267,93 @@ function ModePicker({
   );
 }
 type LaunchModel = ReturnType<typeof openCollaborationLaunch>;
+function LaunchForm({
+  target,
+  model,
+  state,
+  supportsWorktree,
+  catalogLoaded,
+  onConfigure,
+}: {
+  target: CollaborationTarget;
+  model: LaunchModel;
+  state: ReturnType<LaunchModel["getState"]>;
+  supportsWorktree: boolean | null;
+  catalogLoaded: boolean;
+  onConfigure: (selections: LaunchSelections, limits: LaunchLimits) => void;
+}) {
+  const { t } = useTranslation();
+  const size = useIsCompactFormFactor() ? "md" : "sm";
+  const select = useCallback(
+    (mode: CollaborationMode) => {
+      model.selectMode(mode);
+      useCollaborationLaunchStore.setState((current) => ({
+        request: current.request ? { ...current.request, mode: model.getState().mode } : null,
+      }));
+    },
+    [model],
+  );
+  const selectIsolation = useCallback(
+    (isolation: CollaborationIsolation) => {
+      model.selectIsolation(isolation);
+    },
+    [model],
+  );
+  const configure = useCallback(() => {
+    const current = model.getState();
+    onConfigure(current.selections, {
+      maxReworks: current.maxReworks,
+      runTimeoutMs: current.runTimeoutMs,
+    });
+  }, [model, onConfigure]);
+  const promptButton = useMemo(
+    () => (
+      <Button
+        onPress={configure}
+        size={size}
+        variant="ghost"
+        disabled={state.pending}
+        testID="collaboration-manage-prompts"
+      >
+        {t("collaboration.launch.prompts")}
+      </Button>
+    ),
+    [configure, size, state.pending, t],
+  );
+  return (
+    <>
+      <LaunchModeOptions
+        mode={state.mode}
+        disabled={state.locked || state.pending}
+        supportsExecuteReview
+        onSelect={select}
+      />
+      <SettingsSection title={t("newWorkspace.isolation.label")} flush>
+        <LaunchIsolationOptions
+          isolation={state.isolation}
+          disabled={state.locked || state.pending}
+          supportsWorktree={supportsWorktree}
+          onSelect={selectIsolation}
+        />
+      </SettingsSection>
+      {target.goal && <LaunchGoal goal={target.goal} />}
+      <SettingsSection title={t("collaboration.launch.agents")} flush trailing={promptButton}>
+        {!catalogLoaded && !state.agentsLocked ? (
+          <Spinner />
+        ) : (
+          <View style={styles.roles}>
+            {state.showDirector && <RoleModels role="director" model={model} state={state} />}
+            <RoleModels role="worker" model={model} state={state} />
+            <RoleModels role="reviewer" model={model} state={state} />
+          </View>
+        )}
+      </SettingsSection>
+      <SettingsSection title={t("collaboration.launch.limits")} flush>
+        <TaskLimits model={model} state={state} />
+      </SettingsSection>
+    </>
+  );
+}
 interface RoleModelsProps {
   role: LaunchRole;
   model: LaunchModel;

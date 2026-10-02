@@ -140,6 +140,8 @@ function BottomOverlayInset({ height }: { height: number }) {
 function renderPendingPermissionsNode(input: {
   pendingPermissions: PendingPermission[];
   client: DaemonClient | null;
+  agentId: string;
+  serverId: string;
 }): ReactNode {
   if (input.pendingPermissions.length === 0) {
     return null;
@@ -147,9 +149,27 @@ function renderPendingPermissionsNode(input: {
   return (
     <View style={stylesheet.permissionsContainer}>
       {input.pendingPermissions.map((permission) => (
-        <PermissionRequestCard key={permission.key} permission={permission} client={input.client} />
+        <View key={permission.key}>
+          {permission.agentId === input.agentId ? null : (
+            <PermissionSource serverId={input.serverId} agentId={permission.agentId} />
+          )}
+          <PermissionRequestCard permission={permission} client={input.client} />
+        </View>
       ))}
     </View>
+  );
+}
+
+/** Names the background session a request came from when it surfaces in another chat. */
+function PermissionSource({ serverId, agentId }: { serverId: string; agentId: string }) {
+  const { t } = useTranslation();
+  const title = useSessionStore(
+    (state) => state.sessions[serverId]?.agents.get(agentId)?.title ?? null,
+  );
+  return (
+    <Text style={stylesheet.permissionSource} numberOfLines={1}>
+      {t("agentStream.permission.from", { agent: title ?? agentId })}
+    </Text>
   );
 }
 
@@ -691,7 +711,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
 
     const renderUserMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
-        if (collaborationMessageSummary(item)) return <CollaborationMessage item={item} />;
+        if (collaborationMessageSummary(item))
+          return <CollaborationMessage item={item} serverId={resolvedServerId} agentId={agentId} />;
         return (
           <UserMessage
             serverId={resolvedServerId}
@@ -933,8 +954,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     );
 
     const pendingPermissionItems = useMemo(
-      () => Array.from(pendingPermissions.values()).filter((perm) => perm.agentId === agentId),
-      [pendingPermissions, agentId],
+      () => Array.from(pendingPermissions.values()),
+      [pendingPermissions],
     );
 
     const pendingPermissionsNode = useMemo(
@@ -942,8 +963,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         renderPendingPermissionsNode({
           pendingPermissions: pendingPermissionItems,
           client,
+          agentId,
+          serverId: resolvedServerId,
         }),
-      [client, pendingPermissionItems],
+      [agentId, client, pendingPermissionItems, resolvedServerId],
     );
     const turnFooterNode = useMemo(
       () =>
@@ -1658,6 +1681,11 @@ const stylesheet = StyleSheet.create((theme) => ({
   },
   permissionsContainer: {
     gap: theme.spacing[2],
+  },
+  permissionSource: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.sm,
+    marginBottom: theme.spacing[1],
   },
   listHeaderContent: {
     gap: theme.spacing[3],

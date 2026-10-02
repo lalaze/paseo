@@ -24,6 +24,8 @@ export const ja: TranslationResources = {
     },
     chooseMode: "協働モードを選択",
     launch: {
+      lastSetup: "前回の設定",
+      change: "変更",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "修正回数を使い切っても審査が修正を求める場合、審査意見があなたに届き、承認・不採用・追加修正を選べます。",
@@ -115,6 +117,15 @@ export const ja: TranslationResources = {
       acceptance: "共同作業 · 受け入れ待ち",
       enabled: "共同作業 · 有効",
       acceptanceCriteria: "受け入れ基準",
+    },
+    confirmation: {
+      approvePlan: "プランを承認",
+      accept: "受け入れる",
+      reject: "却下",
+      planHint: "プランを変更するには、メッセージ欄に内容を書いてください。",
+      changesHint: "修正を依頼するには、メッセージ欄に内容を書いてください。",
+      rejectTitle: "成果を却下しますか？",
+      rejectMessage: "変更を受け入れずにタスクを終了します。ブランチとファイルは残ります。",
     },
   },
   delegation: {
@@ -371,6 +382,7 @@ export const ja: TranslationResources = {
     historyLoadFailed: "エージェントの履歴を読み込めませんでした",
     messageCapped: "このメッセージは上限で切り詰められました（{{bytes}}バイト）。",
     permission: {
+      from: "{{agent}} からのリクエスト",
       rejectedPlan: "却下されたプラン",
       approvedPlan: "承認されたプラン",
       canceledPlan: "キャンセルされたプラン",

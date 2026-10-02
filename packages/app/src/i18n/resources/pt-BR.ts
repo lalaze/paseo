@@ -24,6 +24,8 @@ export const ptBR: TranslationResources = {
     },
     chooseMode: "Escolher modo de colaboração",
     launch: {
+      lastSetup: "Última configuração",
+      change: "Alterar",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "Quando os retrabalhos acabarem e a revisão ainda pedir mudanças, os apontamentos chegam a você para aceitar, rejeitar ou pedir alterações.",
@@ -115,6 +117,16 @@ export const ptBR: TranslationResources = {
       acceptance: "Colaboração · aguardando aceite",
       enabled: "Colaboração · ativada",
       acceptanceCriteria: "Critérios de aceite",
+    },
+    confirmation: {
+      approvePlan: "Aprovar plano",
+      accept: "Aceitar",
+      reject: "Rejeitar",
+      planHint: "Para mudar o plano, descreva na caixa de mensagem.",
+      changesHint: "Para pedir alterações, descreva-as na caixa de mensagem.",
+      rejectTitle: "Rejeitar o resultado?",
+      rejectMessage:
+        "A tarefa termina sem aceitar as alterações. A branch e os arquivos são mantidos.",
     },
   },
   delegation: {
@@ -369,6 +381,7 @@ export const ptBR: TranslationResources = {
     historyLoadFailed: "Não foi possível carregar o histórico do agente",
     messageCapped: "Esta mensagem foi truncada ({{bytes}} bytes).",
     permission: {
+      from: "Solicitado por {{agent}}",
       rejectedPlan: "Plano rejeitado",
       approvedPlan: "Plano aprovado",
       canceledPlan: "Plano cancelado",

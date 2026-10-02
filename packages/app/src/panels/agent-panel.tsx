@@ -1426,13 +1426,19 @@ const AgentStreamSection = memo(function AgentStreamSection({
       if (!agentId) {
         return EMPTY_PENDING_PERMISSION_LIST;
       }
-      const allPendingPermissions = state.sessions[serverId]?.pendingPermissions;
+      const session = state.sessions[serverId];
+      const allPendingPermissions = session?.pendingPermissions;
       if (!allPendingPermissions) {
         return EMPTY_PENDING_PERMISSION_LIST;
       }
       const filtered: PendingPermission[] = [];
       for (const permission of allPendingPermissions.values()) {
-        if (permission.agentId === agentId) {
+        // Collaboration sessions run in the background; their requests surface in the main chat.
+        const owner = session.agents.get(permission.agentId);
+        if (
+          permission.agentId === agentId ||
+          (owner?.parentAgentId === agentId && owner.labels["director-run"] !== undefined)
+        ) {
           filtered.push(permission);
         }
       }

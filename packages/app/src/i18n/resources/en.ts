@@ -21,6 +21,8 @@ export const en = {
     },
     chooseMode: "Choose collaboration mode",
     launch: {
+      lastSetup: "Last setup",
+      change: "Change",
       prompts: "Instructions",
       maxReworksHint:
         "When reworks run out and review still requests changes, its findings come to you to accept, reject or request changes.",
@@ -111,6 +113,15 @@ export const en = {
       acceptance: "Collaboration · awaiting acceptance",
       enabled: "Collaboration · enabled",
       acceptanceCriteria: "Acceptance criteria",
+    },
+    confirmation: {
+      approvePlan: "Approve plan",
+      accept: "Accept",
+      reject: "Reject",
+      planHint: "To change the plan, describe it in the message box.",
+      changesHint: "To request changes, describe them in the message box.",
+      rejectTitle: "Reject the result?",
+      rejectMessage: "The task ends without accepting the changes. The branch and files are kept.",
     },
   },
   delegation: {
@@ -363,6 +374,7 @@ export const en = {
     historyLoadFailed: "Couldn't load agent history",
     messageCapped: "This message was capped ({{bytes}} bytes).",
     permission: {
+      from: "Requested by {{agent}}",
       rejectedPlan: "Rejected plan",
       approvedPlan: "Approved plan",
       canceledPlan: "Canceled plan",

@@ -24,6 +24,8 @@ export const zhCN: TranslationResources = {
     },
     chooseMode: "选择协作模式",
     launch: {
+      lastSetup: "上次的设置",
+      change: "修改",
       prompts: "提示词",
       maxReworksHint:
         "返工次数用完后，若审核仍要求修改，将直接把审核意见交给你决定验收、不采纳或继续修改。",
@@ -112,6 +114,15 @@ export const zhCN: TranslationResources = {
       acceptance: "协作 · 待验收",
       enabled: "协作 · 已启用",
       acceptanceCriteria: "验收标准",
+    },
+    confirmation: {
+      approvePlan: "批准方案",
+      accept: "验收通过",
+      reject: "不采纳",
+      planHint: "如需调整方案，在输入框中说明。",
+      changesHint: "如需修改，在输入框中描述要改的内容。",
+      rejectTitle: "不采纳成果？",
+      rejectMessage: "任务将结束，不采纳本次成果。分支和文件会保留。",
     },
   },
   delegation: {
@@ -364,6 +375,7 @@ export const zhCN: TranslationResources = {
     historyLoadFailed: "无法加载智能体历史记录",
     messageCapped: "此消息已被截断（{{bytes}} 字节）。",
     permission: {
+      from: "来自 {{agent}}",
       rejectedPlan: "已拒绝的计划",
       approvedPlan: "已批准的计划",
       canceledPlan: "已取消的计划",

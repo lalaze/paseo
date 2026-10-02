@@ -24,6 +24,8 @@ export const es: TranslationResources = {
     },
     chooseMode: "Elegir modo de colaboración",
     launch: {
+      lastSetup: "Última configuración",
+      change: "Cambiar",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "Cuando se agoten las correcciones y la revisión siga pidiendo cambios, sus observaciones llegan a ti para aceptar, rechazar o pedir cambios.",
@@ -116,6 +118,16 @@ export const es: TranslationResources = {
       acceptance: "Colaboración · pendiente de aceptación",
       enabled: "Colaboración · activada",
       acceptanceCriteria: "Criterios de aceptación",
+    },
+    confirmation: {
+      approvePlan: "Aprobar plan",
+      accept: "Aceptar",
+      reject: "Rechazar",
+      planHint: "Para cambiar el plan, descríbelo en el cuadro de mensaje.",
+      changesHint: "Para pedir cambios, descríbelos en el cuadro de mensaje.",
+      rejectTitle: "¿Rechazar el resultado?",
+      rejectMessage:
+        "La tarea termina sin aceptar los cambios. La rama y los archivos se conservan.",
     },
   },
   delegation: {
@@ -372,6 +384,7 @@ export const es: TranslationResources = {
     historyLoadFailed: "No se pudo cargar el historial del agente",
     messageCapped: "Este mensaje fue truncado ({{bytes}} bytes).",
     permission: {
+      from: "Solicitado por {{agent}}",
       rejectedPlan: "Plan rechazado",
       approvedPlan: "Plan aprobado",
       canceledPlan: "Plan cancelado",

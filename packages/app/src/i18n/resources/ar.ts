@@ -24,6 +24,8 @@ export const ar: TranslationResources = {
     },
     chooseMode: "اختيار وضع التعاون",
     launch: {
+      lastSetup: "آخر إعداد",
+      change: "تغيير",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "عند نفاد مرات إعادة العمل مع استمرار المراجعة في طلب تغييرات، تصلك ملاحظاتها لتقبل النتيجة أو ترفضها أو تطلب تعديلات.",
@@ -113,6 +115,15 @@ export const ar: TranslationResources = {
       acceptance: "التعاون · بانتظار القبول",
       enabled: "التعاون · مُفعّل",
       acceptanceCriteria: "معايير القبول",
+    },
+    confirmation: {
+      approvePlan: "الموافقة على الخطة",
+      accept: "قبول",
+      reject: "رفض",
+      planHint: "لتغيير الخطة، اكتب التغيير في مربع الرسالة.",
+      changesHint: "لطلب تعديلات، اكتبها في مربع الرسالة.",
+      rejectTitle: "رفض النتيجة؟",
+      rejectMessage: "تنتهي المهمة دون قبول التغييرات. يُحتفظ بالفرع والملفات.",
     },
   },
   delegation: {
@@ -367,6 +378,7 @@ export const ar: TranslationResources = {
     historyLoadFailed: "تعذر تحميل سجل الوكيل",
     messageCapped: "تم اقتطاع هذه الرسالة ({{bytes}} بايت).",
     permission: {
+      from: "طلب من {{agent}}",
       rejectedPlan: "خطة مرفوضة",
       approvedPlan: "خطة معتمدة",
       canceledPlan: "خطة ملغاة",

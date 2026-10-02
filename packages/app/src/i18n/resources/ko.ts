@@ -24,6 +24,8 @@ export const ko: TranslationResources = {
     },
     chooseMode: "협업 모드 선택",
     launch: {
+      lastSetup: "지난 설정",
+      change: "변경",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "재작업 횟수를 모두 쓴 뒤에도 검토에서 수정을 요청하면, 검토 의견이 전달되어 수락·거절·추가 수정을 선택할 수 있습니다.",
@@ -113,6 +115,15 @@ export const ko: TranslationResources = {
       acceptance: "협업 · 인수 확인 대기",
       enabled: "협업 · 활성화됨",
       acceptanceCriteria: "인수 기준",
+    },
+    confirmation: {
+      approvePlan: "계획 승인",
+      accept: "수락",
+      reject: "거절",
+      planHint: "계획을 바꾸려면 메시지 입력란에 적어 주세요.",
+      changesHint: "수정을 요청하려면 메시지 입력란에 내용을 적어 주세요.",
+      rejectTitle: "결과를 거절할까요?",
+      rejectMessage: "변경 사항을 수락하지 않고 작업을 종료합니다. 브랜치와 파일은 유지됩니다.",
     },
   },
   delegation: {
@@ -366,6 +377,7 @@ export const ko: TranslationResources = {
     historyLoadFailed: "에이전트 기록을 로드할 수 없습니다.",
     messageCapped: "이 메시지는 길이 제한으로 잘렸습니다({{bytes}}바이트).",
     permission: {
+      from: "{{agent}}의 요청",
       rejectedPlan: "거부된 계획",
       approvedPlan: "승인된 계획",
       canceledPlan: "취소된 계획",

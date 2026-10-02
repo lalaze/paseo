@@ -24,6 +24,8 @@ export const fr: TranslationResources = {
     },
     chooseMode: "Choisir le mode de collaboration",
     launch: {
+      lastSetup: "Dernière configuration",
+      change: "Modifier",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:
         "Une fois les corrections épuisées, si la revue demande encore des changements, ses remarques vous sont transmises pour accepter, refuser ou demander des modifications.",
@@ -117,6 +119,16 @@ export const fr: TranslationResources = {
       acceptance: "Collaboration · en attente de validation",
       enabled: "Collaboration · activée",
       acceptanceCriteria: "Critères de validation",
+    },
+    confirmation: {
+      approvePlan: "Approuver le plan",
+      accept: "Accepter",
+      reject: "Refuser",
+      planHint: "Pour modifier le plan, décrivez-le dans la zone de message.",
+      changesHint: "Pour demander des modifications, décrivez-les dans la zone de message.",
+      rejectTitle: "Refuser le résultat ?",
+      rejectMessage:
+        "La tâche se termine sans accepter les modifications. La branche et les fichiers sont conservés.",
     },
   },
   delegation: {
@@ -375,6 +387,7 @@ export const fr: TranslationResources = {
     historyLoadFailed: "Impossible de charger l’historique de l’agent",
     messageCapped: "Ce message a été tronqué ({{bytes}} octets).",
     permission: {
+      from: "Demandé par {{agent}}",
       rejectedPlan: "Plan refusé",
       approvedPlan: "Plan approuvé",
       canceledPlan: "Plan annulé",
