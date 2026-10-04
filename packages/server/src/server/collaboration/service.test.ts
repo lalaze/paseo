@@ -9,6 +9,7 @@ import { DaemonClient } from "../test-utils/daemon-client.js";
 import { readCollaborationPrompt } from "@getpaseo/protocol/collaboration/presentation";
 import { finalAcceptance, SettingsSchema } from "@getpaseo/protocol/collaboration/schema";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
+import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 import { createTestPaseoDaemon } from "../test-utils/paseo-daemon.js";
 import { createTestAgentClients } from "../test-utils/fake-agent-client.js";
 import type {
@@ -33,8 +34,9 @@ class NativeToolClient implements AgentClient {
   isAvailable() {
     return this.inner.isAvailable();
   }
-  fetchCatalog(...args: Parameters<AgentClient["fetchCatalog"]>) {
-    return this.inner.fetchCatalog(...args);
+  async fetchCatalog(...args: Parameters<AgentClient["fetchCatalog"]>) {
+    const catalog = await this.inner.fetchCatalog(...args);
+    return { ...catalog, modes: getAgentProviderDefinition(this.provider)!.modes };
   }
   private capture(config: AgentSessionConfig, context?: AgentLaunchContext) {
     if (!context?.agentId || !context.paseoTools) throw new Error("Missing native tool catalog");
@@ -157,7 +159,7 @@ test.for(["full", "execute_review"] as const)(
           id: "native",
           label: "Native Codex",
           provider: "codex/gpt-5.4-mini",
-          modeId: "full-access",
+          modeId: "auto",
           transport: "mcp",
         },
       ],
@@ -178,7 +180,7 @@ test.for(["full", "execute_review"] as const)(
       model: "gpt-5.4-mini",
       cwd: repo,
       title: "Existing main",
-      modeId: "full-access",
+      modeId: "auto",
     });
     const opened = await client.collaborationCommand("conversation.open", {
       mode,
@@ -230,6 +232,8 @@ test.for(["full", "execute_review"] as const)(
     const child = daemon.daemon.agentManager.getAgent(execution.agentId!)!;
     expect(child.labels[PARENT_AGENT_ID_LABEL]).toBe(main.id);
     expect(child.workspaceId).toBe(main.workspaceId);
+    expect(provider.configs.get(child.id)?.modeId).toBe("full-access");
+    expect(daemon.daemon.agentManager.getAgent(main.id)!.currentModeId).toBe("auto");
     expect(provider.configs.get(child.id)?.model).toBe("gpt-5.4-mini");
     expect(provider.configs.get(child.id)?.mcpServers?.director).toBeUndefined();
     expect(provider.workerResults).toHaveLength(1);
@@ -246,6 +250,7 @@ test.for(["full", "execute_review"] as const)(
       expect(current().operations.map((op) => op.kind)).toEqual(["execute", "final"]);
       expect(final.agentId).not.toBe(execution.agentId);
       expect(final.agentId).not.toBe(main.id);
+      expect(provider.configs.get(final.agentId!)?.modeId).toBe("full-access");
       expect(
         daemon.daemon.agentManager.getAgent(final.agentId!)!.labels[PARENT_AGENT_ID_LABEL],
       ).toBe(main.id);

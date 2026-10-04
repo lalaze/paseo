@@ -1122,6 +1122,31 @@ test("extension inherits base override — override claude command, zai extends 
   ).toBe(true);
 });
 
+test.each([
+  { provider: "codex", base: "codex", modeId: "full-access" },
+  { provider: "claude", base: "claude", modeId: "bypassPermissions" },
+  { provider: "custom-codex", base: "codex", modeId: "full-access" },
+])(
+  "catalog retains unattended mode authority for $provider",
+  async ({ provider, base, modeId }) => {
+    const registry = buildProviderRegistry(logger, {
+      providerOverrides: {
+        [provider]: { extends: base, label: "Test provider" },
+      },
+    });
+    const client = registry[provider].createClient(logger);
+    const mode = { id: modeId, label: "Full Access", icon: "ShieldOff", colorTier: "dangerous" };
+    vi.spyOn(client, "fetchCatalog").mockResolvedValue({ models: [], modes: [mode] });
+
+    const catalog = await registry[provider].fetchCatalog(
+      { scope: "workspace", cwd: "/tmp/registry-modes" },
+      client,
+    );
+
+    expect(catalog.modes).toEqual([{ ...mode, isUnattended: true }]);
+  },
+);
+
 describe("model merging", () => {
   test("profile models replace runtime models", async () => {
     mockState.runtimeModels.set("codex", [

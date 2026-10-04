@@ -60,9 +60,8 @@ export interface CollaborationHost {
 }
 
 /**
- * Role agents are children of the conversation, and agent creation refuses to copy a caller's
- * mode onto another provider. A profile saved without a mode (the provider declared no default
- * when it was chosen) then gets the target provider's default, picked like the agent form does.
+ * Workers and independent reviewers must not inherit the conversation's approval gates or the
+ * provider default saved by the model picker. Providers own their unattended mode identities.
  */
 export function profileCreateMode(input: {
   profileMode: string | undefined;
@@ -70,7 +69,12 @@ export function profileCreateMode(input: {
   targetProvider: string;
   defaultModeId: string | null | undefined;
   modes: AgentMode[];
+  unattended?: boolean;
 }): string | undefined {
+  if (input.unattended) {
+    const unattendedMode = input.modes.find((mode) => mode.isUnattended);
+    if (unattendedMode) return unattendedMode.id;
+  }
   if (input.profileMode) return input.profileMode;
   if (!input.parentProvider || input.parentProvider === input.targetProvider) return undefined;
   if (input.defaultModeId && input.modes.some((mode) => mode.id === input.defaultModeId))
@@ -180,7 +184,8 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     parent?: string,
   ) {
     const cwd = await this.workspaceDirectory(workspaceId);
-    const mode = await this.createMode(profile, cwd, parent);
+    const unattended = ["worker", "reviewer"].includes(labels["director-role"]);
+    const mode = await this.createMode(profile, cwd, parent, unattended);
     const { snapshot } = await this.host.createAgent({
       kind: "mcp",
       provider: profile.provider,
@@ -190,6 +195,7 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
       config: { systemPrompt },
       features: profile.featureValues,
       mode,
+      unattended,
       thinking: profile.thinkingOptionId,
       labels,
       background: true,
@@ -199,11 +205,16 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     this.host.assertToolsEnabled(snapshot.id, ROLE_TOOLS[labels["director-role"]]);
     return snapshot.id;
   }
-  private async createMode(profile: Profile, cwd: string, parent: string | undefined) {
-    if (profile.modeId || !parent) return profile.modeId;
+  private async createMode(
+    profile: Profile,
+    cwd: string,
+    parent: string | undefined,
+    unattended: boolean,
+  ) {
+    if (!unattended && (profile.modeId || !parent)) return profile.modeId;
     const targetProvider = resolveRequiredProviderModel(profile.provider).provider;
-    const parentProvider = this.host.agentManager.getAgent(parent)?.provider;
-    if (!parentProvider || parentProvider === targetProvider) return undefined;
+    const parentProvider = parent ? this.host.agentManager.getAgent(parent)?.provider : undefined;
+    if (!unattended && (!parentProvider || parentProvider === targetProvider)) return undefined;
     const { defaultModeId, modes } = await this.host.getProviderModes(targetProvider, cwd);
     return profileCreateMode({
       profileMode: profile.modeId,
@@ -211,6 +222,7 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
       targetProvider,
       defaultModeId,
       modes: modes ?? [],
+      unattended,
     });
   }
   async create(run: Run, op: Operation, profile: Profile) {

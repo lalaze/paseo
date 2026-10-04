@@ -911,6 +911,28 @@ test("role agents on another provider than the conversation use that provider's 
   );
 });
 
+test("unattended role sessions use full access despite saved defaults or the conversation provider", () => {
+  const modes = [
+    { id: "auto", label: "Default" },
+    { id: "full-access", label: "Full Access", isUnattended: true },
+  ];
+  for (const parentProvider of [undefined, "codex", "claude"]) {
+    for (const profileMode of [undefined, "auto"]) {
+      assert.equal(
+        profileCreateMode({
+          profileMode,
+          parentProvider,
+          targetProvider: "codex",
+          defaultModeId: "auto",
+          modes,
+          unattended: true,
+        }),
+        "full-access",
+      );
+    }
+  }
+});
+
 test("stopping skips sessions that are not loaded and reports a refused interrupt", async () => {
   const canceled: string[] = [];
   const host = {

@@ -102,8 +102,12 @@ It records a note with `control_task` `note`; every later execution and review s
 notes, and a step already queued gets them when it is sent. No re-plan happens. Revise is for a
 changed goal and re-plans from scratch.
 
-A permission request from an implementation or review session also appears in the main
-conversation, labeled with the session it came from, so you can answer it there.
+New implementation and independent review sessions run with the provider's unattended permissions,
+including when the model picker saved its normal default mode or the main conversation asks for
+approval. The main conversation retains its selected mode. Providers without an unattended mode
+use their automatic permission acceptance feature. A permission request that still needs an answer
+also appears in the main conversation, labeled with the session it came from, so you can answer it
+there. Existing role sessions retain their permissions until replaced.
 
 Network and server-side provider failures (`EOF`, connection resets, 5xx, overloaded) retry by
 themselves after 30 seconds, 2 minutes and 5 minutes before the run needs attention. Quota,
