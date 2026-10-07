@@ -93,6 +93,7 @@ import { useAgentAutocomplete } from "@/hooks/use-agent-autocomplete";
 import { useMentionableAgents } from "@/hooks/use-mentionable-agents";
 import { expandAgentMentions } from "@/utils/agent-mention";
 import { usePluginClientSlashCommands } from "@/plugins/client-slash-commands";
+import { usePluginComposerDraft } from "@/plugins/composer-draft";
 import {
   executePluginClientSlashCommand,
   resolvePluginClientSlashCommand,
@@ -1430,6 +1431,13 @@ function ComposerContentImpl({
     },
     [onChangeText],
   );
+
+  usePluginComposerDraft({
+    serverId,
+    agentId,
+    getText: () => messageInputRef.current?.getText() ?? textSource.getSnapshot(),
+    replaceText: replaceUserInput,
+  });
 
   const runClientSlashCommand = useCallback(
     (command: ClientSlashCommand): boolean => {

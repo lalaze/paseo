@@ -8,6 +8,7 @@ import {
   createPluginWorkspaceActionContext,
 } from "./actions";
 import { createPluginClientStateSource } from "./client-state/source";
+import { createPluginComposerDraft } from "./composer-draft";
 import type { PluginClientRuntime } from "./evaluate";
 import { createPluginNavigation } from "./navigation";
 import { pluginButtonStore } from "./buttons";
@@ -35,6 +36,7 @@ export function createPluginClientRuntime(
     addHeaderButton(contribution) {
       return pluginButtonStore.addHeaderButton(installation, contribution);
     },
+    composer: createPluginComposerDraft(installation.serverId),
     openPanel(panelId, options) {
       openClientPanel({ installation, runtime, state, panelId, options });
     },

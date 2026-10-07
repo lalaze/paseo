@@ -80,6 +80,7 @@ export type PluginClientRuntime = Pick<
   | "openPanel"
   | "addComposerPill"
   | "addHeaderButton"
+  | "composer"
 > & { hosts: ReturnType<typeof createPluginHosts> };
 
 export function runPluginClientBundle(

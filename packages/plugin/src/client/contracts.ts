@@ -84,9 +84,18 @@ export interface PluginClientOpenPanelOptions extends PluginOpenPanelOptions {
   agentId?: string;
 }
 
+/** Reads and replaces the text in an agent's composer on this host. */
+export interface PluginComposerDraft {
+  getText(target: { agentId: string }): string;
+  /** Replaces the whole draft; a mounted composer shows the new text immediately. */
+  replaceText(target: { agentId: string }, text: string): void;
+}
+
 export interface PluginClientContext extends PluginCommandCapabilities {
   /** Whether timeline transformers can append UI while preserving the source row. */
   readonly supportsTimelineAfter?: true;
+  /** Present on clients that let plugins edit the composer draft. */
+  readonly composer?: PluginComposerDraft;
   addSettingsScreen(contribution: PluginSettingsScreenContribution): PluginCleanup;
   addSurface(id: string, Component: ComponentType<PluginSurfaceProps>): PluginCleanup;
   addSidebarItem(contribution: PluginSidebarContribution): PluginCleanup;
