@@ -59,7 +59,8 @@ session, up to twice, before the run needs attention. The launch dialog's
 branch in the source checkout while retaining staged, unstaged and untracked changes, so it must
 start from the project root. New worktree creates a Paseo worktree workspace on `director/<run-id>`
 at the repository root, even when started from a subdirectory, because evidence captures the whole
-worktree. Uncommitted changes stay in the source checkout. Setup hooks run to completion before
+worktree. The sidebar hides that workspace; its sessions open from the main conversation.
+Uncommitted changes stay in the source checkout. Setup hooks run to completion before
 workers start, unlike `create_workspace`, which runs them in the background; an untrusted change
 request checkout refuses until you run its setup. A retry reuses that worktree when its branch is
 still `director/<run-id>`, and checks a leftover branch out again, keeping its tip as the review

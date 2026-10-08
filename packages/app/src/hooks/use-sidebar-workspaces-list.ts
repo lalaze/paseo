@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
+import {
+  hideSidebarWorkspaces,
+  selectCollaborationWorktreeKeys,
+} from "@/collaboration/sidebar-worktrees";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useWorkspaceDirectoryServerIds } from "@/stores/session-store-hooks";
@@ -139,13 +143,18 @@ export function useSidebarWorkspacesList(options?: {
   const directoryServerIds = useWorkspaceDirectoryServerIds(serverIds);
 
   const hostProjects = useHostProjects(directoryServerIds);
+  const collaborationWorktreeKeys = useStoreWithEqualityFn(
+    useSessionStore,
+    (state) => selectCollaborationWorktreeKeys(state.sessions, directoryServerIds),
+    workspaceEqualityFns.deep,
+  );
 
   const sidebarModel = useMemo(
     () =>
       buildSidebarWorkspacePlacementModel({
-        projects: hostProjects,
+        projects: hideSidebarWorkspaces(hostProjects, collaborationWorktreeKeys),
       }),
-    [hostProjects],
+    [collaborationWorktreeKeys, hostProjects],
   );
 
   const projects = sidebarModel.projects.length > 0 ? sidebarModel.projects : EMPTY_PROJECTS;
