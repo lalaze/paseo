@@ -76,7 +76,8 @@ import { TitlebarDragRegion } from "@/components/desktop/titlebar-drag-region";
 import { WindowChromeRegion, WindowChromeSafeArea } from "@/utils/desktop-window";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { BackHeader } from "@/components/headers/back-header";
-import { ScreenHeader } from "@/components/headers/screen-header";
+import { MenuHeader } from "@/components/headers/menu-header";
+import { PageLayout } from "@/components/page-layout";
 import { AddHostMethodModal } from "@/components/add-host-method-modal";
 import { AddHostModal } from "@/components/add-host-modal";
 import { AddRemoteSshHostModal } from "@/components/add-remote-ssh-host-modal";
@@ -1329,33 +1330,38 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
   }, []);
 
   const installedPlugins = useInstalledPlugins();
-  const detailHeader = ((): {
-    title: string;
-    titleAccessory?: ReactNode;
-  } | null => {
-    if (view.kind === "wallpapers") return { title: t("settings.appearance.bing.archive") };
-    if (view.kind === "collaboration-history") return { title: t("collaboration.history.title") };
+  const detailTitle = ((): string | undefined => {
+    if (view.kind === "wallpapers") return t("settings.appearance.bing.archive");
+    if (view.kind === "collaboration-history") return t("collaboration.history.title");
     if (view.kind === "plugin") {
       const screen = installedPlugins
         .find((plugin) => plugin.serverId === view.serverId && plugin.id === view.pluginId)
         ?.settingsScreens.find((candidate) => candidate.id === view.screenId);
-      return { title: `${view.pluginId} · ${screen?.title ?? t("settings.title")}` };
+      return `${view.pluginId} · ${screen?.title ?? t("settings.title")}`;
     }
     if (view.kind === "host") {
       const item = HOST_SECTION_ITEMS.find((s) => s.id === view.section);
-      if (!item) return null;
-      return { title: t(item.labelKey) };
+      return item ? t(item.labelKey) : undefined;
     }
     if (view.kind === "section") {
       const item = SIDEBAR_SECTION_ITEMS.find((s) => s.id === view.section);
-      if (!item) return null;
-      return { title: t(item.labelKey) };
+      return item ? t(item.labelKey) : undefined;
     }
     if (view.kind === "project") {
-      return { title: t("settings.projects") };
+      return t("settings.projects");
     }
-    return null;
+    return undefined;
   })();
+
+  const wallpaperTitle = useMemo(
+    () =>
+      !isCompactLayout ? (
+        <Text style={styles.pageTitle} testID="settings-detail-header-title">
+          {detailTitle}
+        </Text>
+      ) : undefined,
+    [isCompactLayout, detailTitle],
+  );
 
   const content: ReactNode = (() => {
     if (view.kind === "collaboration-history")
@@ -1372,6 +1378,8 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
           serverId={view.serverId}
           pluginId={view.pluginId}
           screenId={view.screenId}
+          onBackToPlugins={handleBackFromDetail}
+          showBackToPlugins={!isCompactLayout}
         />
       );
     if (view.kind === "host") {
@@ -1433,31 +1441,21 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
     );
   }
 
-  const desktopPageTitle = detailHeader ? (
-    <View style={styles.pageTitleRow}>
-      <Text style={styles.pageTitle} testID="settings-detail-header-title">
-        {detailHeader.title}
-      </Text>
-      {detailHeader.titleAccessory}
-    </View>
-  ) : null;
-
-  // The wallpaper library owns its scroll view so it can load more on scroll.
-  const renderDetailBody = (pageTitle: ReactNode) =>
+  const wallpaperContent =
     view.kind === "wallpapers" ? (
-      <WallpaperLibraryPage
-        onBack={handleBackFromDetail}
-        showBack={!isCompactLayout}
-        title={pageTitle}
-      />
-    ) : (
-      <ScrollView style={styles.scrollView} contentContainerStyle={insetBottomStyle}>
-        <View style={styles.content}>
-          {pageTitle}
-          {content}
-        </View>
-      </ScrollView>
-    );
+      <>
+        {isCompactLayout ? (
+          <BackHeader title={detailTitle} onBack={handleBackFromDetail} />
+        ) : (
+          <MenuHeader borderless />
+        )}
+        <WallpaperLibraryPage
+          onBack={handleBackFromDetail}
+          showBack={!isCompactLayout}
+          title={wallpaperTitle}
+        />
+      </>
+    ) : null;
 
   const addHostModals = (
     <>
@@ -1515,12 +1513,11 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
   if (isCompactLayout) {
     return (
       <View style={styles.container}>
-        <BackHeader
-          title={detailHeader?.title}
-          titleAccessory={detailHeader?.titleAccessory}
-          onBack={handleBackFromDetail}
-        />
-        {renderDetailBody(null)}
+        {wallpaperContent ?? (
+          <PageLayout title={detailTitle} onBack={handleBackFromDetail}>
+            {content}
+          </PageLayout>
+        )}
         {addHostModals}
       </View>
     );
@@ -1546,10 +1543,11 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
         </WindowChromeRegion>
         <WindowChromeRegion corners="top-right">
           <View style={desktopStyles.contentPane} testID="settings-detail-pane">
-            {/* Keeps the titlebar drag region and window controls; the page
-                title lives in the content, like a document heading. */}
-            <ScreenHeader borderless />
-            {renderDetailBody(desktopPageTitle)}
+            {wallpaperContent ?? (
+              <PageLayout title={detailTitle} titleTestID="settings-detail-header-title">
+                {content}
+              </PageLayout>
+            )}
           </View>
         </WindowChromeRegion>
       </View>
@@ -1563,6 +1561,11 @@ export default function SettingsScreen({ view, openAddHostIntent = null }: Setti
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create((theme) => ({
+  pageTitle: {
+    fontSize: theme.fontSize["4xl"],
+    fontWeight: theme.fontWeight.medium,
+    color: theme.colors.foreground,
+  },
   loadingContainer: {
     flex: 1,
     backgroundColor: theme.colors.surfaceCanvas,
@@ -1579,26 +1582,6 @@ const styles = StyleSheet.create((theme) => ({
   },
   scrollView: {
     flex: 1,
-  },
-  content: {
-    padding: theme.spacing[4],
-    paddingTop: theme.spacing[6],
-    width: "100%",
-    maxWidth: 720,
-    alignSelf: "center",
-  },
-  pageTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    // Line up with the section titles, which sit inset from their cards.
-    marginLeft: theme.spacing[1],
-    marginBottom: theme.spacing[6],
-  },
-  pageTitle: {
-    fontSize: theme.fontSize["4xl"],
-    fontWeight: theme.fontWeight.medium,
-    color: theme.colors.foreground,
   },
   aboutValue: {
     color: theme.colors.foregroundMuted,

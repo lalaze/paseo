@@ -18,11 +18,7 @@ import {
 import path from "node:path";
 import { promisify, parseArgs } from "node:util";
 import { isMainModule } from "./is-main-module.mjs";
-import {
-  installQuotaPatches,
-  quotaCompatibilityFiles,
-  verifyQuotaPatches,
-} from "./personal-quota/install.mjs";
+import { installQuotaPatches, verifyQuotaPatches } from "./personal-quota/install.mjs";
 
 const exec = promisify(execFile);
 const repo = path.resolve(import.meta.dirname, "..");
@@ -145,12 +141,7 @@ async function prepare(root, sourceInfo) {
     capture: true,
     env: { ...process.env, PASEO_TRACE_DESKTOP: "0" },
   });
-  const files = new Set([
-    ...traced.trim().split("\n"),
-    "package.json",
-    "LICENSE",
-    ...quotaCompatibilityFiles,
-  ]);
+  const files = new Set([...traced.trim().split("\n"), "package.json", "LICENSE"]);
   await copyRuntime({ source: repo, destination: release, files });
   await cp(
     path.join(repo, "packages/server/dist/server/web-ui"),

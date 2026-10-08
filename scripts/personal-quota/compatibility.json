@@ -1,12 +1,12 @@
 {
   "serverFiles": {
-    "dist/server/services/quota-fetcher/manifest.js": "91be7461fc529013deeb1b129bb88d5669248e15be6438bdf9cc56a948b826d1",
-    "dist/server/services/quota-fetcher/provider.d.ts": "2caef6ad40d6ec4107859ef27f2c36077e0d14e16194a36da1f42aa8aeb57c9d",
-    "dist/server/services/quota-fetcher/service.js": "367946d1f44ab720b52af3d7769233c36800ecf22db1450090dc725dc886afcd",
-    "dist/server/services/quota-fetcher/usage.js": "5babe54420c46f01dc75d451486d9a717203f0ed4c346b4faee846f32b65de84"
+    "dist/server/server/plugins/builtin/index.js": "0da6afc30db80b98e7121d25746a433330c94970c3ab0c8f5b5a38a4bde55291",
+    "dist/server/server/plugins/usage-sources/index.js": "ae5a76cc09915628b5f746547ce1b49647e046e5e2160634d5b3ee75455ad697",
+    "dist/server/builtin-plugins/kimi-usage-source/server/usage.ts": "3ad4c8136d2c334066efdfd3a805efe6aeb783ecffcb84e142c47c6cd2f3d7e1",
+    "dist/server/builtin-plugins/kimi-usage-source/shared/input.ts": "6cb78455e1c55761fe052ef0df9a327a14dc21998a933ce66c704731ba96e595"
   },
   "nodePtyVersion": "1.2.0-beta.15",
-  "protocolUsageSha256": "6d89d94f1aec5ac364f1ceaa814267587ade3a4809c5b2bd1f0b01b8bc372dc0",
-  "kimiFileSha256": "3f21213132983b4fcfe7b314a85de256388ceba601fda209f060940d7158cef7",
-  "source": "lalaze/paseo-plugins@34f097f42627b5794d78675c05cc03820fd37f82/agy-quota"
+  "protocolUsageSha256": "24fc08a1b2e9da888138cbdf1b114bf70ac4cec667d0d3fd5ce66011f2b06a69",
+  "source": "lalaze/paseo-plugins@34f097f42627b5794d78675c05cc03820fd37f82/agy-quota",
+  "usageSdkSha256": "2a3021eae48144b0c40836071cd6e876999e058e61050b7f022de703365df747"
 }

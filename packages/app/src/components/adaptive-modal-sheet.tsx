@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { Modal, Platform, Pressable, Text, View } from "react-native";
+import { Keyboard, Pressable, Text, View } from "react-native";
 import type { DimensionValue, StyleProp, ViewStyle } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -13,13 +13,11 @@ import {
   useWebOverlayRegistration,
 } from "../lib/overlay-root";
 import {
-  BottomSheetBackdrop,
   KEYBOARD_STATUS,
   useBottomSheetInternal,
   type BottomSheetBackgroundProps,
 } from "@gorhom/bottom-sheet";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { ArrowLeft, Search, X } from "lucide-react-native";
 import {
   IsolatedBottomSheetModal,
@@ -75,10 +73,14 @@ export interface SheetHeader {
 
 const SCROLL_CONTENT_GROW = { flexGrow: 1 };
 const ABSOLUTE_FILL_STYLE = { ...StyleSheet.absoluteFillObject };
+const NATIVE_DIALOG_SNAP_POINTS = ["100%"];
 
 const styles = StyleSheet.create((theme) => ({
-  nativeModalRoot: {
+  nativeDialogSurface: {
     flex: 1,
+  },
+  nativeDialogBackground: {
+    backgroundColor: "transparent",
   },
   desktopOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -478,7 +480,7 @@ export interface AdaptiveModalSheetProps {
   contentStyle?: StyleProp<ViewStyle>;
   /** Size compact sheet content to the live snap height instead of its largest snap point. */
   sizeContentToCurrentSnapPoint?: boolean;
-  /** Re-establishes caller-owned contexts inside the compact bottom-sheet portal. */
+  /** Re-establishes caller-owned contexts inside the native or compact sheet portal. */
   contextBridge?: ContextBridge | null;
 }
 
@@ -537,8 +539,9 @@ export function AdaptiveModalSheet({
     () => ({ backgroundColor: theme.colors.palette.zinc[600] }),
     [theme.colors.palette.zinc],
   );
-  const sheetCloseState = useRef({ isMobile, onClose, mounted: true });
-  sheetCloseState.current = { isMobile, onClose, mounted: true };
+  const isSheetEnabled = isMobile || !isWeb;
+  const sheetCloseState = useRef({ isSheetEnabled, onClose, mounted: true });
+  sheetCloseState.current = { isSheetEnabled, onClose, mounted: true };
   useEffect(() => {
     sheetCloseState.current.mounted = true;
     return () => {
@@ -550,42 +553,29 @@ export function AdaptiveModalSheet({
   const closeMobileSheet = useCallback(() => {
     requestAnimationFrame(() => {
       const current = sheetCloseState.current;
-      if (current.mounted && current.isMobile) current.onClose();
+      if (current.mounted && current.isSheetEnabled) current.onClose();
     });
   }, []);
+  useEffect(() => {
+    if (!isWeb && visible) {
+      // A newly opened sheet owns input. A keyboard belonging to the sheet below
+      // would cover controls in the new sheet, which has no focused input yet.
+      Keyboard.dismiss();
+    }
+  }, [visible]);
+
   const { sheetRef, handleSheetChange, handleSheetDismiss } = useIsolatedBottomSheetVisibility({
     visible,
-    isEnabled: isMobile,
+    isEnabled: isSheetEnabled,
     onClose: closeMobileSheet,
   });
   const [shouldRenderWeb, setShouldRenderWeb] = useState(visible);
   const [isWebClosing, setIsWebClosing] = useState(false);
   const modalLayer = useGlobalWebOverlayLayer("modal", isWeb && !isMobile && shouldRenderWeb);
-  const nativeModalDismissNotifiedRef = useRef(!visible);
   const handleDismiss = useCallback(() => {
     handleSheetDismiss();
     onDismiss?.();
   }, [handleSheetDismiss, onDismiss]);
-  const notifyNativeModalDismiss = useCallback(() => {
-    if (nativeModalDismissNotifiedRef.current) {
-      return;
-    }
-    nativeModalDismissNotifiedRef.current = true;
-    onDismiss?.();
-  }, [onDismiss]);
-
-  const renderBackdrop = useCallback(
-    (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.45}
-        pressBehavior={dismissible ? "close" : "none"}
-      />
-    ),
-    [dismissible],
-  );
 
   const desktopCardStyle = useMemo(
     () => [
@@ -626,12 +616,6 @@ export function AdaptiveModalSheet({
   });
 
   useEffect(() => {
-    if (visible) {
-      nativeModalDismissNotifiedRef.current = false;
-    }
-  }, [visible]);
-
-  useEffect(() => {
     if (!isWeb || isMobile) return;
     if (visible) {
       setShouldRenderWeb(true);
@@ -647,12 +631,6 @@ export function AdaptiveModalSheet({
     }, WEB_EXIT_DURATION_MS);
     return () => window.clearTimeout(timeout);
   }, [visible, isMobile, onDismiss, shouldRenderWeb]);
-
-  useEffect(() => {
-    if (isWeb || isMobile || visible || Platform.OS !== "android") return;
-    const timeout = setTimeout(notifyNativeModalDismiss, 0);
-    return () => clearTimeout(timeout);
-  }, [visible, isMobile, notifyNativeModalDismiss]);
 
   if (isMobile) {
     const sheetContent = (
@@ -696,7 +674,8 @@ export function AdaptiveModalSheet({
         enableDynamicSizing={false}
         onChange={handleSheetChange}
         onDismiss={handleDismiss}
-        backdropComponent={renderBackdrop}
+        backdropOpacity={0.45}
+        backdropDismissible={dismissible}
         enablePanDownToClose={dismissible}
         backgroundComponent={SheetBackground}
         handleIndicatorStyle={handleIndicatorStyle}
@@ -757,24 +736,34 @@ export function AdaptiveModalSheet({
   );
 
   // On web, use portal to overlay root for consistent stacking with toasts
-  if (isWeb && typeof document !== "undefined") {
+  if (isWeb) {
     if (!shouldRenderWeb) return null;
     return createPortal(desktopContent, getOverlayRoot());
   }
 
   return (
-    <Modal
-      transparent
-      animationType="fade"
-      visible={visible}
-      onRequestClose={onClose}
-      onDismiss={notifyNativeModalDismiss}
-      hardwareAccelerated
+    // Both native presentations share Gorhom's app-wide stack. Independent RN Modals
+    // present from their React ancestor's controller, so a root-owned sibling dialog
+    // cannot present while that controller already has a dialog open on iOS.
+    <IsolatedBottomSheetModal
+      ref={sheetRef}
+      contextBridge={contextBridge}
+      snapPoints={NATIVE_DIALOG_SNAP_POINTS}
+      index={0}
+      enableDynamicSizing={false}
+      onChange={handleSheetChange}
+      onDismiss={handleDismiss}
+      handleComponent={null}
+      backgroundStyle={styles.nativeDialogBackground}
+      enablePanDownToClose={false}
+      enableHandlePanningGesture={false}
+      enableContentPanningGesture={false}
+      keyboardBehavior="extend"
+      keyboardBlurBehavior="restore"
+      accessible={false}
+      presentation={presentation}
     >
-      {/* Android Modal opens a separate window outside the app's gesture root. */}
-      <GestureHandlerRootView style={styles.nativeModalRoot}>
-        {desktopContent}
-      </GestureHandlerRootView>
-    </Modal>
+      <View style={styles.nativeDialogSurface}>{desktopContent}</View>
+    </IsolatedBottomSheetModal>
   );
 }

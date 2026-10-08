@@ -3,8 +3,11 @@
 The three provider payloads come from
 [`lalaze/paseo-plugins`, commit `34f097f42627b5794d78675c05cc03820fd37f82`](https://github.com/lalaze/paseo-plugins/tree/34f097f42627b5794d78675c05cc03820fd37f82/agy-quota/src).
 They retain the existing Antigravity reader and Kimi-owned credential renewal, formatted with
-this repository's formatter. The compatibility baseline comes from the same patch version;
-its quota boundaries also match Paseo 0.9.2.
+this repository's formatter. Paseo 0.11.1 moved quotas to built-in Usage sources.
+The installer reuses the Antigravity window converter through the Usage SDK, adds an in-process
+built-in source, and renews Kimi's file-backed login before its source fetches usage. Environment
+API keys remain read-only. The baseline pins the reviewed built-in registry, Kimi reader, Usage
+registry and SDK, wire schemas, and node-pty version.
 The payload directory is excluded from application lint rules so deployment integration does
 not refactor the separately maintained readers. The installer and deployment tests stay linted.
 

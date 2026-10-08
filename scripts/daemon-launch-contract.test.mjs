@@ -215,52 +215,74 @@ test("personal activation refuses a runtime missing quota patches before stoppin
   assert.equal(fixture.runtime.running, fixture.oldEntry);
 });
 
-test("personal quota patches preserve upstream providers and renew before rereading Kimi credentials", async () => {
-  const { patchQuotaModules } = await import("./personal-quota/install.mjs");
+test("personal quota patches retain built-ins and renew Kimi file credentials before reading usage", async () => {
+  const { patchQuotaModules, antigravityUsageModule, antigravityLocalModule } =
+    await import("./personal-quota/install.mjs");
   const original = {
-    manifest: 'export const PROVIDER_USAGE_FETCHERS = [\n{ providerId: "kimi" },\n];',
-    kimi: "async function read() {\n                return { ...credentials, access_token: credentials.access_token };\n}",
+    registry: 'export const builtinPlugins = [\n"kimi-usage-source",\n];',
+    kimi: "async function fetchUsage(input) {\n  const credentials = await readCredentials(input);\n}",
   };
   const patched = patchQuotaModules(original);
-  assert.match(patched.manifest, /providerId: "antigravity-acp"/);
-  assert.match(patched.manifest, /providerId: "kimi"/);
+  assert.match(patched.registry, /"antigravity-usage-source"/);
+  assert.match(patched.registry, /"kimi-usage-source"/);
+  assert.match(patched.kimi, /input.store === "file"/);
   assert.match(
     patched.kimi,
-    /await ensureKimiCredentialsFresh\(path, credentials\);\n\s+const refreshed = await this.readCredentialFile\(path\);/,
+    /await ensureKimiCredentialsFresh\(input.locator, credentials\);\n\s+credentials = await readCredentials\(input\);/,
   );
-  assert.match(patched.kimi, /access_token: refreshed.access_token/);
   assert.throws(() => patchQuotaModules(patched), /existing Antigravity/);
   assert.throws(() => patchQuotaModules({ ...original, kimi: "changed upstream" }), /exactly one/);
   assert.throws(
-    () => patchQuotaModules({ ...original, manifest: "changed upstream" }),
+    () => patchQuotaModules({ ...original, registry: "changed upstream" }),
     /exactly one/,
   );
+  const reader = antigravityUsageModule(
+    await readFile(join(repoRoot, "scripts/personal-quota/providers/antigravity.js"), "utf8"),
+  );
+  assert.match(reader, /@getpaseo\/plugin\/server\/usage/);
+  assert.doesNotMatch(reader, /AntigravityQuotaProvider|unavailableUsage|readLocalQuota/);
+  const localReader = antigravityLocalModule(
+    await readFile(join(repoRoot, "scripts/personal-quota/providers/antigravity-local.js"), "utf8"),
+    "/runtime/packages/server/package.json",
+  );
+  assert.doesNotMatch(localReader, /import\.meta/);
+  assert.match(localReader, /createRequire\("\/runtime\/packages\/server\/package\.json"\)/);
 });
 
 test("incompatible quota runtime aborts installation before writing patch payloads", async (t) => {
   const { installQuotaPatches } = await import("./personal-quota/install.mjs");
   const root = await mkdtemp(join(tmpdir(), "paseo-quota-incompatible-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const quota = join(root, "packages/server/dist/server/services/quota-fetcher");
+  const quota = join(root, "packages/server/dist/server/server/plugins/builtin");
   await mkdir(quota, { recursive: true });
-  await writeFile(join(quota, "manifest.js"), "incompatible upstream");
+  await writeFile(join(quota, "index.js"), "incompatible upstream");
   await assert.rejects(installQuotaPatches(root), /Quota compatibility changed/);
   await assert.rejects(readFile(join(root, "quota-patches.json")), { code: "ENOENT" });
-  await assert.rejects(readFile(join(quota, "providers/antigravity.js")), { code: "ENOENT" });
+  await assert.rejects(
+    readFile(
+      join(
+        root,
+        "packages/server/dist/server/builtin-plugins/antigravity-usage-source/index.server.ts",
+      ),
+    ),
+    { code: "ENOENT" },
+  );
 });
 
 test("quota verification detects changed and missing installed files before activation", async (t) => {
   const { quotaPatchSnapshot, verifyQuotaPatches } = await import("./personal-quota/install.mjs");
   const { activate } = await import("./deploy-personal.mjs");
   const fixture = await personalDeployment(t);
-  const base = "packages/server/dist/server/services/quota-fetcher";
+  const base = "packages/server/dist/server";
   const files = {};
   const paths = [
-    "manifest.js",
-    "providers/kimi.js",
-    "providers/antigravity.js",
-    "providers/antigravity-local.js",
-    "providers/kimi-refresh.js",
+    "server/plugins/builtin/index.js",
+    "builtin-plugins/kimi-usage-source/server/usage.ts",
+    "builtin-plugins/kimi-usage-source/server/kimi-refresh.js",
+    "builtin-plugins/antigravity-usage-source/paseo-plugin.json",
+    "builtin-plugins/antigravity-usage-source/index.server.ts",
+    "builtin-plugins/antigravity-usage-source/server/antigravity.js",
+    "builtin-plugins/antigravity-usage-source/server/antigravity-local.js",
   ];
   for (const file of paths) {
     const relative = `${base}/${file}`;
@@ -271,11 +293,11 @@ test("quota verification detects changed and missing installed files before acti
   const receipt = { snapshotId: await quotaPatchSnapshot(), files };
   await writeFile(join(fixture.release, "quota-patches.json"), JSON.stringify(receipt));
   await verifyQuotaPatches(fixture.release);
-  await writeFile(join(fixture.release, base, "manifest.js"), "accidentally overwritten");
+  await writeFile(join(fixture.release, base, paths[0]), "accidentally overwritten");
   await assert.rejects(activate({ ...fixture, verify: undefined }), /Quota runtime changed/);
   assert.deepEqual(fixture.calls, []);
-  await writeFile(join(fixture.release, base, "manifest.js"), "manifest.js");
-  await rm(join(fixture.release, base, "providers/kimi-refresh.js"));
+  await writeFile(join(fixture.release, base, paths[0]), paths[0]);
+  await rm(join(fixture.release, base, paths[2]));
   await assert.rejects(verifyQuotaPatches(fixture.release), /kimi-refresh.js/);
 });
 
