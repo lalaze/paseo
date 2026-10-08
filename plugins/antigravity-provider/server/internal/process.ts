@@ -192,13 +192,17 @@ export function probe(options: ProbeOptions): Promise<string> {
     });
     let stdout = "";
     let stderr = "";
-    const deadline = setTimeout(() => {
-      const termination = Promise.resolve(signalGroup(child, "SIGKILL"));
-      void termination.then(() => {
-        reject(new AntigravityError("Antigravity discovery timed out", "PROBE_TIMEOUT"));
-        return undefined;
-      }, reject);
-    }, 10_000);
+    // Model discovery fetches the remote catalog; allow for network latency.
+    const deadline = setTimeout(
+      () => {
+        const termination = Promise.resolve(signalGroup(child, "SIGKILL"));
+        void termination.then(() => {
+          reject(new AntigravityError("Antigravity discovery timed out", "PROBE_TIMEOUT"));
+          return undefined;
+        }, reject);
+      },
+      options.args.includes("models") ? 45_000 : 10_000,
+    );
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });

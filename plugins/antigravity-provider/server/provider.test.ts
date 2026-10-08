@@ -568,6 +568,11 @@ it("rejects mid-turn steering and reports a busy message without queueing a seco
 });
 
 describe("discovery", () => {
+  it("allows model discovery to finish after the local probe deadline", async () => {
+    const h = await harness({ AGY_TEST_MODELS_DELAY_MS: "12000" });
+    expect(await provider.status?.({ launch: h.launch })).toEqual({ available: true });
+  }, 20000);
+
   it("reuses one discovered catalog for two opens and configure, and refreshes explicit catalog requests", async () => {
     const h = await harness();
     await h.open();

@@ -19,6 +19,11 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args.includes("models")) {
+  if (process.env.AGY_TEST_MODELS_DELAY_MS) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Number(process.env.AGY_TEST_MODELS_DELAY_MS)),
+    );
+  }
   if (process.env.AGY_TEST_AUTH === "missing") {
     process.stderr.write(fixture("models-unauthenticated", "stderr").join("\n"));
     process.exit(1);
