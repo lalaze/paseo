@@ -128,6 +128,38 @@ test("fork identity rewrites fail when build output changes and reject the upstr
   assert.throws(() => forkPackageName("@getpaseo", "cli"), /own npm scope/);
 });
 
+test("personal daemon launches prefer user-installed agents over stale npm binaries", async (t) => {
+  const { personalDaemonEnvironment } = await import("./deploy-personal.mjs");
+  const directory = await mkdtemp(join(tmpdir(), "paseo-personal-path-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const home = join(directory, "home");
+  const userBin = join(home, ".local", "bin");
+  const npmBin = join(directory, "npm", "bin");
+  await mkdir(userBin, { recursive: true });
+  await mkdir(npmBin, { recursive: true });
+  for (const [bin, version] of [
+    [userBin, "0.159.2"],
+    [npmBin, "0.139.0"],
+  ]) {
+    await writeFile(join(bin, "codex"), `#!/bin/sh\nprintf '%s\\n' '${version}'\n`, {
+      mode: 0o755,
+    });
+  }
+  const inherited = { PATH: npmBin, PASEO_NODE_ENV: "development", PASEO_HOME: "/custom/home" };
+  assert.equal(
+    execFileSync("codex", ["--version"], { env: inherited, encoding: "utf8" }).trim(),
+    "0.139.0",
+  );
+  const environment = personalDaemonEnvironment(inherited, home);
+  assert.equal(
+    execFileSync("codex", ["--version"], { env: environment, encoding: "utf8" }).trim(),
+    "0.159.2",
+  );
+  assert.equal(environment.PASEO_NODE_ENV, "production");
+  assert.equal(environment.PASEO_HOME, "/custom/home");
+  assert.equal(inherited.PATH, npmBin);
+});
+
 test("personal runtime is independent of the checkout and rejects external dependency links", async (t) => {
   const { copyRuntime } = await import("./deploy-personal.mjs");
   const directory = await mkdtemp(join(tmpdir(), "paseo-personal-copy-"));

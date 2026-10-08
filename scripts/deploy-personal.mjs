@@ -16,6 +16,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { homedir } from "node:os";
 import { promisify, parseArgs } from "node:util";
 import { isMainModule } from "./is-main-module.mjs";
 import { installQuotaPatches, verifyQuotaPatches } from "./personal-quota/install.mjs";
@@ -84,10 +85,22 @@ export async function copyRuntime({ source, destination, files }) {
   }
 }
 
+export function personalDaemonEnvironment(environment = process.env, userHome = homedir()) {
+  // npm prepends its Node bin directory, which can select an older agent CLI
+  // than the user-installed one that wrote the persisted conversations.
+  return {
+    ...environment,
+    PATH: [path.join(userHome, ".local", "bin"), environment.PATH]
+      .filter(Boolean)
+      .join(path.delimiter),
+    PASEO_NODE_ENV: "production",
+  };
+}
+
 async function daemon(entry, args, capture = false) {
   return run(process.execPath, [entry, "daemon", ...args], {
     capture,
-    env: { ...process.env, PASEO_NODE_ENV: "production" },
+    env: personalDaemonEnvironment(),
   });
 }
 
