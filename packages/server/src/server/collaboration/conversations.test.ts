@@ -778,6 +778,7 @@ test("main Agent replies stay out of the stage card and end acceptance with exac
   assert.match(CHAT_PROMPT, /不要复述卡片内容/);
   assert.match(CHAT_PROMPT, /不要描述后台、调度器、通知或工具调用过程/);
   assert.match(CHAT_PROMPT, /有什么变化、下一步是什么、用户是否需要操作/);
+  assert.match(CHAT_PROMPT, /不要轮询或连续重复调用它来等待进展/);
   const report = ["实际改动：", "验证：", "已知限制：", "下一步："].map((section) =>
     CHAT_PROMPT.indexOf(section),
   );
