@@ -13,25 +13,35 @@ import { AgentControlTrigger } from "@/composer/agent-controls/control";
 import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
 import { mutedIconColorMapping } from "@/components/ui/icon-color";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { confirmDialog } from "@/utils/confirm-dialog";
 import { providersSnapshotQueryKey, useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
 import { useHostFeature, useHostFeatureAvailabilityMap } from "@/runtime/host-features";
 import { useSessionStore } from "@/stores/session-store";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import {
   beginCollaborationEnable,
+  clearCollaborationError,
   collaborationEnableKey,
+  failCollaborationAction,
   isCollaborationEnablePending,
+  selectCollaborationAction,
+  selectCollaborationDisableTarget,
   selectCollaborationEnabling,
   selectCollaborationError,
   selectCollaborationRequest,
   settleCollaborationEnable,
   useCollaborationEnableStore,
+  type CollaborationAction,
 } from "./enable-store";
-import { enableCollaboration } from "./launch";
+import { disableCollaboration, enableCollaboration } from "./launch";
 import { resolveQuickLaunch } from "./launch-quick";
 import { rememberedLaunch } from "./launch-preferences";
 import { buildModelSelection, type ModelSelection } from "./launch-model";
-import { collaborationQueryKey, useCollaboration } from "./use-collaboration";
+import {
+  collaborationQueryKey,
+  findActiveConversation,
+  useCollaboration,
+} from "./use-collaboration";
 
 interface CollaborationControlProps {
   serverId: string;
@@ -48,6 +58,10 @@ function PendingGlyph({ size, color }: AgentControlIconProps) {
   return <LoadingSpinner size={size} color={color} />;
 }
 
+function runActive(run: CollaborationState["conversations"][number]["run"]): boolean {
+  return !!run && run.phase !== "completed" && run.control !== "canceled";
+}
+
 export function CollaborationControl({
   serverId,
   workspaceId,
@@ -60,6 +74,7 @@ export function CollaborationControl({
   const { query, supportsInlineModels } = useCollaboration(serverId);
   const refetch = query.refetch;
   const supportsExecuteReview = useHostFeature(serverId, "collaborationExecuteReview");
+  const supportsDisable = useHostFeature(serverId, "collaborationDisable");
   const supportsWorktree =
     useHostFeatureAvailabilityMap([serverId], "collaborationWorktree").get(serverId) === true;
   const cwd = useWorkspaceFields(
@@ -72,6 +87,7 @@ export function CollaborationControl({
   const key = collaborationEnableKey(serverId, keyAgentId);
   const pending = useCollaborationEnableStore((state) => selectCollaborationEnabling(state, key));
   const error = useCollaborationEnableStore((state) => selectCollaborationError(state, key));
+  const action = useCollaborationEnableStore((state) => selectCollaborationAction(state, key));
 
   const agentProvider = useSessionStore((state) =>
     agentId ? (state.sessions[serverId]?.agents?.get(agentId)?.provider ?? null) : null,
@@ -94,8 +110,7 @@ export function CollaborationControl({
   }, [agentProvider, agentModelId, agentThinkingOptionId, draftModel]);
 
   const conversation = useMemo(
-    () =>
-      agentId ? query.data?.conversations.find((entry) => entry.agentId === agentId) : undefined,
+    () => findActiveConversation(query.data, agentId),
     [agentId, query.data],
   );
   const enabled = Boolean(conversation);
@@ -138,7 +153,7 @@ export function CollaborationControl({
     }
     const requestId =
       selectCollaborationRequest(useCollaborationEnableStore.getState(), key) ?? randomUUID();
-    beginCollaborationEnable(key, requestId);
+    beginCollaborationEnable(key, requestId, "enable");
     try {
       const [entries, status] = await Promise.all([loadProviders(), loadStatus()]);
       if (!entries || !status) {
@@ -147,9 +162,7 @@ export function CollaborationControl({
         openConfig();
         return;
       }
-      const existing = agentId
-        ? status.conversations.find((entry) => entry.agentId === agentId)
-        : undefined;
+      const existing = agentId ? findActiveConversation(status, agentId) : undefined;
       if (existing) {
         // Already collaborating: the control's job here is to configure, not to enable again.
         settleCollaborationEnable(key);
@@ -207,15 +220,74 @@ export function CollaborationControl({
     workspaceId,
   ]);
 
+  const startDisable = useCallback(async () => {
+    if (isCollaborationEnablePending(serverId, keyAgentId)) return;
+    if (!supportsDisable) {
+      failCollaborationAction(key, t("collaboration.launchErrors.updateHostDisable"), "disable");
+      return;
+    }
+    const status = queryClient.getQueryData<CollaborationState>(collaborationQueryKey(serverId));
+    // A retry closes the conversation the first attempt targeted. Re-resolving by agent would
+    // close a fresh conversation the same agent opened after the failed attempt.
+    const boundId = selectCollaborationDisableTarget(useCollaborationEnableStore.getState(), key);
+    const target = boundId
+      ? status?.conversations.find((entry) => entry.id === boundId)
+      : findActiveConversation(status, agentId);
+    if (!target || target.disabledAt) {
+      // The bound record is gone or already closed: the close landed, so drop the stale retry
+      // error instead of binding a retry to a conversation that no longer exists.
+      clearCollaborationError(key);
+      return;
+    }
+    // Block sends and duplicate presses while refreshing and confirming too.
+    beginCollaborationEnable(key, undefined, "disable", target.id);
+    try {
+      const { data: latestState } = await refetch({ throwOnError: true });
+      if (latestState?.error) throw new Error(latestState.error);
+      const latest = latestState?.conversations.find((entry) => entry.id === target.id);
+      if (!latest || latest.disabledAt) {
+        settleCollaborationEnable(key);
+        return;
+      }
+      const cancelRunning = runActive(latest.run);
+      if (cancelRunning) {
+        const confirmed = await confirmDialog({
+          title: t("collaboration.disableConfirmTitle"),
+          message: t("collaboration.disableConfirmMessage"),
+          confirmLabel: t("collaboration.disable"),
+          destructive: true,
+        });
+        if (!confirmed) {
+          settleCollaborationEnable(key);
+          return;
+        }
+      }
+      const state = await disableCollaboration({
+        serverId,
+        conversationId: target.id,
+        cancelRunning,
+      });
+      queryClient.setQueryData(collaborationQueryKey(serverId), state);
+      settleCollaborationEnable(key);
+    } catch (cause) {
+      settleCollaborationEnable(key, cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [agentId, key, keyAgentId, queryClient, refetch, serverId, supportsDisable, t]);
+
   const statusError = query.error?.message ?? query.data?.error ?? null;
   const press = useCallback(() => {
     if (pending) return;
-    // A retry is the only useful action after a failed enable.
+    // A retry repeats whichever operation failed, never the other one.
     if (error) {
-      void startQuick();
+      if (action === "disable") void startDisable();
+      else void startQuick();
       return;
     }
-    if (enabled || !supportsInlineModels || statusError) {
+    if (enabled) {
+      void startDisable();
+      return;
+    }
+    if (!supportsInlineModels || statusError) {
       openConfig();
       return;
     }
@@ -226,11 +298,13 @@ export function CollaborationControl({
     }
     void startQuick();
   }, [
+    action,
     enabled,
     error,
     openConfig,
     pending,
     serverId,
+    startDisable,
     startQuick,
     statusError,
     supportsInlineModels,
@@ -241,6 +315,7 @@ export function CollaborationControl({
     enabled,
     pending,
     error,
+    action,
     mode: conversation ? collaborationMode(conversation) : null,
   });
 
@@ -254,7 +329,12 @@ export function CollaborationControl({
         showCaret={false}
         disabled={pending}
         onPress={press}
-        accessibilityLabel={error ?? t("collaboration.chooseMode")}
+        accessibilityLabel={
+          error ??
+          (enabled && conversation
+            ? `${t("collaboration.disable")} · ${t(`collaboration.modes.${collaborationMode(conversation)}`)}`
+            : t("collaboration.chooseMode"))
+        }
         testID="composer-collaboration"
       />
       <ChevronEntry
@@ -271,13 +351,19 @@ function resolveCollaborationLabel(input: {
   enabled: boolean;
   pending: boolean;
   error: string | null;
+  action: CollaborationAction;
   mode: CollaborationMode | null;
 }): string {
   const title = input.t("collaboration.title");
   if (input.error) return input.t("collaboration.retry");
+  // Pending wins over the enabled label: a close in flight must read as exiting, not as still
+  // offering the exit action.
+  if (input.pending)
+    return input.t(
+      input.action === "disable" ? "collaboration.disabling" : "collaboration.enabling",
+    );
   if (input.enabled && input.mode)
-    return `${title} · ${input.t(`collaboration.modes.${input.mode}`)}`;
-  if (input.pending) return input.t("collaboration.enabling");
+    return `${input.t(`collaboration.modes.${input.mode}`)} · ${input.t("collaboration.disable")}`;
   return title;
 }
 

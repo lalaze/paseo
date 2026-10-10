@@ -19,11 +19,17 @@ export const fr: TranslationResources = {
         canceling: "Arrêt en cours",
         canceled: "Arrêté",
         completed: "Terminé",
+        disabled: "Quittée",
         awaitingAcceptance: "En attente de votre validation",
       },
     },
     chooseMode: "Choisir le mode de collaboration",
     enabling: "Activation de la collaboration...",
+    disabling: "Sortie de la collaboration…",
+    disable: "Quitter la collaboration",
+    disableConfirmTitle: "Quitter la collaboration ?",
+    disableConfirmMessage:
+      "La tâche de collaboration est arrêtée. La branche et les fichiers sont conservés, et vous pouvez continuer à discuter ici.",
     launch: {
       lastSetup: "Dernière configuration",
       advanced: "Paramètres avancés",
@@ -76,6 +82,7 @@ export const fr: TranslationResources = {
       updateHost: "Mettez à jour l’hôte pour utiliser réalisation + vérification.",
       updateHostWorktree:
         "Mettez à jour l’hôte pour exécuter la collaboration dans un worktree séparé.",
+      updateHostDisable: "Mettez à jour l’hôte pour quitter la collaboration.",
     },
     categoryOverrides: "Affectations par catégorie",
     taskOverrides: "Affectations par identifiant de tâche",

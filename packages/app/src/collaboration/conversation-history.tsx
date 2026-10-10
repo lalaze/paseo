@@ -87,7 +87,8 @@ function ConversationRow({
   );
   const run = conversation.run;
   const status = conversationStatus(conversation);
-  const actions = availableControls(run);
+  // A closed conversation is history only: it cannot resync or control a run.
+  const actions = conversation.disabledAt ? [] : availableControls(run);
   return (
     <View style={rowStyle} testID={`collaboration-history-${conversation.id}`}>
       <View style={styles.metadata}>
@@ -145,7 +146,7 @@ function ConversationRow({
             <DropdownMenuItem onSelect={toggleDetails}>
               {t(expanded ? "collaboration.history.collapse" : "collaboration.history.expand")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={resync} disabled={pending}>
+            <DropdownMenuItem onSelect={resync} disabled={pending || !!conversation.disabledAt}>
               {t("collaboration.resync")}
             </DropdownMenuItem>
             {run && actions.length > 0 && (
@@ -169,10 +170,11 @@ function ConversationRow({
   );
 }
 
-function conversationStatus({ run, error }: Conversation): {
+function conversationStatus({ run, error, disabledAt }: Conversation): {
   label: string;
   variant: StatusBadgeVariant;
 } {
+  if (disabledAt) return { label: "disabled", variant: "muted" };
   if (run?.control === "canceled") return { label: "canceled", variant: "muted" };
   if (run?.control === "canceling") return { label: "canceling", variant: "muted" };
   if (run?.phase === "completed") return { label: "completed", variant: "success" };

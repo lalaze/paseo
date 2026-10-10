@@ -162,8 +162,11 @@ export class CollaborationService {
               agentId: candidateConversation.agentId,
               title: summary.title,
               error: candidateConversation.error,
+              ...(candidateConversation.disabledAt
+                ? { disabledAt: candidateConversation.disabledAt }
+                : {}),
             },
-            summary.confirmation
+            summary.confirmation && !candidateConversation.disabledAt
               ? {
                   confirmation: {
                     kind: summary.confirmation.kind,
@@ -210,6 +213,13 @@ export class CollaborationService {
       case "conversation.resync":
         await conversations.resync(z.object({ id: z.string() }).parse(input).id);
         break;
+      case "conversation.disable": {
+        const request = z
+          .object({ id: z.string(), cancelRunning: z.boolean().optional() })
+          .parse(input);
+        await conversations.disable(request.id, request);
+        break;
+      }
       case "run.control": {
         const request = z
           .object({ id: z.string(), action: z.enum(["pause", "resume", "cancel", "retry"]) })
@@ -232,17 +242,41 @@ export class CollaborationService {
       description,
       inputSchema,
       handler: async (input) => {
-        const value = await execute(inputSchema.parse(input));
-        this.wake();
-        return { content: [{ type: "text", text: JSON.stringify(value) }] };
+        try {
+          const value = await execute(inputSchema.parse(input));
+          this.wake();
+          return { content: [{ type: "text", text: JSON.stringify(value) }] };
+        } catch (error) {
+          // Surface a refused call as a tool error so the model reads the reason (e.g. the
+          // conversation has exited) instead of failing the whole turn.
+          return {
+            isError: true,
+            content: [
+              { type: "text", text: error instanceof Error ? error.message : String(error) },
+            ],
+          };
+        }
       },
     });
     const chat = () => {
       const runtime = this.start();
-      const conversation = runtime.store
-        .conversations()
-        .find((candidateConversation) => candidateConversation.agentId === agentId);
-      if (!conversation) throw new Error("请先在当前对话启用协作");
+      const conversations = runtime.store.conversations();
+      const conversation = conversations.find(
+        (candidateConversation) =>
+          candidateConversation.agentId === agentId && !candidateConversation.disabledAt,
+      );
+      if (!conversation) {
+        // A closed main chat must not retry collaboration tools: tell it to behave as a normal chat.
+        const closed = conversations.some(
+          (candidateConversation) =>
+            candidateConversation.agentId === agentId && candidateConversation.disabledAt,
+        );
+        throw new Error(
+          closed
+            ? "协作已在当前对话退出。请按普通聊天处理，不要重试协作工具或启动任务；如需协作请让用户重新启用。"
+            : "请先在当前对话启用协作",
+        );
+      }
       return { ...runtime, id: conversation.id };
     };
     const submit = async (input: unknown, kind: "plan" | "execute" | "review") => {
@@ -353,7 +387,8 @@ export class CollaborationService {
       reason,
       timeline: this.host.agentManager.getTimeline(agentId),
       runs: this.runtime.store.all(),
-      conversations: this.runtime.store.conversations(),
+      // A closed conversation stops muting, so a canceled run's late notification is not swallowed.
+      conversations: this.runtime.store.conversations().filter((c) => !c.disabledAt),
     });
   }
   async close() {

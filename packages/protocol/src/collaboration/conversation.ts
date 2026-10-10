@@ -25,6 +25,8 @@ export interface Conversation {
   settings: Settings;
   runId?: string;
   createdAt: number;
+  /** Set when the user exits collaboration; the record stays in history but is never active again. */
+  disabledAt?: number;
   state: "creating" | "ready" | "migration_pending";
   generation?: number;
   previousAgentIds?: string[];

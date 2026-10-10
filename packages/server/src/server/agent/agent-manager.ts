@@ -1985,6 +1985,29 @@ export class AgentManager {
     return notice;
   }
 
+  /**
+   * Updates the agent's stored config (the manager's ManagedAgent snapshot and its persisted
+   * record) without reloading, so it never cancels an in-flight turn. It does not reach the running
+   * provider: the launch config was copied from the stored config when the session started, so the
+   * live session keeps the prompt it launched with until it resumes.
+   */
+  async setAgentSystemPrompt(agentId: string, systemPrompt: string | null): Promise<void> {
+    await this.runLifecycleMutation(agentId, async () => {
+      const live = this.agents.get(agentId);
+      if (live) {
+        live.config.systemPrompt = systemPrompt ?? undefined;
+        this.touchUpdatedAt(live);
+        await this.persistSnapshot(live);
+        this.emitState(live, { persist: false });
+        return;
+      }
+      const registry = this.requireRegistry();
+      const record = await registry.get(agentId);
+      if (!record) throw new Error(`Agent not found: ${agentId}`);
+      await registry.upsert({ ...record, config: { ...record.config, systemPrompt } });
+    });
+  }
+
   async setAgentFeature(agentId: string, featureId: string, value: unknown): Promise<void> {
     const agent = this.requireAgent(agentId);
 
@@ -2261,7 +2284,8 @@ export class AgentManager {
     agentId: string,
     updates: {
       title?: string;
-      labels?: Record<string, string>;
+      /** `null` removes a label; this is how a caller detaches an ownership identity. */
+      labels?: AgentLabelPatch;
     },
   ): Promise<void> {
     await this.runLifecycleMutation(agentId, () =>
@@ -2273,7 +2297,7 @@ export class AgentManager {
     agentId: string,
     updates: {
       title?: string;
-      labels?: Record<string, string>;
+      labels?: AgentLabelPatch;
     },
   ): Promise<void> {
     const liveAgent = this.getAgent(agentId);

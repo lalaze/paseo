@@ -105,19 +105,20 @@ function stripAssistantMessageId(
   return JSON.stringify(envelope);
 }
 
-function stripCanonicalSubmittedPrompts(
+function stripServerFeatures(
   message: string | Buffer,
-  enabled: boolean,
+  features: ReadonlySet<string>,
   messageType: unknown,
 ): string | Buffer {
-  if (!enabled || messageType !== "status" || typeof message !== "string") return message;
+  if (features.size === 0 || messageType !== "status" || typeof message !== "string")
+    return message;
   const envelope = JSON.parse(message) as {
     message?: { payload?: { status?: unknown; features?: Record<string, unknown> } };
     payload?: { status?: unknown; features?: Record<string, unknown> };
   };
   const payload = envelope.message?.payload ?? envelope.payload;
   if (payload?.status !== "server_info" || !payload.features) return message;
-  delete payload.features.canonicalSubmittedPrompts;
+  for (const feature of features) delete payload.features[feature];
   return JSON.stringify(envelope);
 }
 
@@ -300,7 +301,7 @@ export async function installDaemonWebSocketGate(page: Page) {
   let suppressAgentStream = false;
   let forceTimelineEpochReset = false;
   let stripAssistantMessageIds = false;
-  let stripCanonicalSubmittedPromptsFeature = false;
+  const strippedServerFeatures = new Set<string>();
   let shellToolCommandOverride: string | null = null;
   let failingTimelineAgentId: string | null = null;
   let holdingTimelineAgentId: string | null = null;
@@ -510,9 +511,9 @@ export async function installDaemonWebSocketGate(page: Page) {
         serverMessage?.type,
       );
       outboundMessage = rewriteShellToolCommand(outboundMessage, shellToolCommandOverride);
-      outboundMessage = stripCanonicalSubmittedPrompts(
+      outboundMessage = stripServerFeatures(
         outboundMessage,
-        stripCanonicalSubmittedPromptsFeature,
+        strippedServerFeatures,
         serverMessage?.type,
       );
       const isTimelineResponse = serverMessage?.type === "fetch_agent_timeline_response";
@@ -825,7 +826,15 @@ export async function installDaemonWebSocketGate(page: Page) {
       stripAssistantMessageIds = stripped;
     },
     setCanonicalSubmittedPromptsStripped(stripped: boolean): void {
-      stripCanonicalSubmittedPromptsFeature = stripped;
+      this.setServerFeatureStripped("canonicalSubmittedPrompts", stripped);
+    },
+    /** Drops a capability from the daemon's server_info, to exercise old-host gates. */
+    setServerFeatureStripped(feature: string, stripped: boolean): void {
+      if (stripped) {
+        strippedServerFeatures.add(feature);
+      } else {
+        strippedServerFeatures.delete(feature);
+      }
     },
     setShellToolCommandOverride(command: string | null): void {
       shellToolCommandOverride = command;

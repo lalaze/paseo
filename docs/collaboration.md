@@ -1,15 +1,20 @@
 # Collaboration
 
 Use **Collaboration** beside the Agent conversation's input, the workspace command palette, or
-type `/director`. The composer control is a split button. The label enables collaboration with the
-last setup remembered on this host and device in one tap — enabling only prepares the conversation,
-so the next message you send is what starts a task. It never starts one on its own and never treats
-earlier chat as the request. The chevron beside it opens the mode dialog to change that setup, and
-does not fire the label. When the setup cannot be reused — nothing remembered yet, or a remembered
-model or thinking level is no longer available on this host — the dialog opens on the full form so
-you finish it. While the enable request is in flight the control shows it and the composer refuses
-to send, so the two cannot race. A failure stays in the composer as a dismissible error and is
-never shown as enabled; pressing the control retries it.
+type `/director`. The composer control is a split button. The label toggles collaboration: off, it
+enables with the last setup remembered on this host and device in one tap — enabling only prepares
+the conversation, so the next message you send is what starts a task; on, it exits. It never starts
+a task on its own and never treats earlier chat as the request. A conversation with no task started
+exits at once; a running task asks you to confirm first, then stops the role sessions while keeping
+the branch, files and history, and the main chat returns to normal chat that can enable collaboration
+again. The chevron beside the label opens the mode dialog to change the setup, and never fires the
+label or exits. When the setup cannot be reused — nothing remembered yet, or a remembered model or
+thinking level is no longer available on this host — the dialog opens on the full form so you finish
+it. While an enable or exit request is in flight the control shows it and the composer refuses to
+send, so the two cannot race. A failure stays in the composer as a dismissible error and is never
+shown as the opposite state; pressing the control retries the same operation on the same
+conversation. Exiting needs a host that supports it; an older host shows an update prompt instead of
+pretending to close.
 
 The dialog opens over the current workspace (a bottom sheet on phones). `/director <goal>` also
 supplies the first request, and **Change** on the last-setup summary opens the full form. Canceling

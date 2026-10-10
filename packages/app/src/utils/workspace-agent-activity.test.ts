@@ -14,6 +14,7 @@ function agent(input: {
   pendingPermissionCount?: number;
   archivedAt?: string | null;
   parentAgentId?: string | null;
+  labels?: Record<string, string>;
 }): Agent {
   return {
     serverId: "host-a",
@@ -61,7 +62,7 @@ function agent(input: {
     attentionTimestamp: input.attentionTimestamp ? new Date(input.attentionTimestamp) : null,
     archivedAt: input.archivedAt ? new Date(input.archivedAt) : null,
     parentAgentId: input.parentAgentId ?? null,
-    labels: {},
+    labels: input.labels ?? {},
   };
 }
 
@@ -199,6 +200,183 @@ describe("workspace agent activity index", () => {
       status: "running",
       enteredAt: new Date("2026-06-01T10:00:00.000Z"),
     });
+  });
+
+  it("shows the main workspace as running while its collaboration child is working", () => {
+    const index = buildWorkspaceAgentActivityIndex(
+      new Map([
+        [
+          "main",
+          agent({
+            id: "main",
+            workspaceId: "workspace-main",
+            updatedAt: "2026-06-01T10:00:00.000Z",
+          }),
+        ],
+        [
+          "worker",
+          agent({
+            id: "worker",
+            workspaceId: "workspace-main",
+            status: "running",
+            updatedAt: "2026-06-01T10:03:00.000Z",
+            parentAgentId: "main",
+            labels: { "director-run": "run-1", "director-role": "worker" },
+          }),
+        ],
+      ]),
+    );
+
+    expect(index.get("workspace-main")).toEqual({
+      agentId: "main",
+      status: "running",
+      enteredAt: new Date("2026-06-01T10:03:00.000Z"),
+    });
+  });
+
+  it("attributes a collaboration worktree child to the main workspace", () => {
+    const index = buildWorkspaceAgentActivityIndex(
+      new Map([
+        [
+          "main",
+          agent({
+            id: "main",
+            workspaceId: "workspace-main",
+            updatedAt: "2026-06-01T10:00:00.000Z",
+          }),
+        ],
+        [
+          "worker",
+          agent({
+            id: "worker",
+            workspaceId: "workspace-worktree",
+            status: "running",
+            updatedAt: "2026-06-01T10:03:00.000Z",
+            parentAgentId: "main",
+            labels: { "director-run": "run-1", "director-role": "worker" },
+          }),
+        ],
+      ]),
+    );
+
+    expect(index.get("workspace-main")?.status).toBe("running");
+    expect(index.get("workspace-worktree")?.status).toBe("running");
+  });
+
+  it("keeps a more urgent main-workspace state ahead of a running collaboration child", () => {
+    const index = buildWorkspaceAgentActivityIndex(
+      new Map([
+        [
+          "main",
+          agent({
+            id: "main",
+            workspaceId: "workspace-main",
+            updatedAt: "2026-06-01T10:04:00.000Z",
+            pendingPermissionCount: 1,
+          }),
+        ],
+        [
+          "worker",
+          agent({
+            id: "worker",
+            workspaceId: "workspace-main",
+            status: "running",
+            updatedAt: "2026-06-01T10:03:00.000Z",
+            parentAgentId: "main",
+            labels: { "director-run": "run-1", "director-role": "reviewer" },
+          }),
+        ],
+      ]),
+    );
+
+    expect(index.get("workspace-main")?.status).toBe("needs_input");
+  });
+
+  it("does not keep the main workspace running after the collaboration child finishes", () => {
+    const index = buildWorkspaceAgentActivityIndex(
+      new Map([
+        [
+          "main",
+          agent({
+            id: "main",
+            workspaceId: "workspace-main",
+            updatedAt: "2026-06-01T10:00:00.000Z",
+          }),
+        ],
+        [
+          "worker",
+          agent({
+            id: "worker",
+            workspaceId: "workspace-main",
+            status: "idle",
+            updatedAt: "2026-06-01T10:05:00.000Z",
+            parentAgentId: "main",
+            labels: { "director-run": "run-1", "director-role": "worker" },
+          }),
+        ],
+      ]),
+    );
+
+    expect(index.get("workspace-main")?.status).toBe("done");
+  });
+
+  it.each([
+    { status: "running", expected: "running" },
+    { status: "idle", expected: "done" },
+  ] as const)(
+    "ignores a replaced failed collaboration child when its replacement is $status",
+    ({ status, expected }) => {
+      const main = agent({
+        id: "main",
+        workspaceId: "workspace-main",
+        updatedAt: "2026-06-01T10:00:00.000Z",
+      });
+      const failed = agent({
+        id: "failed-worker",
+        workspaceId: "workspace-worktree",
+        status: "error",
+        updatedAt: "2026-06-01T10:01:00.000Z",
+        parentAgentId: main.id,
+        labels: { "director-run": "run-1", "director-role": "worker" },
+      });
+      const replacement = agent({
+        id: "replacement-worker",
+        workspaceId: "workspace-worktree",
+        status,
+        updatedAt: "2026-06-01T10:02:00.000Z",
+        parentAgentId: main.id,
+        labels: { "director-run": "run-1", "director-role": "worker" },
+      });
+      const index = buildWorkspaceAgentActivityIndex(
+        new Map([main, failed, replacement].map((entry) => [entry.id, entry])),
+      );
+
+      expect(index.get("workspace-main")?.status).toBe(expected);
+      expect(index.get("workspace-worktree")?.status).toBe(expected);
+    },
+  );
+
+  it("keeps a collaboration child's unread completion in its subagents track", () => {
+    const main = agent({
+      id: "main",
+      workspaceId: "workspace-main",
+      updatedAt: "2026-06-01T10:00:00.000Z",
+    });
+    const child = agent({
+      id: "worker",
+      workspaceId: "workspace-main",
+      updatedAt: "2026-06-01T10:01:00.000Z",
+      parentAgentId: main.id,
+      requiresAttention: true,
+      attentionReason: "finished",
+      labels: { "director-run": "run-1", "director-role": "worker" },
+    });
+
+    expect(
+      buildWorkspaceAgentActivityIndex(
+        new Map([main, child].map((entry) => [entry.id, entry])),
+      ).get("workspace-main")?.status,
+    ).toBe("done");
   });
 
   it("treats a cross-workspace subagent as activity in its own workspace", () => {

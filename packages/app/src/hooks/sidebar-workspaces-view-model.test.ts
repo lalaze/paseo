@@ -695,6 +695,7 @@ function agent(input: {
   updatedAt?: Date;
   parentAgentId?: string | null;
   archivedAt?: Date | null;
+  labels?: Agent["labels"];
 }): Agent {
   return {
     serverId: "srv",
@@ -720,7 +721,7 @@ function agent(input: {
     model: null,
     parentAgentId: input.parentAgentId ?? null,
     archivedAt: input.archivedAt ?? null,
-    labels: {},
+    labels: input.labels ?? {},
   };
 }
 
@@ -926,6 +927,29 @@ describe("deriveProjectStatusBucket", () => {
         },
       }),
     ).toBe("done");
+  });
+
+  it("shows the main workspace as running while its collaboration child is working", () => {
+    expect(
+      deriveProjectStatusBucket({
+        workspaces: [workspacePlacement({ workspaceId: "ws-1" })],
+        sessions: {
+          srv: sessionWith({
+            workspaces: [projectWorkspace("ws-1", "done")],
+            agents: [
+              agent({ id: "main", workspaceId: "ws-1", status: "idle" }),
+              agent({
+                id: "worker",
+                workspaceId: "ws-hidden",
+                status: "running",
+                parentAgentId: "main",
+                labels: { "director-run": "run-1", "director-role": "worker" },
+              }),
+            ],
+          }),
+        },
+      }),
+    ).toBe("running");
   });
 
   it("ignores agents belonging to workspaces outside the project", () => {

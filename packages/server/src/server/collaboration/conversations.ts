@@ -28,6 +28,8 @@ export interface ConversationGateway {
     workspaceId: string,
   ): Promise<Pick<Profile, "provider" | "modeId" | "thinkingOptionId">>;
   adoptConversation?(conversation: Conversation): Promise<string>;
+  /** Detaches the main session's collaboration identity so the chat returns to normal. */
+  releaseConversation?(conversation: Conversation): Promise<void>;
   createConversation(conversation: Conversation): Promise<string>;
   findConversation(id: string, generation?: number): Promise<string[]>;
   /** Pages from the newest item back; `stop` ends paging once the caller has what it needs. */
@@ -85,9 +87,17 @@ export class Conversations {
       if (this.locks.get(key) === current) this.locks.delete(key);
     });
   }
+  /** Reads a conversation and rejects a closed one, so every active-path call shares one guard. */
+  private activeConversation(id: string): Conversation {
+    const c = this.store.conversation(id);
+    if (c.disabledAt) throw new Error("协作已在当前对话关闭；请重新开启");
+    return c;
+  }
   private async ensureLocked(id: string) {
     return this.locked(id, async () => {
-      const c = this.store.conversation(id);
+      // Re-read under the lock: a disable that ran while this call was queued must win, so a
+      // waiting open never re-adopts identity or delivers notices into a closed conversation.
+      const c = this.activeConversation(id);
       await this.ensure(c);
       return this.summary(c.id);
     });
@@ -126,18 +136,25 @@ export class Conversations {
     if (input.agentId) return this.takeover(input as typeof input & { agentId: string });
     if (input.conversationId) {
       const c = this.store.conversation(input.conversationId);
+      if (c.disabledAt) throw new Error("协作已在当前对话关闭；请重新开启");
       if (c.workspaceId !== input.workspaceId) throw new Error("会话不属于当前工作区");
       return this.ensureLocked(c.id);
     }
     const id = await this.locked("create", async () => {
-      let c = this.store
+      // A request id is a one-time key. A closed conversation must never answer it again:
+      // replaying the same request would reuse its digest id and overwrite the closed record.
+      const known = this.store
         .conversations()
         .find((candidateConversation) => candidateConversation.requestId === input.requestId);
+      if (known?.disabledAt) throw new Error("协作已在当前对话关闭；请重新开启");
+      let c = known;
       if (!c && !input.fresh && !input.goal) {
         const matches = this.store
           .conversations()
           .filter(
-            (candidateConversation) => candidateConversation.workspaceId === input.workspaceId,
+            (candidateConversation) =>
+              candidateConversation.workspaceId === input.workspaceId &&
+              !candidateConversation.disabledAt,
           );
         c =
           matches.find((candidateConversation) => {
@@ -200,12 +217,19 @@ export class Conversations {
       throw new Error("当前接入不支持原地接管");
     const profile = await this.gateway.takeoverProfile(input.agentId, input.workspaceId);
     const id = await this.locked("create", async () => {
-      let c = this.store
-        .conversations()
-        .find((candidateConversation) => candidateConversation.agentId === input.agentId);
+      // A request id is a one-time key. A closed conversation must never answer it again, or the
+      // digest-derived id would collide with and overwrite the closed record.
       const request = this.store
         .conversations()
         .find((candidateConversation) => candidateConversation.requestId === input.requestId);
+      if (request?.disabledAt) throw new Error("协作已在当前对话关闭；请重新开启");
+      // A closed conversation releases this chat; re-enabling takes it over under a new request.
+      let c = this.store
+        .conversations()
+        .find(
+          (candidateConversation) =>
+            candidateConversation.agentId === input.agentId && !candidateConversation.disabledAt,
+        );
       if (request && request.agentId !== input.agentId) throw new Error("请求已绑定其他对话");
       if (c && c.workspaceId !== input.workspaceId) throw new Error("会话不属于当前工作区");
       if (!c) {
@@ -269,6 +293,42 @@ export class Conversations {
       return c.id;
     });
     return this.ensureLocked(id);
+  }
+  /**
+   * Exits collaboration in one conversation: cancels its unfinished run (files and branch stay),
+   * then marks it closed so it stops scheduling, notifying and answering tools. The record stays
+   * in history. Idempotent, so a retry after a partial failure converges.
+   */
+  async disable(id: string, options: { cancelRunning?: boolean } = {}) {
+    // The create/takeover path writes the same record under the "create" lock, so a close must
+    // take it too: otherwise a takeover that read the record first could save it back after the
+    // close and resurrect the conversation.
+    return this.locked("create", () =>
+      this.locked(id, async () => {
+        const c = this.store.conversation(id);
+        if (c.disabledAt) return { ok: true };
+        if (c.runId) {
+          const run = this.store.get(c.runId);
+          // Cancel is final and best-effort interrupts the role session; it never touches the main chat.
+          if (run.phase !== "completed" && run.control !== "canceled") {
+            // The composer refreshes before asking, but a main turn can start a task between
+            // that read and this lock. An idle-only exit must never cancel that new task.
+            if (options.cancelRunning === false)
+              throw new Error("协作任务已启动，请重试退出并确认停止任务");
+            await this.engine.control(run.id, "cancel");
+          }
+        }
+        if (c.agentId && this.gateway.releaseConversation)
+          await this.gateway.releaseConversation(c);
+        // A closed conversation delivers nothing and surfaces no confirmation card.
+        for (const notice of c.notices) if (notice.state !== "sent") notice.state = "sent";
+        c.noticeKey = undefined;
+        c.confirmation = undefined;
+        c.disabledAt = Date.now();
+        this.store.saveConversation(c);
+        return { ok: true };
+      }),
+    );
   }
   private async recoverReceipt(c: Conversation) {
     const recovered = this.store.runForConversation(c.id);
@@ -408,7 +468,7 @@ export class Conversations {
   }
   async status(id: string) {
     return this.locked(id, async () => {
-      const c = this.store.conversation(id);
+      const c = this.activeConversation(id);
       c.toolsConnectedAt ??= Date.now();
       if (c.error?.includes("协作工具") || c.error?.includes("MCP")) c.error = undefined;
       this.store.saveConversation(c);
@@ -430,7 +490,7 @@ export class Conversations {
   }
   async start(id: string, input: { sourceMessageId: string; goal: string }) {
     return this.locked(id, async () => {
-      const c = this.store.conversation(id);
+      const c = this.activeConversation(id);
       await this.user(c, input.sourceMessageId);
       const key = `start:${input.sourceMessageId}`;
       if (c.receipts[key]?.state === "done") return c.receipts[key].value;
@@ -456,8 +516,8 @@ export class Conversations {
   }
   async submit(id: string, operationId: string, payload: unknown) {
     return this.locked(id, async () => {
-      const c = this.store.conversation(id),
-        run = c.runId ? this.store.get(c.runId) : undefined;
+      const c = this.activeConversation(id);
+      const run = c.runId ? this.store.get(c.runId) : undefined;
       const op = run?.operations.find((o) => o.id === run.activeOperationId);
       if (
         !run ||
@@ -481,7 +541,7 @@ export class Conversations {
     },
   ) {
     return this.locked(id, async () => {
-      const c = this.store.conversation(id);
+      const c = this.activeConversation(id);
       if (!c.runId) throw new Error("尚未启动任务");
       const receipt = `${input.sourceMessageId}:${input.action}`;
       if (c.receipts[receipt]?.state === "done") return { ok: true };
@@ -574,7 +634,7 @@ export class Conversations {
   }
   async resync(id: string) {
     return this.locked(id, async () => {
-      const c = this.store.conversation(id);
+      const c = this.activeConversation(id);
       // Explicit user retry creates a new delivery attempt. An ambiguous old
       // message remains recorded, but can no longer authorize a confirmation.
       for (const notice of c.notices) if (notice.state !== "sent") notice.state = "sent";
@@ -719,6 +779,8 @@ export class Conversations {
       if (this.closed) return;
       await this.locked(id, async () => {
         let c = this.store.conversation(id);
+        // A closed conversation never resumes: no ensure, no notices, no confirmation.
+        if (c.disabledAt) return;
         try {
           if (
             c.takeover?.messages.some((m) => m.state !== "sent") ||

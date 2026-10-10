@@ -84,8 +84,11 @@ function LaunchDialog({ target }: { target: CollaborationTarget }) {
     () => ({
       ready: Boolean(query.data),
       settings: query.data?.settings ?? null,
-      conversation: query.data?.conversations.find((entry) =>
-        target.agentId ? entry.agentId === target.agentId : entry.requestId === target.requestId,
+      conversation: query.data?.conversations.find(
+        (entry) =>
+          (target.agentId
+            ? entry.agentId === target.agentId
+            : entry.requestId === target.requestId) && !entry.disabledAt,
       ),
       currentAgent: Boolean(target.agentId),
       currentModel: target.currentModel,

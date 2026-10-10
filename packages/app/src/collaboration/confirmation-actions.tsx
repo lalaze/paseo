@@ -31,7 +31,7 @@ export function CollaborationConfirmationActions({
   const [sent, setSent] = useState<keyof typeof REPLIES | null>(null);
   const [error, setError] = useState<string | null>(null);
   const confirmation = query.data?.conversations.find(
-    (conversation) => conversation.agentId === agentId,
+    (conversation) => conversation.agentId === agentId && !conversation.disabledAt,
   )?.confirmation;
   const send = useCallback(
     async (reply: keyof typeof REPLIES) => {

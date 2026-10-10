@@ -1,4 +1,6 @@
 import { rename } from "node:fs/promises";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "../support/fixtures";
 import type { Page } from "@playwright/test";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
@@ -7,8 +9,10 @@ import { composerLocator } from "../support/helpers/composer";
 import { openCommandCenter } from "../support/helpers/command-center";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import type { Run } from "@getpaseo/protocol/collaboration/schema";
 import { clickNewChat, gotoWorkspace } from "../support/helpers/launcher";
 import { seedWorkspace } from "../support/helpers/seed-client";
+import { installDaemonWebSocketGate } from "../support/helpers/daemon-websocket-gate";
 
 test.use({ e2eInjectPaseoTools: true });
 
@@ -444,5 +448,321 @@ test("conversation history truncates long goals and keeps details and actions ac
   } finally {
     await client.close();
     await session.cleanup();
+  }
+});
+
+test("exits collaboration, keeps the chat normal, and re-enables later", async ({ page }) => {
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-exit-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-exit",
+  });
+  try {
+    await gotoWorkspace(page, workspace.workspaceId);
+
+    // Enable once so the host remembers the setup for the one-tap path.
+    await clickNewChat(page);
+    await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+    await chooseModel(page, "director");
+    await chooseModel(page, "worker");
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    const control = () => page.getByTestId("composer-collaboration").filter({ visible: true });
+    await expect(control()).toContainText("Exit collaboration");
+    const enabled = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => entry.workspaceId === workspace.workspaceId && !entry.disabledAt,
+    )!;
+    expect(enabled.agentId).toBeDefined();
+
+    // An unsent draft survives the exit.
+    const draft = "Keep this unsent draft";
+    await composerLocator(page).fill(draft);
+
+    // No task is running, so the exit closes directly without a confirm dialog.
+    await control().click();
+    await expect(control()).toHaveText("Collaboration");
+    await expect(composerLocator(page)).toHaveValue(draft);
+    const afterExit = await client.collaborationCommand("status");
+    const closed = afterExit.conversations.filter(
+      (entry) => entry.id === enabled.id && entry.disabledAt,
+    );
+    expect(closed).toHaveLength(1);
+    expect(closed[0].run).toBeUndefined();
+    // The exit closed the same chat it was enabled on, not a replacement.
+    expect(closed[0].agentId).toBe(enabled.agentId);
+
+    // The conversation is an ordinary chat again: a normal message is sent, not a task.
+    await composerLocator(page).fill("normal chat after exit");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(composerLocator(page)).toHaveValue("");
+    const stillClosed = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => entry.id === closed[0].id,
+    )!;
+    expect(stillClosed.run).toBeUndefined();
+
+    // The same chat can be re-enabled under a new conversation.
+    await control().click();
+    await expect
+      .poll(
+        async () =>
+          (await client.collaborationCommand("status")).conversations.filter(
+            (entry) => entry.workspaceId === workspace.workspaceId,
+          ).length,
+      )
+      .toBe(2);
+    const active = (await client.collaborationCommand("status")).conversations.filter(
+      (entry) => entry.workspaceId === workspace.workspaceId && !entry.disabledAt,
+    );
+    expect(active).toHaveLength(1);
+    await expect(control()).toContainText("Exit collaboration");
+  } finally {
+    await client.close();
+    await workspace.cleanup();
+  }
+});
+
+test("refreshes task state before exit confirmation and keeps the task when declined", async ({
+  page,
+}) => {
+  const gate = await installDaemonWebSocketGate(page);
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-exit-confirm-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-exit-confirm",
+  });
+  let db: DatabaseSync | undefined;
+  try {
+    await gotoWorkspace(page, workspace.workspaceId);
+    await clickNewChat(page);
+    const control = page.getByTestId("composer-collaboration").filter({ visible: true });
+    await control.click();
+    await chooseModel(page, "director");
+    await chooseModel(page, "worker");
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    await expect(control).toContainText("Exit collaboration");
+    const target = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => entry.workspaceId === workspace.workspaceId && !entry.disabledAt,
+    )!;
+    expect(target.run).toBeUndefined();
+
+    // Hold the next status poll so the browser still sees an idle chat when a task appears.
+    gate.holdNextClientRequest("collaboration.command.request");
+    await gate.waitForHeldClientRequest();
+    const run: Run = {
+      id: "exit-confirm-run",
+      requestId: "exit-confirm-run",
+      revision: 0,
+      goal: "Keep this task until stopping is confirmed",
+      repository: workspace.repoPath,
+      cwd: workspace.repoPath,
+      baseCommit: "unused-by-exit",
+      branch: "main",
+      workspaceId: workspace.workspaceId,
+      settings: target.settings!,
+      chat: { version: 1, conversationId: target.id, mainAgentId: target.agentId! },
+      directorAgentId: target.agentId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      phase: "planning",
+      control: "paused",
+      message: "Paused before dispatch",
+      planApproved: true,
+      tasks: [],
+      operations: [],
+      events: [],
+    };
+    // Seed a paused checkpoint in the real daemon database without asking the mock model to
+    // manufacture a tool call; paused dispatch cannot advance while the confirmation is tested.
+    db = new DatabaseSync(join(process.env.E2E_PASEO_HOME!, "director", "director.sqlite"));
+    db.exec("PRAGMA busy_timeout=5000");
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare("INSERT INTO runs VALUES (?,?,?,?)").run(
+      run.id,
+      run.requestId,
+      run.revision,
+      JSON.stringify(run),
+    );
+    db.prepare("UPDATE conversations SET data=json_set(data,'$.runId',?) WHERE id=?").run(
+      run.id,
+      target.id,
+    );
+    db.exec("COMMIT");
+    expect(
+      (await client.collaborationCommand("status")).conversations.find(
+        (entry) => entry.id === target.id,
+      )?.run?.control,
+    ).toBe("paused");
+
+    const draft = "Keep this unsent draft";
+    await composerLocator(page).fill(draft);
+    const firstDialog = page.waitForEvent("dialog");
+    await control.click();
+    await expect(control).toContainText("Exiting collaboration");
+    await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeDisabled();
+    gate.releaseHeldClientRequest();
+    const declined = await firstDialog;
+    expect(declined.message()).toContain("This stops the collaboration task.");
+    await declined.dismiss();
+    await expect(control).toContainText("Exit collaboration");
+    await expect(composerLocator(page)).toHaveValue(draft);
+    const kept = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => entry.id === target.id,
+    )!;
+    expect(kept.disabledAt).toBeUndefined();
+    expect(kept.run?.control).toBe("paused");
+
+    const nextDialog = page.waitForEvent("dialog");
+    const acceptingPress = control.click();
+    const accepted = await nextDialog;
+    await accepted.accept();
+    await acceptingPress;
+    await expect(control).toHaveText("Collaboration");
+    await expect(composerLocator(page)).toHaveValue(draft);
+    const closed = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => entry.id === target.id,
+    )!;
+    expect(closed.disabledAt).toBeGreaterThan(0);
+    expect(closed.run?.control).toBe("canceled");
+  } finally {
+    db?.close();
+    gate.restore();
+    await client.close();
+    await workspace.cleanup();
+  }
+});
+
+test("keeps collaboration enabled and shows the update prompt when the host cannot exit", async ({
+  page,
+}) => {
+  const gate = await installDaemonWebSocketGate(page);
+  // An older host does not advertise the capability: the app must say so and never fake the exit.
+  gate.setServerFeatureStripped("collaborationDisable", true);
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-exit-gate-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-exit-gate",
+  });
+  try {
+    const before = await client.collaborationCommand("status");
+    await gotoWorkspace(page, workspace.workspaceId);
+
+    await clickNewChat(page);
+    await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+    await chooseModel(page, "director");
+    await chooseModel(page, "worker");
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    const control = page.getByTestId("composer-collaboration").filter({ visible: true });
+    await expect(control).toContainText("Exit collaboration");
+
+    await control.click();
+    const error = page.getByTestId("composer-collaboration-error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Update the host to exit collaboration.");
+    // Nothing was closed: the conversation is still active and the control retries the exit.
+    await expect(control).toContainText("Retry");
+    const after = await client.collaborationCommand("status");
+    const created = after.conversations.filter(
+      (entry) => !before.conversations.some((old) => old.id === entry.id),
+    );
+    expect(created).toHaveLength(1);
+    expect(created[0].disabledAt).toBeUndefined();
+  } finally {
+    gate.restore();
+    await client.close();
+    await workspace.cleanup();
+  }
+});
+
+test("surfaces a failed exit, keeps the draft, and closes the same conversation on retry", async ({
+  page,
+}, testInfo) => {
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-exit-fail-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-exit-fail",
+  });
+  const dbPath = join(process.env.E2E_PASEO_HOME!, "director", "director.sqlite");
+  let db: DatabaseSync | undefined;
+  let triggerCreated = false;
+  try {
+    await gotoWorkspace(page, workspace.workspaceId);
+
+    // Enable once so the host remembers the setup for the one-tap path.
+    await clickNewChat(page);
+    const control = () => page.getByTestId("composer-collaboration").filter({ visible: true });
+    await control().click();
+    await chooseModel(page, "director");
+    await chooseModel(page, "worker");
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    await expect(control()).toContainText("Exit collaboration");
+
+    await expect
+      .poll(
+        async () =>
+          (await client.collaborationCommand("status")).conversations.filter(
+            (entry) => entry.workspaceId === workspace.workspaceId && !entry.disabledAt,
+          ).length,
+      )
+      .toBe(1);
+    const target = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => entry.workspaceId === workspace.workspaceId && !entry.disabledAt,
+    )!;
+
+    // A real write failure in the daemon's own database, not a mocked transport: this trigger
+    // aborts only the target conversation's exit write.
+    db = new DatabaseSync(dbPath);
+    db.exec("PRAGMA busy_timeout=5000");
+    db.exec(
+      "CREATE TRIGGER block_exit BEFORE UPDATE OF data ON conversations " +
+        `WHEN NEW.id = '${target.id}' AND json_extract(NEW.data,'$.disabledAt') IS NOT NULL ` +
+        "BEGIN SELECT RAISE(ABORT,'test exit write blocked'); END",
+    );
+    triggerCreated = true;
+
+    const draft = "Keep this unsent draft";
+    await composerLocator(page).fill(draft);
+    await control().click();
+
+    const error = page.getByTestId("composer-collaboration-error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("test exit write blocked");
+    await expect(control()).toContainText("Retry");
+    await expect(composerLocator(page)).toHaveValue(draft);
+    await page.screenshot({ path: testInfo.outputPath("exit-failed.png") });
+    // Nothing was closed: the target conversation is still active.
+    expect(
+      (await client.collaborationCommand("status")).conversations.find(
+        (entry) => entry.id === target.id,
+      )!.disabledAt,
+    ).toBeUndefined();
+
+    // Drop the real failure and retry: the same conversation closes and the draft survives.
+    db.exec("DROP TRIGGER block_exit");
+    triggerCreated = false;
+    await control().click();
+    await expect(error).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          (await client.collaborationCommand("status")).conversations.find(
+            (entry) => entry.id === target.id,
+          )?.disabledAt,
+      )
+      .toBeGreaterThan(0);
+    const closed = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => entry.id === target.id,
+    )!;
+    expect(closed.agentId).toBe(target.agentId);
+    await expect(composerLocator(page)).toHaveValue(draft);
+    await page.screenshot({ path: testInfo.outputPath("exit-retried.png") });
+
+    // The chat is an ordinary chat again.
+    await composerLocator(page).fill("normal chat after exit");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(composerLocator(page)).toHaveValue("");
+  } finally {
+    if (triggerCreated && db) db.exec("DROP TRIGGER IF EXISTS block_exit");
+    db?.close();
+    await client.close();
+    await workspace.cleanup();
   }
 });

@@ -1,5 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
-import type { CollaborationCommand } from "@getpaseo/protocol/collaboration/rpc";
+import type {
+  CollaborationCommand,
+  CollaborationState,
+} from "@getpaseo/protocol/collaboration/rpc";
 import { useFetchQuery } from "@/data/query";
 import { useHostRuntimeClient } from "@/runtime/host-runtime";
 import { useHostFeature } from "@/runtime/host-features";
@@ -7,6 +10,18 @@ import { useHostFeature } from "@/runtime/host-features";
 export interface CollaborationCommandInput {
   name: CollaborationCommand;
   input: unknown;
+}
+
+/**
+ * The conversation currently active for this chat. A closed record stays in `state.conversations`
+ * for history but is never active again, so every enable/disable/confirmation decision filters it out.
+ */
+export function findActiveConversation(
+  state: CollaborationState | undefined,
+  agentId: string | undefined,
+) {
+  if (!state || !agentId) return undefined;
+  return state.conversations.find((entry) => entry.agentId === agentId && !entry.disabledAt);
 }
 
 /** One shared status query per host: the dialog, the control and the cache update all agree on it. */

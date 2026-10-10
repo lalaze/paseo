@@ -12,6 +12,8 @@ import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
 import { createTestPaseoDaemon } from "../test-utils/paseo-daemon.js";
 import { createTestAgentClients } from "../test-utils/fake-agent-client.js";
+import { createTestLogger } from "../../test-utils/test-logger.js";
+import { AgentStorage } from "../agent/agent-storage.js";
 import type {
   AgentClient,
   AgentLaunchContext,
@@ -309,6 +311,279 @@ test.for(["full", "execute_review"] as const)(
   },
   60000,
 );
+
+test("conversation.disable exits collaboration, keeps history, and refuses late tools", async (t) => {
+  const repo = await mkdtemp(join(tmpdir(), "collaboration-disable-"));
+  t.onTestFinished(() => rm(repo, { recursive: true, force: true }));
+  await exec("git", ["init", repo]);
+  await exec(
+    "git",
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    ],
+    { cwd: repo },
+  );
+  const provider = new NativeToolClient();
+  const daemon = await createTestPaseoDaemon({ agentClients: { codex: provider } });
+  t.onTestFinished(() => daemon.close());
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  t.onTestFinished(() => client.close());
+  await client.connect();
+  const settings = SettingsSchema.parse({
+    profiles: [
+      {
+        id: "native",
+        label: "Native Codex",
+        provider: "codex/gpt-5.4-mini",
+        modeId: "auto",
+        transport: "mcp",
+      },
+    ],
+    directorProfileId: "native",
+    workerProfileId: "native",
+  });
+  await client.collaborationCommand("settings.save", { settings, base: null });
+  const main = await client.createAgent({
+    provider: "codex",
+    model: "gpt-5.4-mini",
+    cwd: repo,
+    title: "Existing main",
+    modeId: "auto",
+  });
+  const opened = await client.collaborationCommand("conversation.open", {
+    requestId: "disable-test",
+    workspaceId: main.workspaceId,
+    agentId: main.id,
+    goal: "请实施功能",
+  });
+  const conversation = opened.conversations[0];
+  expect(conversation.disabledAt).toBeUndefined();
+  const tools = provider.catalogs.get(main.id)!;
+  const status = await tools.executeTool("get_conversation_status", {});
+  expect(status).not.toHaveProperty("isError", true);
+  const chatStatus = JSON.parse(status.content[0].text!);
+  expect(
+    await tools.executeTool("start_task", {
+      sourceMessageId: chatStatus.latestUserMessage.id,
+      goal: "实现功能",
+    }),
+  ).not.toHaveProperty("isError", true);
+  await expect(
+    client.collaborationCommand("conversation.disable", {
+      id: conversation.id,
+      cancelRunning: false,
+    }),
+  ).rejects.toThrow("确认停止");
+  const stillActive = (await client.collaborationCommand("status")).conversations.find(
+    (entry) => entry.id === conversation.id,
+  )!;
+  expect(stillActive.disabledAt).toBeUndefined();
+  expect(stillActive.run?.control).not.toBe("canceled");
+  const disabled = await client.collaborationCommand("conversation.disable", {
+    id: conversation.id,
+    cancelRunning: true,
+  });
+  const closed = disabled.conversations.find((entry) => entry.id === conversation.id)!;
+  expect(closed.disabledAt).toBeGreaterThan(0);
+  expect(closed.run?.control).toBe("canceled");
+  // The main chat is released back to a normal session: its collaboration identity is gone.
+  expect(
+    daemon.daemon.agentManager.getAgent(main.id)!.labels["director-conversation"],
+  ).toBeUndefined();
+  // The chat tool refuses after exit; the record stays in status for history.
+  expect(await tools.executeTool("get_conversation_status", {})).toHaveProperty("isError", true);
+  const again = await client.collaborationCommand("conversation.open", {
+    requestId: "disable-test-2",
+    workspaceId: main.workspaceId,
+    agentId: main.id,
+    goal: "再次启用",
+  });
+  const reopened = again.conversations.find((entry) => entry.requestId === "disable-test-2")!;
+  expect(reopened.id).not.toBe(conversation.id);
+  expect(reopened.disabledAt).toBeUndefined();
+  expect((await client.collaborationCommand("status")).conversations).toHaveLength(2);
+});
+
+test.for([
+  {
+    name: "current",
+    firstLine:
+      "你是用户的主 Agent，使用正常中文对话协作。先调用 get_conversation_status 确认协作工具可用，再回答用户；不要输出协议 JSON。如果状态提示协作已在当前对话退出，就按普通聊天继续，不要重试协作工具或启动任务，等用户在界面重新启用。",
+  },
+  {
+    name: "before-exit",
+    firstLine:
+      "你是用户的主 Agent，使用正常中文对话协作。先调用 get_conversation_status 确认协作工具可用，再回答用户；不要输出协议 JSON。",
+  },
+])(
+  "exiting a Paseo-created collaboration restores the $name prompt and keeps the chat normal",
+  async ({ firstLine }, t) => {
+    const repo = await mkdtemp(join(tmpdir(), "collaboration-created-"));
+    t.onTestFinished(() => rm(repo, { recursive: true, force: true }));
+    await exec("git", ["init", repo]);
+    await exec(
+      "git",
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "initial",
+      ],
+      { cwd: repo },
+    );
+    const provider = new NativeToolClient();
+    const daemon = await createTestPaseoDaemon({ agentClients: { codex: provider } });
+    t.onTestFinished(() => daemon.close());
+    const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+    t.onTestFinished(() => client.close());
+    await client.connect();
+    const settings = SettingsSchema.parse({
+      profiles: [
+        {
+          id: "native",
+          label: "Native Codex",
+          provider: "codex/gpt-5.4-mini",
+          modeId: "auto",
+          transport: "mcp",
+          instructions: "只回答问题，不要改代码",
+        },
+      ],
+      directorProfileId: "native",
+      workerProfileId: "native",
+    });
+    await client.collaborationCommand("settings.save", { settings, base: null });
+    const seed = await client.createAgent({
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      cwd: repo,
+      title: "seed",
+    });
+    const opened = await client.collaborationCommand("conversation.open", {
+      requestId: "created-disable",
+      workspaceId: seed.workspaceId,
+      goal: "请实施功能",
+    });
+    const conversation = opened.conversations[0];
+    const mainId = conversation.agentId!;
+    // A Paseo-created main agent starts with the collaboration prompt as its system prompt.
+    expect(daemon.daemon.agentManager.getAgent(mainId)!.config.systemPrompt).toContain(
+      "get_conversation_status",
+    );
+    const originalPrompt = daemon.daemon.agentManager.getAgent(mainId)!.config.systemPrompt!;
+    await daemon.daemon.agentManager.setAgentSystemPrompt(
+      mainId,
+      firstLine + originalPrompt.slice(originalPrompt.indexOf("\n")),
+    );
+    await client.collaborationCommand("conversation.disable", { id: conversation.id });
+    const released = daemon.daemon.agentManager.getAgent(mainId)!;
+    expect(released.labels["director-conversation"]).toBeUndefined();
+    // Only the collaboration prefix is stripped; the user's own instructions survive exactly.
+    expect(released.config.systemPrompt).toBe("用户补充要求：\n只回答问题，不要改代码");
+    // A normal message is an ordinary chat: no collaboration task is created.
+    const reader = new Store(join(daemon.paseoHome, "director", "director.sqlite"), false);
+    t.onTestFinished(() => reader.close());
+    await client.sendMessage(mainId, "你好", { messageId: "after-exit" });
+    await expect.poll(() => daemon.daemon.agentManager.hasInFlightRun(mainId)).toBe(false);
+    expect(reader.all()).toHaveLength(0);
+    // The same workspace can be re-enabled later under a new request.
+    const again = await client.collaborationCommand("conversation.open", {
+      requestId: "created-disable-2",
+      workspaceId: seed.workspaceId,
+      goal: "再次启用",
+    });
+    expect(again.conversations).toHaveLength(2);
+    expect(
+      again.conversations.find((entry) => entry.requestId === "created-disable-2")!.disabledAt,
+    ).toBeUndefined();
+  },
+);
+
+test("exiting releases labels on an archived main chat without loading it", async (t) => {
+  const repo = await mkdtemp(join(tmpdir(), "collaboration-archived-"));
+  t.onTestFinished(() => rm(repo, { recursive: true, force: true }));
+  await exec("git", ["init", repo]);
+  await exec(
+    "git",
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    ],
+    { cwd: repo },
+  );
+  const provider = new NativeToolClient();
+  const daemon = await createTestPaseoDaemon({ agentClients: { codex: provider } });
+  t.onTestFinished(() => daemon.close());
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  t.onTestFinished(() => client.close());
+  await client.connect();
+  const settings = SettingsSchema.parse({
+    profiles: [
+      {
+        id: "native",
+        label: "Native Codex",
+        provider: "codex/gpt-5.4-mini",
+        modeId: "auto",
+        transport: "mcp",
+      },
+    ],
+    directorProfileId: "native",
+    workerProfileId: "native",
+  });
+  await client.collaborationCommand("settings.save", { settings, base: null });
+  const seed = await client.createAgent({
+    provider: "codex",
+    model: "gpt-5.4-mini",
+    cwd: repo,
+    title: "seed",
+  });
+  const opened = await client.collaborationCommand("conversation.open", {
+    requestId: "archived-disable",
+    workspaceId: seed.workspaceId,
+    goal: "请实施功能",
+  });
+  const conversation = opened.conversations[0];
+  const mainId = conversation.agentId!;
+  // Complete the main chat's tool handshake before archiving: with toolsConnectedAt set the
+  // background tick skips its handshake probe instead of loading the archived session.
+  const tools = provider.catalogs.get(mainId)!;
+  expect(await tools.executeTool("get_conversation_status", {})).not.toHaveProperty(
+    "isError",
+    true,
+  );
+  await client.archiveAgent(mainId);
+  await client.collaborationCommand("conversation.disable", { id: conversation.id });
+  // The exit released the stored labels without loading the archived session: the manager holds no
+  // live session for it (a retained snapshot would be closed, never live), and the record stays
+  // archived in storage.
+  await expect
+    .poll(() => {
+      const snapshot = daemon.daemon.agentManager.getAgent(mainId);
+      return snapshot === null || snapshot.lifecycle === "closed";
+    })
+    .toBe(true);
+  await daemon.daemon.agentManager.flush();
+  const storage = new AgentStorage(join(daemon.paseoHome, "agents"), createTestLogger());
+  const record = await storage.get(mainId);
+  expect(record?.archivedAt).toBeDefined();
+  expect(record?.labels["director-conversation"]).toBeUndefined();
+});
 
 test("inline collaboration models use task defaults and prompts saved without agent profiles", async (t) => {
   const provider = new NativeToolClient();

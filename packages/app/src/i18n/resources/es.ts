@@ -19,11 +19,17 @@ export const es: TranslationResources = {
         canceling: "Deteniéndose",
         canceled: "Detenido",
         completed: "Completado",
+        disabled: "Finalizada",
         awaitingAcceptance: "Esperando tu aceptación",
       },
     },
     chooseMode: "Elegir modo de colaboración",
     enabling: "Activando colaboración...",
+    disabling: "Saliendo de la colaboración...",
+    disable: "Salir de la colaboración",
+    disableConfirmTitle: "¿Salir de la colaboración?",
+    disableConfirmMessage:
+      "Se detendrá la tarea de colaboración. La rama y los archivos se conservan, y puedes seguir conversando aquí.",
     launch: {
       lastSetup: "Última configuración",
       advanced: "Configuración avanzada",
@@ -75,6 +81,7 @@ export const es: TranslationResources = {
       updateHost: "Actualiza el host para usar implementación + revisión.",
       updateHostWorktree:
         "Actualiza el host para ejecutar la colaboración en un worktree separado.",
+      updateHostDisable: "Actualiza el host para salir de la colaboración.",
     },
     categoryOverrides: "Asignaciones por categoría",
     taskOverrides: "Asignaciones por ID de tarea",

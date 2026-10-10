@@ -25,7 +25,11 @@ class ChatAgents extends FakeAgents implements ConversationGateway {
   histories = new Map<string, AgentTimelineItem[]>();
   mains = new Map<string, string>();
   links: { agent: string; conversation: string }[] = [];
+  released: string[] = [];
   failCreate = false;
+  async releaseConversation(c: Conversation) {
+    this.released.push(c.agentId!);
+  }
   override async workspaceDirectory() {
     return this.directory;
   }
@@ -790,4 +794,250 @@ test("main Agent replies stay out of the stage card and end acceptance with exac
     assert.doesNotMatch(noticeInstruction(kind), /[\n{]/);
     assert.match(noticeInstruction(kind), /不要复述卡片摘要，不要描述后台或调度过程/);
   }
+});
+
+async function advanceTo(
+  h: Awaited<ReturnType<typeof fixture>>,
+  id: string,
+  kind: "plan" | "execute",
+) {
+  for (let i = 0; i < 30; i++) {
+    await h.engine.tick();
+    const run = h.chats.summary(id).run!;
+    const op = run.operations.find((o) => o.id === run.activeOperationId);
+    if (op?.kind === kind && op.state === "sent") return op;
+  }
+  throw new Error(`没有到达 ${kind}: ${JSON.stringify(h.chats.summary(id))}`);
+}
+
+test("exiting collaboration before a task starts closes the conversation and refuses every tool", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "close-idle",
+    workspaceId: "workspace",
+    goal: "实现功能",
+  });
+  assert.equal(h.store.all().length, 0);
+  assert.deepEqual(await h.chats.disable(c.id, { cancelRunning: false }), { ok: true });
+  const stored = h.store.conversation(c.id);
+  assert.ok(stored.disabledAt);
+  // History keeps the record and the main session is released back to a normal chat.
+  assert.equal(h.store.conversations().length, 1);
+  assert.deepEqual(h.gateway.released, [c.agentId]);
+  assert.equal(h.gateway.stopped.length, 0);
+  // Idempotent: a repeat converges without moving the timestamp.
+  assert.deepEqual(await h.chats.disable(c.id), { ok: true });
+  assert.equal(h.store.conversation(c.id).disabledAt, stored.disabledAt);
+  // Every tool lookup is refused once the conversation is closed.
+  await assert.rejects(h.chats.start(c.id, { sourceMessageId: "x", goal: "y" }), /关闭/);
+  await assert.rejects(h.chats.status(c.id), /关闭/);
+  await assert.rejects(h.chats.resync(c.id), /关闭/);
+  await assert.rejects(h.chats.control(c.id, { action: "cancel", sourceMessageId: "x" }), /关闭/);
+});
+
+test("exiting collaboration during a run cancels it, keeps the branch and stops only the role session", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "close-run",
+    workspaceId: "workspace",
+    goal: "实现功能",
+  });
+  await h.chats.start(c.id, {
+    goal: "实现功能",
+    sourceMessageId: (await h.chats.status(c.id)).latestUserMessage!.id,
+  });
+  h.gateway.idle(c.agentId!);
+  const design = await advanceTo(h, c.id, "plan");
+  await h.chats.submit(c.id, design.id, plan);
+  const worker = await advanceTo(h, c.id, "execute");
+  assert.ok(worker.agentId && worker.agentId !== c.agentId);
+  // A task can start after the app read an idle conversation. Refuse that stale exit until
+  // the user confirms stopping the run, without releasing its identity or stopping the worker.
+  await assert.rejects(h.chats.disable(c.id, { cancelRunning: false }), /确认停止/);
+  assert.equal(h.store.conversation(c.id).disabledAt, undefined);
+  assert.equal(h.store.get(h.chats.summary(c.id).runId!).control, "running");
+  assert.deepEqual(h.gateway.released, []);
+  assert.deepEqual(h.gateway.stopped, []);
+  await h.chats.disable(c.id, { cancelRunning: true });
+  const run = h.store.get(h.chats.summary(c.id).runId!);
+  assert.equal(run.control, "canceled");
+  assert.ok(h.store.conversation(c.id).disabledAt);
+  assert.ok(h.gateway.stopped.includes(worker.agentId!));
+  // Cancel never interrupts the user's own main conversation.
+  assert.equal(h.gateway.stopped.includes(c.agentId!), false);
+  // Late role submissions are refused, and the chat can no longer submit either.
+  await assert.rejects(h.chats.submit(c.id, worker.id, result), /关闭/);
+  await assert.rejects(h.engine.submit(run.id, "task-1", worker.id, result));
+});
+
+test("closing clears the pending confirmation and unsent notices so no stale card survives", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "close-card",
+    workspaceId: "workspace",
+    goal: "实现功能",
+  });
+  const stored = h.store.conversation(c.id);
+  stored.confirmation = { key: "final:artifact", kind: "final", noticeId: "notice-1" };
+  stored.notices.push({
+    id: "notice-1",
+    key: "final",
+    text: "验收",
+    state: "pending",
+    createdAt: Date.now(),
+  });
+  h.store.saveConversation(stored);
+  await h.chats.disable(c.id);
+  const after = h.store.conversation(c.id);
+  assert.equal(after.confirmation, undefined);
+  assert.equal(after.noticeKey, undefined);
+  assert.equal(
+    after.notices.every((notice) => notice.state === "sent"),
+    true,
+  );
+  assert.equal(h.chats.summary(c.id).confirmation, undefined);
+});
+
+test("a closed conversation never revives across a restart, a tick or a reused request id", async (t) => {
+  const h = await fixture(t);
+  h.gateway.histories.set("existing", []);
+  h.gateway.idle("existing");
+  const c = await h.chats.open({
+    requestId: "close-reopen",
+    workspaceId: "workspace",
+    agentId: "existing",
+    goal: "实现功能",
+  });
+  await h.chats.disable(c.id);
+  const sent = h.gateway.sent.length;
+  const stopped = h.gateway.stopped.length;
+  const restarted = new Conversations(h.store, h.engine, h.gateway);
+  t.onTestFinished(() => restarted.close());
+  for (let i = 0; i < 5; i++) await restarted.tick();
+  assert.equal(h.gateway.sent.length, sent);
+  assert.equal(h.gateway.stopped.length, stopped);
+  assert.ok(h.store.conversation(c.id).disabledAt);
+  // Replaying the closed request id is rejected outright: it must never reuse the digest id and
+  // overwrite the closed record.
+  await assert.rejects(
+    restarted.open({
+      requestId: "close-reopen",
+      workspaceId: "workspace",
+      agentId: "existing",
+      goal: "重放",
+    }),
+    /关闭/,
+  );
+  assert.equal(h.store.conversations().length, 1);
+  // Re-enabling in the same chat takes over under a new request and leaves the closed record alone.
+  const again = await restarted.open({
+    requestId: "close-reopen-2",
+    workspaceId: "workspace",
+    agentId: "existing",
+    goal: "再次启用",
+  });
+  assert.notEqual(again.id, c.id);
+  assert.ok(h.store.conversation(c.id).disabledAt);
+  assert.equal(h.store.conversation(again.id).disabledAt, undefined);
+  assert.equal(h.store.conversations().length, 2);
+});
+
+test("a failed exit keeps the conversation active and a retry converges", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "close-fail",
+    workspaceId: "workspace",
+    goal: "实现功能",
+  });
+  const release = h.gateway.releaseConversation.bind(h.gateway);
+  let attempts = 0;
+  h.gateway.releaseConversation = async () => {
+    attempts += 1;
+    throw new Error("release failed");
+  };
+  await assert.rejects(h.chats.disable(c.id), /release failed/);
+  assert.equal(h.store.conversation(c.id).disabledAt, undefined);
+  // The chat stays enabled and still answers its own status.
+  assert.equal((await h.chats.status(c.id)).id, c.id);
+  h.gateway.releaseConversation = release;
+  await h.chats.disable(c.id);
+  // The retry re-runs the release rather than skipping it because labels were already touched.
+  assert.equal(attempts, 1);
+  assert.ok(h.store.conversation(c.id).disabledAt);
+});
+
+test("an open queued behind a close never re-adopts the closed conversation", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "race-ensure",
+    workspaceId: "workspace",
+    goal: "实现功能",
+  });
+  // Barrier: signal when the close is inside its lock, then hold it until the open has queued.
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = h.gateway.releaseConversation.bind(h.gateway);
+  h.gateway.releaseConversation = async (conversation) => {
+    entered();
+    await gate;
+    return original(conversation);
+  };
+  const closing = h.chats.disable(c.id);
+  await started;
+  const opening = h.chats.open({
+    requestId: "race-ensure",
+    workspaceId: "workspace",
+    conversationId: c.id,
+  });
+  release();
+  await closing;
+  // The queued open re-reads under the lock, sees the close, and refuses instead of reviving it.
+  await assert.rejects(opening, /关闭/);
+  assert.ok(h.store.conversation(c.id).disabledAt);
+});
+
+test("a takeover that began before a close cannot resurrect the closed record", async (t) => {
+  const h = await fixture(t);
+  h.gateway.histories.set("existing", []);
+  h.gateway.idle("existing");
+  const c = await h.chats.open({
+    requestId: "race-create",
+    workspaceId: "workspace",
+    agentId: "existing",
+    goal: "实现功能",
+  });
+  // Barrier: the takeover awaits its profile before taking the create lock; the close lands there.
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = h.gateway.takeoverProfile.bind(h.gateway);
+  h.gateway.takeoverProfile = async (agentId: string, workspaceId: string) => {
+    entered();
+    await gate;
+    return original(agentId, workspaceId);
+  };
+  const reopening = h.chats.open({
+    requestId: "race-create",
+    workspaceId: "workspace",
+    agentId: "existing",
+    goal: "再次启用",
+  });
+  await started;
+  await h.chats.disable(c.id);
+  release();
+  // Replaying the closed request id is refused, and the closed record keeps its disabledAt.
+  await assert.rejects(reopening, /关闭/);
+  assert.ok(h.store.conversation(c.id).disabledAt);
+  assert.equal(h.store.conversations().length, 1);
 });

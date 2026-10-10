@@ -4,6 +4,8 @@ import {
   clearCollaborationError,
   collaborationEnableKey,
   isCollaborationEnablePending,
+  selectCollaborationAction,
+  selectCollaborationDisableTarget,
   selectCollaborationEnabling,
   selectCollaborationError,
   selectCollaborationRequest,
@@ -12,7 +14,15 @@ import {
 } from "./enable-store";
 
 describe("collaboration enable store", () => {
-  beforeEach(() => useCollaborationEnableStore.setState({ pending: {}, errors: {}, requests: {} }));
+  beforeEach(() =>
+    useCollaborationEnableStore.setState({
+      pending: {},
+      errors: {},
+      requests: {},
+      actions: {},
+      disableTargets: {},
+    }),
+  );
 
   it("keys the in-flight enable per agent", () => {
     const first = collaborationEnableKey("s1", "agent-1");
@@ -81,5 +91,50 @@ describe("collaboration enable store", () => {
     beginCollaborationEnable(key, "req-1");
     settleCollaborationEnable(key);
     expect(selectCollaborationRequest(useCollaborationEnableStore.getState(), key)).toBeNull();
+  });
+
+  it("records the disable target so a retry closes the same conversation", () => {
+    const key = collaborationEnableKey("s1", "agent-1");
+    beginCollaborationEnable(key, undefined, "disable", "conv-1");
+    const state = useCollaborationEnableStore.getState();
+    expect(selectCollaborationAction(state, key)).toBe("disable");
+    expect(selectCollaborationDisableTarget(state, key)).toBe("conv-1");
+  });
+
+  it("keeps the disable target across a failure so a retry is not rebound to a new conversation", () => {
+    const key = collaborationEnableKey("s1", "agent-1");
+    beginCollaborationEnable(key, undefined, "disable", "conv-1");
+    settleCollaborationEnable(key, "host is busy");
+    const state = useCollaborationEnableStore.getState();
+    expect(selectCollaborationDisableTarget(state, key)).toBe("conv-1");
+    expect(selectCollaborationAction(state, key)).toBe("disable");
+  });
+
+  it("drops the disable target once the close succeeds", () => {
+    const key = collaborationEnableKey("s1", "agent-1");
+    beginCollaborationEnable(key, undefined, "disable", "conv-1");
+    settleCollaborationEnable(key);
+    const state = useCollaborationEnableStore.getState();
+    expect(selectCollaborationDisableTarget(state, key)).toBeNull();
+    expect(selectCollaborationAction(state, key)).toBe("enable");
+  });
+
+  it("clearing a failure also drops the action and disable target", () => {
+    const key = collaborationEnableKey("s1", "agent-1");
+    beginCollaborationEnable(key, undefined, "disable", "conv-1");
+    settleCollaborationEnable(key, "host is busy");
+    clearCollaborationError(key);
+    const state = useCollaborationEnableStore.getState();
+    expect(selectCollaborationError(state, key)).toBeNull();
+    expect(selectCollaborationAction(state, key)).toBe("enable");
+    expect(selectCollaborationDisableTarget(state, key)).toBeNull();
+  });
+
+  it("reports no disable target for an enable attempt", () => {
+    const key = collaborationEnableKey("s1", "agent-1");
+    beginCollaborationEnable(key, "req-1", "enable");
+    const state = useCollaborationEnableStore.getState();
+    expect(selectCollaborationDisableTarget(state, key)).toBeNull();
+    expect(selectCollaborationAction(state, key)).toBe("enable");
   });
 });

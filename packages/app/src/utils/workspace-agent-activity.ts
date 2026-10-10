@@ -1,6 +1,7 @@
+import { getWorkspaceStateBucketPriority } from "@getpaseo/protocol/agent-state-bucket";
 import type { Agent, WorkspaceDescriptor } from "@/stores/session-store";
 import { isWorkspaceRootAgent } from "@/subagents/policies";
-import { deriveSidebarStateBucket } from "./sidebar-agent-state";
+import { deriveSidebarStateBucket, type SidebarStateBucket } from "./sidebar-agent-state";
 
 export interface WorkspaceAgentActivity {
   agentId: string;
@@ -46,6 +47,10 @@ export function buildWorkspaceAgentActivityIndex(
     });
   }
 
+  // Workers and reviewers are children of the main chat, and a separate worktree is hidden from
+  // the sidebar. Lift only running; finished and failed sessions stay in the subagents track.
+  liftCollaborationChildActivity(agents, activityByWorkspaceId);
+
   for (const [workspaceId, activity] of activityByWorkspaceId) {
     const previousActivity = previous?.get(workspaceId);
     if (
@@ -60,6 +65,43 @@ export function buildWorkspaceAgentActivityIndex(
     return previous instanceof Map ? previous : new Map(previous);
   }
   return activityByWorkspaceId;
+}
+
+function liftCollaborationChildActivity(
+  agents: ReadonlyMap<string, Agent>,
+  activityByWorkspaceId: Map<string, WorkspaceAgentActivity>,
+) {
+  for (const agent of agents.values()) {
+    if (agent.archivedAt || !agent.parentAgentId || !agent.labels["director-run"]) continue;
+    const parent = agents.get(agent.parentAgentId);
+    const workspaceId = parent?.workspaceId;
+    if (!parent || parent.archivedAt || !workspaceId) continue;
+
+    const status = collaborationChildBucket(agent);
+    if (status !== "running") continue;
+    const current = activityByWorkspaceId.get(workspaceId);
+    if (
+      current &&
+      getWorkspaceStateBucketPriority(status) >= getWorkspaceStateBucketPriority(current.status)
+    ) {
+      continue;
+    }
+
+    activityByWorkspaceId.set(workspaceId, {
+      agentId: current?.agentId ?? parent.id,
+      status,
+      enteredAt: agent.attentionTimestamp ?? agent.updatedAt,
+    });
+  }
+}
+
+function collaborationChildBucket(agent: Agent): SidebarStateBucket {
+  return deriveSidebarStateBucket({
+    status: workspaceAgentStatus(agent),
+    pendingPermissionCount: agent.pendingPermissions.length,
+    requiresAttention: agent.requiresAttention,
+    attentionReason: agent.attentionReason,
+  });
 }
 
 function areWorkspaceAgentActivityIndexesIdentical(

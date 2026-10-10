@@ -24,7 +24,7 @@ import type {
 import type { WorkspaceRegistry } from "../workspace-registry.js";
 import type { AgentGateway, AgentSnapshot } from "./engine.js";
 import type { ConversationGateway } from "./conversations.js";
-import { CHAT_PROMPT, ROLE_PROMPT } from "./prompts.js";
+import { CHAT_PROMPT, PRE_DISABLE_CHAT_PROMPT, ROLE_PROMPT } from "./prompts.js";
 
 export const CHAT_TOOLS = [
   "get_conversation_status",
@@ -334,6 +334,52 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
       },
     });
     return CHAT_PROMPT;
+  }
+  async releaseConversation(c: Conversation) {
+    const agentId = c.agentId;
+    if (!agentId) return;
+    // Read labels without loading an archived session: a stored record still owns its labels, and
+    // loading it here would fail on an archived agent and leave the identity behind.
+    const live = this.host.agentManager.getAgent(agentId);
+    const labels = live ? live.labels : (await this.host.agentStorage.get(agentId))?.labels;
+    // Only the conversation that owns this chat may release it. A late or repeated release must
+    // not strip a newer session's identity, so match the exact conversation id.
+    if (!labels || labels["director-conversation"] !== c.id) return;
+    // Strip the collaboration prompt before removing the labels: if this throws, the labels stay,
+    // so a retry re-runs the cleanup instead of skipping it. That keeps the exit idempotent and
+    // resumable after a partial failure.
+    await this.restoreChatPrompt(agentId);
+    await this.host.agentManager.updateAgentMetadata(agentId, {
+      labels: {
+        "director-conversation": null,
+        "director-generation": null,
+        "director-role": null,
+        "director-transport": null,
+      },
+    });
+  }
+  /**
+   * Removes the collaboration prompt a Paseo-created main chat carries as its system prompt, keeping
+   * any text the user owns. This never reloads the session, so an in-flight main turn is not
+   * canceled: it updates the stored config, not the running provider, which keeps its launched
+   * prompt until it resumes. The closed-conversation status tells that session to treat the chat as
+   * normal, so the leftover prompt is harmless.
+   */
+  private async restoreChatPrompt(agentId: string) {
+    const live = this.host.agentManager.getAgent(agentId);
+    const current =
+      live?.config.systemPrompt ??
+      (await this.host.agentStorage.get(agentId))?.config?.systemPrompt ??
+      undefined;
+    // Strip only the collaboration-owned prefix; never touch a prompt the user replaced, and only
+    // when the prompt actually starts with it (a taken-over chat never has it).
+    if (!current) return;
+    const ownedPrompt = [CHAT_PROMPT, PRE_DISABLE_CHAT_PROMPT].find((prompt) =>
+      current.startsWith(prompt),
+    );
+    if (!ownedPrompt) return;
+    const restored = current.slice(ownedPrompt.length).trim();
+    await this.host.agentManager.setAgentSystemPrompt(agentId, restored || null);
   }
   async createConversation(c: Conversation) {
     const profile = c.settings.profiles.find(

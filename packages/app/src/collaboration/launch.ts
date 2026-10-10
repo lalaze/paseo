@@ -31,6 +31,32 @@ export interface CollaborationTarget {
   /** The conversation's live model, seeding the form when nothing is remembered. */
   currentModel?: ModelSelection | null;
 }
+export interface CollaborationDisableTarget {
+  serverId: string;
+  conversationId: string;
+  cancelRunning: boolean;
+}
+/**
+ * Exits collaboration in a conversation. The host cancels any unfinished run (files and branch
+ * stay) and marks the conversation closed, so it stops scheduling and answering tools. Gated once
+ * on the host capability: an older host cannot exit, and the app says so instead of faking it.
+ */
+export async function disableCollaboration(
+  target: CollaborationDisableTarget,
+): Promise<CollaborationState> {
+  const client = getHostRuntimeStore().getClient(target.serverId);
+  if (!client) throw new Error("Host disconnected");
+  const features = client.getLastServerInfoMessage()?.features;
+  // The host is the only authority: an older daemon cannot exit, and the app says so rather than
+  // sending an RPC it cannot answer. The composer surfaces this localized before calling here.
+  if (!features?.collaborationDisable) throw new Error("Update the host to exit collaboration.");
+  const state = await client.collaborationCommand("conversation.disable", {
+    id: target.conversationId,
+    cancelRunning: target.cancelRunning,
+  });
+  if (state.error) throw new Error(state.error);
+  return state;
+}
 /** Opens the dialog when no mode is chosen; otherwise enables and returns the host's fresh state. */
 export async function enableCollaboration(
   target: CollaborationTarget,
