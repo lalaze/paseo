@@ -8,7 +8,6 @@ export function isWorkspaceActionableForDesktopBadge(status: DesktopBadgeWorkspa
 
 export function deriveMacDockBadgeCountFromWorkspaceStatuses(
   statuses: readonly DesktopBadgeWorkspaceStatus[],
-): number | undefined {
-  const actionableCount = statuses.filter(isWorkspaceActionableForDesktopBadge).length;
-  return actionableCount > 0 ? actionableCount : undefined;
+): number {
+  return statuses.filter(isWorkspaceActionableForDesktopBadge).length;
 }

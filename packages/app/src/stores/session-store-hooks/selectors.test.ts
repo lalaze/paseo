@@ -45,6 +45,7 @@ function createWorkspace(
     workspaceKind: input.workspaceKind ?? "local_checkout",
     name: input.name ?? "main",
     status: input.status ?? "done",
+    worktreeSlug: input.worktreeSlug,
     archivingAt: input.archivingAt ?? null,
     statusEnteredAt: null,
     diffStat: input.diffStat ?? null,
@@ -615,6 +616,34 @@ describe("selectWorkspaceStatusesForBadges", () => {
     useSessionStore.getState().mergeWorkspaces(SERVER_ID, [{ ...workspaceA, status: "failed" }]);
     expect(tracked.current).not.toBe(before);
     expect(tracked.current).toEqual(["failed", "attention"]);
+
+    tracked.stop();
+  });
+
+  it("leaves collaboration worktrees out of the dock badge", () => {
+    const visible = createWorkspace({ id: "visible", status: "done" });
+    const feature = createWorkspace({
+      id: "feature",
+      status: "attention",
+      worktreeSlug: "joyful-sloth",
+    });
+    const hidden = createWorkspace({
+      id: "hidden",
+      status: "attention",
+      worktreeSlug: "director-0530572a2ab331ea1095208f",
+    });
+    initializeWorkspaces([visible, feature, hidden]);
+
+    const tracked = trackSelector(
+      useSessionStore,
+      (state) => selectWorkspaceStatusesForBadges(state),
+      workspaceEqualityFns.deep,
+    );
+    const before = tracked.current;
+    expect(before).toEqual(["done", "attention"]);
+
+    useSessionStore.getState().mergeWorkspaces(SERVER_ID, [{ ...hidden, status: "failed" }]);
+    expect(tracked.current).toBe(before);
 
     tracked.stop();
   });

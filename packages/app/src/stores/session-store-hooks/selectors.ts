@@ -1,4 +1,5 @@
 import equal from "fast-deep-equal";
+import { isCollaborationWorktree } from "@/collaboration/sidebar-worktrees";
 import {
   buildWorkspaceStructureProjects,
   type WorkspaceStructure,
@@ -313,6 +314,9 @@ export function selectWorkspaceStatusesForBadges(
   const statuses: DesktopBadgeWorkspaceStatus[] = [];
   for (const session of Object.values(state.sessions)) {
     for (const workspace of session.workspaces.values()) {
+      // Collaboration worktrees stay out of the sidebar. A finished worker or reviewer
+      // there has no row to open, so it must not hold the dock badge.
+      if (isCollaborationWorktree(workspace)) continue;
       statuses.push(workspace.status);
     }
   }

@@ -97,6 +97,8 @@ export function useFaviconStatus() {
   const { agents } = useAggregatedAgents({ demand: !isNative });
   const workspaceStatuses = useWorkspaceStatusesForBadges();
   const [colorScheme, setColorScheme] = useState<ColorScheme>(getSystemColorScheme);
+  // undefined means this page has not synced the dock yet, so the first 0 still
+  // clears a badge left up by the previous page.
   const lastDockBadgeCountRef = useRef<number | undefined>(undefined);
 
   // Listen for system color scheme changes
