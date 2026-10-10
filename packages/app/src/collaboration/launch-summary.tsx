@@ -8,6 +8,7 @@ import { SettingsSection } from "@/components/settings/headings/settings-section
 import { useIsCompactFormFactor } from "@/constants/layout";
 import type { LaunchRole, ModelSelection } from "./launch-model";
 import type { openCollaborationLaunch } from "./launch-model";
+import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 
 type LaunchState = ReturnType<ReturnType<typeof openCollaborationLaunch>["getState"]>;
 
@@ -67,9 +68,13 @@ export function LaunchSummary({
 
 function selectionLabel(selection: ModelSelection | null) {
   if (!selection) return null;
-  return selection.modelLabel
+  const modelLabel = selection.modelLabel
     ? `${selection.providerLabel} · ${selection.modelLabel}`
     : selection.providerLabel;
+  if (!selection.thinkingOptionId) return modelLabel;
+  const thinkingLabel =
+    selection.thinkingOptionLabel ?? formatThinkingOptionLabel({ id: selection.thinkingOptionId });
+  return `${modelLabel} · ${thinkingLabel}`;
 }
 
 const Spinner = withUnistyles(LoadingSpinner, (theme) => ({ color: theme.colors.foregroundMuted }));

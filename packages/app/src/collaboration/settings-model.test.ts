@@ -57,6 +57,125 @@ test("new collaboration chooses models without profiles and uses default task se
   model.close();
 });
 
+test("collaboration saves independent thinking levels and restores them for the next task", async () => {
+  const catalog: ProviderSnapshotEntry[] = [
+    {
+      ...providers[0],
+      models: [
+        {
+          provider: "codex",
+          id: "model-a",
+          label: "Model A",
+          thinkingOptions: [
+            { id: "low", label: "Low" },
+            { id: "high", label: "High" },
+          ],
+        },
+      ],
+    },
+  ];
+  const model = openCollaborationLaunch({ settings: null, currentAgent: false });
+  model.applyProviders(catalog);
+  for (const role of ["director", "worker", "reviewer"] as const) choose(model, role);
+  model.selectThinking("director", "high", "High");
+  model.selectThinking("worker", "low", "Low");
+  model.selectThinking("reviewer", "high", "High");
+  await model.start(async (_mode, settings) => {
+    expect(settings?.profiles.map((profile) => [profile.id, profile.thinkingOptionId])).toEqual([
+      ["worker", "low"],
+      ["director", "high"],
+      ["reviewer", "high"],
+    ]);
+  });
+  const next = openCollaborationLaunch(
+    { settings: null, currentAgent: false },
+    undefined,
+    undefined,
+    undefined,
+    model.preferences(),
+  );
+  next.applyProviders(catalog);
+  expect(next.getState().selections.worker).toMatchObject({
+    thinkingOptionId: "low",
+    thinkingOptionLabel: "Low",
+  });
+  expect(next.getState().canContinue).toBe(true);
+  next.selectThinking("worker", "", "Provider default");
+  await next.start(async (_mode, settings) => {
+    expect(
+      settings?.profiles.find((profile) => profile.id === "worker")?.thinkingOptionId,
+    ).toBeUndefined();
+  });
+  model.close();
+  next.close();
+});
+
+test("collaboration clears thinking on model changes and requires stale saved levels to be changed", () => {
+  const catalog: ProviderSnapshotEntry[] = [
+    {
+      ...providers[0],
+      models: [
+        {
+          provider: "codex",
+          id: "model-a",
+          label: "Model A",
+          thinkingOptions: [{ id: "high", label: "High" }],
+        },
+        { provider: "codex", id: "model-b", label: "Model B" },
+      ],
+    },
+  ];
+  const model = openCollaborationLaunch({ settings: null, currentAgent: true });
+  model.applyProviders(catalog);
+  choose(model, "worker");
+  model.selectThinking("worker", "high", "High");
+  model.applyProviders(catalog);
+  model.selectModel("worker", "model-a", "Model A");
+  expect(model.getState().selections.worker?.thinkingOptionId).toBe("high");
+  const stale = openCollaborationLaunch(
+    { settings: null, currentAgent: true },
+    undefined,
+    undefined,
+    undefined,
+    model.preferences(),
+  );
+  stale.applyProviders(providers);
+  expect(stale.getState().canContinue).toBe(false);
+  stale.selectThinking("worker", "", "Provider default");
+  expect(stale.getState().canContinue).toBe(true);
+  model.selectThinking("worker", "unsupported", "Unsupported");
+  expect(model.getState().selections.worker?.thinkingOptionId).toBe("high");
+  model.selectModel("worker", "model-b", "Model B");
+  expect(model.getState().selections.worker?.thinkingOptionId).toBeUndefined();
+  expect(model.getState().thinkingOptions.worker).toEqual([]);
+  choose(model, "worker");
+  model.selectThinking("worker", "high", "High");
+  model.selectProvider("worker", "claude", "Claude");
+  expect(model.getState().selections.worker?.thinkingOptionId).toBeUndefined();
+  model.close();
+  stale.close();
+});
+
+test("existing collaboration shows its saved thinking and locks changes", async () => {
+  const settings = SettingsSchema.parse({
+    profiles: [
+      { id: "worker", label: "Model A", provider: "codex/model-a", thinkingOptionId: "high" },
+    ],
+    directorProfileId: "worker",
+    workerProfileId: "worker",
+  });
+  const model = openCollaborationLaunch({
+    settings: null,
+    currentAgent: true,
+    conversation: { id: "chat", workspaceId: "workspace", title: "Existing", settings },
+  });
+  expect(model.getState().selections.worker?.thinkingOptionId).toBe("high");
+  model.selectThinking("worker", "", "Provider default");
+  expect(model.getState().selections.worker?.thinkingOptionId).toBe("high");
+  await model.start(async (_mode, taskSettings) => expect(taskSettings).toBeUndefined());
+  model.close();
+});
+
 test("a new task carries the chosen rework limit, existing conversations show their saved one", async () => {
   const model = openCollaborationLaunch({ settings: null, currentAgent: false }, "execute_review");
   model.applyProviders(providers);

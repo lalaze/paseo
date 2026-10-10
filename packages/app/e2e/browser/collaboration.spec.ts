@@ -103,8 +103,18 @@ for (const viewport of [
       await page.getByTestId("collaboration-mode-execute-review").click();
       await expect(page.getByTestId("collaboration-director-provider")).toHaveCount(0);
       await chooseModel(page, "worker");
+      await page.getByTestId("collaboration-worker-thinking").click();
+      await page
+        .getByTestId("collaboration-thinking-option-high")
+        .filter({ visible: true })
+        .click();
       await expect(page.getByTestId("collaboration-continue")).toBeDisabled();
       await chooseModel(page, "reviewer");
+      await page.getByTestId("collaboration-reviewer-thinking").click();
+      await page
+        .getByTestId("collaboration-thinking-option-medium")
+        .filter({ visible: true })
+        .click();
       await expect(page.getByTestId("collaboration-continue")).toBeEnabled();
       await page.getByTestId("collaboration-continue").click({ trial: true });
       await page.screenshot({ path: testInfo.outputPath(`inline-models-${viewport.name}.png`) });
@@ -123,6 +133,10 @@ for (const viewport of [
       expect(created[0].settings?.profiles.map((profile) => profile.provider)).toEqual([
         "mock/ten-second-stream",
         "mock/ten-second-stream",
+      ]);
+      expect(created[0].settings?.profiles.map((profile) => profile.thinkingOptionId)).toEqual([
+        "high",
+        "medium",
       ]);
       await expect(composerLocator(page)).toBeVisible();
     } finally {

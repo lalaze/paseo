@@ -9,6 +9,7 @@ import {
 import type { CollaborationState } from "@getpaseo/protocol/collaboration/rpc";
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import { filterSelectableModels } from "@/provider-selection/model-catalog";
+import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 
 export type LaunchRole = "director" | "worker" | "reviewer";
 export interface ModelSelection {
@@ -16,6 +17,8 @@ export interface ModelSelection {
   model: string;
   providerLabel: string;
   modelLabel: string;
+  thinkingOptionId?: string;
+  thinkingOptionLabel?: string;
 }
 export type LaunchSelections = Record<LaunchRole, ModelSelection | null>;
 export const DEFAULT_MAX_REWORKS = 2;
@@ -46,7 +49,16 @@ function seedSelection(profile: Profile | undefined): ModelSelection | null {
   const slash = profile.provider.indexOf("/");
   const provider = profile.provider.slice(0, slash);
   const model = profile.provider.slice(slash + 1);
-  return { provider, model, providerLabel: provider, modelLabel: model };
+  return {
+    provider,
+    model,
+    providerLabel: provider,
+    modelLabel: model,
+    thinkingOptionId: profile.thinkingOptionId,
+    thinkingOptionLabel: profile.thinkingOptionId
+      ? formatThinkingOptionLabel({ id: profile.thinkingOptionId })
+      : undefined,
+  };
 }
 
 export function openCollaborationLaunch(
@@ -97,8 +109,14 @@ export function openCollaborationLaunch(
     return filterSelectableModels(entry?.models ?? null) ?? [];
   }
   function valid(selection: ModelSelection | null) {
+    if (!selection) return false;
+    const selectedModel = models(selection.provider).find((model) => model.id === selection.model);
+    if (!selectedModel) return false;
     return (
-      selection !== null && models(selection.provider).some((model) => model.id === selection.model)
+      !selection.thinkingOptionId ||
+      Boolean(
+        selectedModel.thinkingOptions?.some((option) => option.id === selection.thinkingOptionId),
+      )
     );
   }
   /** An existing conversation shows its saved limits; a new task uses the chosen ones. */
@@ -146,6 +164,11 @@ export function openCollaborationLaunch(
         worker: modelOptions(selections.worker),
         reviewer: modelOptions(selections.reviewer),
       },
+      thinkingOptions: {
+        director: thinkingOptions(selections.director),
+        worker: thinkingOptions(selections.worker),
+        reviewer: thinkingOptions(selections.reviewer),
+      },
     };
   }
   function modelOptions(selection: ModelSelection | null) {
@@ -154,6 +177,17 @@ export function openCollaborationLaunch(
       value: model.id,
       label: model.label,
       testID: `collaboration-model-option-${model.id}`,
+    }));
+  }
+  function thinkingOptions(selection: ModelSelection | null) {
+    const selectedModel = models(selection?.provider ?? "").find(
+      (model) => model.id === selection?.model,
+    );
+    return (selectedModel?.thinkingOptions ?? []).map((option) => ({
+      id: option.id,
+      value: option.id,
+      label: formatThinkingOptionLabel(option),
+      testID: `collaboration-thinking-option-${option.id}`,
     }));
   }
   function taskSettings(): Settings | undefined {
@@ -166,6 +200,7 @@ export function openCollaborationLaunch(
         label: selection.modelLabel,
         provider: `${selection.provider}/${selection.model}`,
         modeId: provider.defaultModeId ?? undefined,
+        thinkingOptionId: selection.thinkingOptionId || undefined,
         transport: "mcp",
       };
     }
@@ -229,7 +264,35 @@ export function openCollaborationLaunch(
     },
     selectModel(role: LaunchRole, model: string, label: string) {
       if (pending || state.agentsLocked || !selections[role]) return;
-      selections = { ...selections, [role]: { ...selections[role], model, modelLabel: label } };
+      const previous = selections[role];
+      const same = previous.model === model;
+      selections = {
+        ...selections,
+        [role]: {
+          ...previous,
+          model,
+          modelLabel: label,
+          thinkingOptionId: same ? previous.thinkingOptionId : undefined,
+          thinkingOptionLabel: same ? previous.thinkingOptionLabel : undefined,
+        },
+      };
+      error = "";
+      publish();
+    },
+    selectThinking(role: LaunchRole, thinkingOptionId: string, label: string) {
+      if (pending || state.agentsLocked || !selections[role]) return;
+      const supported = state.thinkingOptions[role].some(
+        (option) => option.id === thinkingOptionId,
+      );
+      if (thinkingOptionId && !supported) return;
+      selections = {
+        ...selections,
+        [role]: {
+          ...selections[role],
+          thinkingOptionId: thinkingOptionId || undefined,
+          thinkingOptionLabel: thinkingOptionId ? label : undefined,
+        },
+      };
       error = "";
       publish();
     },

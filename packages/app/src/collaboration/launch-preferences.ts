@@ -11,6 +11,8 @@ const Selection = z
     model: z.string(),
     providerLabel: z.string(),
     modelLabel: z.string(),
+    thinkingOptionId: z.string().optional(),
+    thinkingOptionLabel: z.string().optional(),
   })
   .nullable();
 const PreferencesSchema = z.object({

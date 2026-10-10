@@ -33,6 +33,7 @@ import {
 import { closeCollaborationLaunch, useCollaborationLaunchStore } from "./launch-store";
 import { rememberLaunch, rememberedLaunch } from "./launch-preferences";
 import { useCollaboration } from "./use-collaboration";
+import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 
 const launchSnapPoints = ["75%", "90%"];
 export function CollaborationLaunchHost() {
@@ -396,6 +397,31 @@ function RoleModels({ role, model, state }: RoleModelsProps) {
     (value: string, display: { label: string }) => model.selectModel(role, value, display.label),
     [model, role],
   );
+  const thinkingOptions = useMemo(
+    () => [
+      {
+        id: "",
+        value: "",
+        label: t("delegation.providerDefaults"),
+        testID: "collaboration-thinking-option-default",
+      },
+      ...state.thinkingOptions[role],
+    ],
+    [state.thinkingOptions, role, t],
+  );
+  const thinkingDisplay = useMemo(
+    () => ({
+      label: selection?.thinkingOptionId
+        ? (selection.thinkingOptionLabel ??
+          formatThinkingOptionLabel({ id: selection.thinkingOptionId }))
+        : t("delegation.providerDefaults"),
+    }),
+    [selection, t],
+  );
+  const changeThinking = useCallback(
+    (value: string, display: { label: string }) => model.selectThinking(role, value, display.label),
+    [model, role],
+  );
   const disabled = state.pending || state.agentsLocked;
   return (
     <View style={styles.role} testID={`collaboration-launch-${role}`}>
@@ -434,6 +460,23 @@ function RoleModels({ role, model, state }: RoleModelsProps) {
               searchable
               placeholder={t("collaboration.launch.model")}
               emptyText={t("collaboration.launch.noModels")}
+            />
+          </View>
+        )}
+        {selection && (state.thinkingOptions[role].length > 0 || selection.thinkingOptionId) && (
+          <View style={styles.field}>
+            <SelectField
+              field={false}
+              size={size}
+              label={t("agentControls.thinking.title")}
+              triggerTestID={`collaboration-${role}-thinking`}
+              value={selection.thinkingOptionId ?? ""}
+              selectedDisplay={thinkingDisplay}
+              options={thinkingOptions}
+              onChange={changeThinking}
+              disabled={disabled}
+              placeholder={t("agentControls.thinking.select")}
+              emptyText={t("common.empty.noResults")}
             />
           </View>
         )}

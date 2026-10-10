@@ -4,10 +4,11 @@ Use **Collaboration** beside the Agent conversation's input, the workspace comma
 type `/director`. All three open the same mode dialog over the current workspace (a bottom sheet
 on phones). Choose a mode before continuing; canceling preserves the conversation and draft.
 `/director <goal>` also supplies the first request. Select each role’s provider and model directly
-in the dialog; you do not need saved Agent profiles. The dialog remembers, per host and on this
-device, the mode, isolation, models, rework limit and time budget of the last task you started. A new task
+in the dialog, with a thinking level for each model that supports it; Provider default leaves the
+level to the provider. You do not need saved Agent profiles. The dialog remembers, per host and on this
+device, the mode, isolation, models, thinking levels, rework limit and time budget of the last task you started. A new task
 then opens on a summary of that setup, so Continue starts it in one tap; **Change** opens the full
-form, which also opens by itself when a remembered model is no longer available. New Full workflow conversations also select
+form, which also opens by itself when a remembered model or thinking level is no longer available. New Full workflow conversations also select
 a lead. Enabling collaboration in an existing chat retains that chat’s lead. With no separate
 reviewer in Full workflow, the lead performs the final review.
 
