@@ -23,8 +23,10 @@ export const fr: TranslationResources = {
       },
     },
     chooseMode: "Choisir le mode de collaboration",
+    enabling: "Activation de la collaboration...",
     launch: {
       lastSetup: "Dernière configuration",
+      advanced: "Paramètres avancés",
       change: "Modifier",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:

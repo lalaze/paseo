@@ -6,13 +6,19 @@ import type {
   CollaborationMode,
   Settings,
 } from "@getpaseo/protocol/collaboration/schema";
-import type { LaunchLimits, LaunchSelections } from "./launch-model";
+import type { CollaborationState } from "@getpaseo/protocol/collaboration/rpc";
+import type { LaunchLimits, LaunchSelections, ModelSelection } from "./launch-model";
 import { useCollaborationLaunchStore } from "./launch-store";
 
 export interface CollaborationTarget {
   serverId: string;
   workspaceId: string;
   agentId?: string;
+  /**
+   * The composer's own agent/tab id, so the form's enable shares the pending flag and request id
+   * the composer's send and one-tap path use. Absent for entries with no composer (palette).
+   */
+  keyAgentId?: string;
   goal?: string;
   requestId?: string;
   mode?: CollaborationMode;
@@ -20,8 +26,15 @@ export interface CollaborationTarget {
   selections?: LaunchSelections;
   limits?: LaunchLimits;
   settings?: Settings;
+  /** Opens the mode dialog on the full form instead of the last-setup summary. */
+  edit?: boolean;
+  /** The conversation's live model, seeding the form when nothing is remembered. */
+  currentModel?: ModelSelection | null;
 }
-export async function enableCollaboration(target: CollaborationTarget) {
+/** Opens the dialog when no mode is chosen; otherwise enables and returns the host's fresh state. */
+export async function enableCollaboration(
+  target: CollaborationTarget,
+): Promise<CollaborationState | undefined> {
   const requestId = target.requestId ?? randomUUID();
   if (!target.mode) {
     useCollaborationLaunchStore.setState({
@@ -29,7 +42,7 @@ export async function enableCollaboration(target: CollaborationTarget) {
       configuring: false,
       originPath: null,
     });
-    return;
+    return undefined;
   }
   const client = getHostRuntimeStore().getClient(target.serverId);
   if (!client) throw new Error("Host disconnected");
@@ -64,4 +77,5 @@ export async function enableCollaboration(target: CollaborationTarget) {
       workspaceId: conversation.workspaceId,
       agentId: conversation.agentId,
     });
+  return opened;
 }

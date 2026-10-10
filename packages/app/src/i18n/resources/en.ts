@@ -20,8 +20,10 @@ export const en = {
       },
     },
     chooseMode: "Choose collaboration mode",
+    enabling: "Enabling collaboration...",
     launch: {
       lastSetup: "Last setup",
+      advanced: "Advanced settings",
       change: "Change",
       prompts: "Instructions",
       maxReworksHint:

@@ -1,4 +1,6 @@
 import { enableCollaboration } from "@/collaboration/launch";
+import { buildModelSelection } from "@/collaboration/launch-model";
+import { isCollaborationEnablePending } from "@/collaboration/enable-store";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -1584,7 +1586,31 @@ function ActiveAgentComposer({
   const handleClientSlashCommand = useCallback(
     async (command: ClientSlashCommand) => {
       if (command.kind === "enable-collaboration") {
-        await enableCollaboration({ serverId, workspaceId, agentId, goal: command.args });
+        // A one-tap enable may already be creating this conversation; do not open a second.
+        if (isCollaborationEnablePending(serverId, agentId)) return;
+        const chatAgent = resolveChatAgentFromSession(
+          useSessionStore.getState(),
+          serverId,
+          agentId,
+        );
+        const provider = chatAgent?.provider;
+        const model = chatAgent?.model ?? chatAgent?.runtimeInfo?.model;
+        // The first worker inherits this chat's model instead of a host default.
+        const currentModel =
+          provider && model
+            ? buildModelSelection(
+                provider,
+                model,
+                chatAgent?.thinkingOptionId ?? chatAgent?.runtimeInfo?.thinkingOptionId,
+              )
+            : null;
+        await enableCollaboration({
+          serverId,
+          workspaceId,
+          agentId,
+          goal: command.args,
+          currentModel,
+        });
         return;
       }
       const agent = resolveChatAgentFromSession(useSessionStore.getState(), serverId, agentId);

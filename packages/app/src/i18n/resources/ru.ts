@@ -23,8 +23,10 @@ export const ru: TranslationResources = {
       },
     },
     chooseMode: "Выбрать режим совместной работы",
+    enabling: "Включение совместной работы...",
     launch: {
       lastSetup: "Последние настройки",
+      advanced: "Дополнительные настройки",
       change: "Изменить",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:

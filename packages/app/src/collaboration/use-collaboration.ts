@@ -9,13 +9,18 @@ export interface CollaborationCommandInput {
   input: unknown;
 }
 
+/** One shared status query per host: the dialog, the control and the cache update all agree on it. */
+export function collaborationQueryKey(serverId: string) {
+  return ["collaboration", serverId] as const;
+}
+
 export function useCollaboration(serverId: string) {
   const client = useHostRuntimeClient(serverId);
   const supportsInlineModels = useHostFeature(serverId, "collaborationInlineModels");
   const query = useFetchQuery({
     dataShape: "value",
     staleTimeMs: 0,
-    queryKey: ["collaboration", serverId],
+    queryKey: collaborationQueryKey(serverId),
     enabled: !!client,
     queryFn: async () => {
       if (!client) throw new Error("Host disconnected");

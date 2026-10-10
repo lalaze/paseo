@@ -42,23 +42,43 @@ export interface LaunchSnapshot {
   settings: Settings | null;
   conversation?: CollaborationState["conversations"][number];
   currentAgent: boolean;
+  /** The conversation's live model, so the first execution inherits it instead of a host default. */
+  currentModel?: ModelSelection | null;
 }
 
-function seedSelection(profile: Profile | undefined): ModelSelection | null {
-  if (!profile) return null;
-  const slash = profile.provider.indexOf("/");
-  const provider = profile.provider.slice(0, slash);
-  const model = profile.provider.slice(slash + 1);
+/** The mode, isolation and settings a launch would send, or null when it cannot start yet. */
+export interface LaunchResolution {
+  mode: CollaborationMode;
+  isolation: CollaborationIsolation;
+  /** Absent for an existing conversation, which already carries its saved settings. */
+  settings: Settings | undefined;
+}
+
+export function buildModelSelection(
+  provider: string,
+  model: string,
+  thinkingOptionId?: string | null,
+): ModelSelection {
   return {
     provider,
     model,
     providerLabel: provider,
     modelLabel: model,
-    thinkingOptionId: profile.thinkingOptionId,
-    thinkingOptionLabel: profile.thinkingOptionId
-      ? formatThinkingOptionLabel({ id: profile.thinkingOptionId })
+    thinkingOptionId: thinkingOptionId ?? undefined,
+    thinkingOptionLabel: thinkingOptionId
+      ? formatThinkingOptionLabel({ id: thinkingOptionId })
       : undefined,
   };
+}
+
+function seedSelection(profile: Profile | undefined): ModelSelection | null {
+  if (!profile) return null;
+  const slash = profile.provider.indexOf("/");
+  return buildModelSelection(
+    profile.provider.slice(0, slash),
+    profile.provider.slice(slash + 1),
+    profile.thinkingOptionId,
+  );
 }
 
 export function openCollaborationLaunch(
@@ -93,6 +113,9 @@ export function openCollaborationLaunch(
   function initialSelections(next: LaunchSnapshot): LaunchSelections {
     if (restored) return restored;
     if (!next.conversation && remembered) return remembered.selections;
+    // A first task inherits the conversation's own model; review stays unchosen.
+    if (!next.conversation && next.currentModel)
+      return { director: null, worker: next.currentModel, reviewer: null };
     return seed(next.conversation?.settings ?? next.settings);
   }
   let selections = initialSelections(initial);
@@ -225,6 +248,10 @@ export function openCollaborationLaunch(
     state = read();
     for (const listener of listeners) listener();
   }
+  function resolveLaunch(): LaunchResolution | null {
+    if (!state.canContinue) return null;
+    return { mode: state.mode, isolation: state.isolation, settings: taskSettings() };
+  }
   return {
     getState: () => state,
     preferences: (): LaunchPreferences => ({
@@ -234,6 +261,8 @@ export function openCollaborationLaunch(
       maxReworks: state.maxReworks,
       runTimeoutMs: state.runTimeoutMs,
     }),
+    /** What a launch would send right now, or null when the setup is incomplete or locked out. */
+    resolve: resolveLaunch,
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -329,13 +358,13 @@ export function openCollaborationLaunch(
         isolation: CollaborationIsolation,
       ) => Promise<void>,
     ) {
-      if (!state.canContinue) return;
-      const settings = taskSettings();
+      const resolution = resolveLaunch();
+      if (!resolution) return;
       pending = true;
       error = "";
       publish();
       try {
-        await launch(mode, settings, isolation);
+        await launch(resolution.mode, resolution.settings, resolution.isolation);
       } catch (cause) {
         error = cause instanceof Error ? cause.message : String(cause);
       } finally {

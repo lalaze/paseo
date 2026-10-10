@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Keyboard, Text, View } from "react-native";
 import { router, usePathname } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -12,10 +13,11 @@ import { Button } from "@/components/ui/button";
 import { SelectField } from "@/components/ui/select-field";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
+import { SettingsCard, SettingsCollapsibleRow } from "@/components/settings";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
-import { useHostFeatureAvailabilityMap } from "@/runtime/host-features";
+import { useHostFeature, useHostFeatureAvailabilityMap } from "@/runtime/host-features";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { LaunchIsolationOptions, LaunchModeOptions } from "./launch-mode-options";
 import { LaunchGoal } from "./launch-goal";
@@ -32,7 +34,12 @@ import {
 } from "./launch-model";
 import { closeCollaborationLaunch, useCollaborationLaunchStore } from "./launch-store";
 import { rememberLaunch, rememberedLaunch } from "./launch-preferences";
-import { useCollaboration } from "./use-collaboration";
+import {
+  beginCollaborationEnable,
+  collaborationEnableKey,
+  settleCollaborationEnable,
+} from "./enable-store";
+import { collaborationQueryKey, useCollaboration } from "./use-collaboration";
 import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 
 const launchSnapPoints = ["75%", "90%"];
@@ -81,8 +88,9 @@ function LaunchDialog({ target }: { target: CollaborationTarget }) {
         target.agentId ? entry.agentId === target.agentId : entry.requestId === target.requestId,
       ),
       currentAgent: Boolean(target.agentId),
+      currentModel: target.currentModel,
     }),
-    [query.data, target.agentId, target.requestId],
+    [query.data, target.agentId, target.requestId, target.currentModel],
   );
   const visible = pathname === origin && !configuring && !closing;
   return (
@@ -131,6 +139,8 @@ function ModePicker({
   supported,
 }: ModePickerProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const supportsExecuteReview = useHostFeature(target.serverId, "collaborationExecuteReview");
   const supportsWorktree =
     useHostFeatureAvailabilityMap([target.serverId], "collaborationWorktree").get(
       target.serverId,
@@ -157,7 +167,10 @@ function ModePicker({
   }, [model, catalog.entries]);
   const state = useSyncExternalStore(model.subscribe, model.getState, model.getState);
   // With a remembered setup, a new task starts from a summary; the full form is one tap away.
-  const [editing, setEditing] = useState(() => !rememberedLaunch(target.serverId));
+  // The composer's config entry opens straight on the form.
+  const [editing, setEditing] = useState(
+    () => Boolean(target.edit) || !rememberedLaunch(target.serverId),
+  );
   const summarized = !editing && !state.agentsLocked;
   const incomplete =
     Boolean(catalog.entries) && snapshot.ready && !state.pending && !state.canContinue;
@@ -177,13 +190,26 @@ function ModePicker({
     if (!model.getState().pending) onClose();
   }, [model, target.requestId, onClose]);
   const start = useCallback(() => {
-    void model.start(async (mode, settings, isolation) => {
-      await enableCollaboration({ ...target, mode, settings, isolation });
-      // Settings are only sent for a new task, which is what the next dialog should start from.
-      if (settings) rememberLaunch(target.serverId, model.preferences());
-      onClose();
-    });
-  }, [model, target, onClose]);
+    // A second trigger would no-op through model.start and settle the first request early.
+    const current = model.getState();
+    if (current.pending || !current.canContinue) return;
+    // The same key the composer's send and one-tap path use, so a form enable blocks a send too.
+    const key = collaborationEnableKey(target.serverId, target.keyAgentId ?? target.agentId ?? "");
+    void (async () => {
+      await model.start(async (mode, settings, isolation) => {
+        // Record the form's request id so a failure can be retried from the composer on the same request.
+        beginCollaborationEnable(key, target.requestId);
+        const opened = await enableCollaboration({ ...target, mode, settings, isolation });
+        // The host's own state makes the new conversation visible without waiting for the poll.
+        if (opened) queryClient.setQueryData(collaborationQueryKey(target.serverId), opened);
+        // Settings are only sent for a new task, which is what the next dialog should start from.
+        if (settings) rememberLaunch(target.serverId, model.preferences());
+        onClose();
+      });
+      // The model keeps its own error; mirror it so the composer surfaces the same failure.
+      settleCollaborationEnable(key, model.getState().error || undefined);
+    })();
+  }, [model, target, onClose, queryClient]);
   const retryCatalog = useCallback(() => {
     catalog.refetchIfStale();
   }, [catalog]);
@@ -243,6 +269,7 @@ function ModePicker({
               target={target}
               model={model}
               state={state}
+              supportsExecuteReview={supportsExecuteReview}
               supportsWorktree={supportsWorktree}
               catalogLoaded={Boolean(catalog.entries)}
               onConfigure={onConfigure}
@@ -272,6 +299,7 @@ function LaunchForm({
   target,
   model,
   state,
+  supportsExecuteReview,
   supportsWorktree,
   catalogLoaded,
   onConfigure,
@@ -279,6 +307,7 @@ function LaunchForm({
   target: CollaborationTarget;
   model: LaunchModel;
   state: ReturnType<LaunchModel["getState"]>;
+  supportsExecuteReview: boolean;
   supportsWorktree: boolean | null;
   catalogLoaded: boolean;
   onConfigure: (selections: LaunchSelections, limits: LaunchLimits) => void;
@@ -307,12 +336,26 @@ function LaunchForm({
       runTimeoutMs: current.runTimeoutMs,
     });
   }, [model, onConfigure]);
+  const advancedSummaryNode = useMemo(
+    () => (
+      <Text style={styles.summary}>
+        {`${t("collaboration.maxReworks")} ${state.maxReworks} · ${t(
+          "collaboration.launch.runHours",
+          {
+            count: Math.round(state.runTimeoutMs / 3600000),
+          },
+        )}`}
+      </Text>
+    ),
+    [state.maxReworks, state.runTimeoutMs, t],
+  );
   const promptButton = useMemo(
     () => (
       <Button
         onPress={configure}
         size={size}
         variant="ghost"
+        style={styles.advancedAction}
         disabled={state.pending}
         testID="collaboration-manage-prompts"
       >
@@ -326,7 +369,7 @@ function LaunchForm({
       <LaunchModeOptions
         mode={state.mode}
         disabled={state.locked || state.pending}
-        supportsExecuteReview
+        supportsExecuteReview={supportsExecuteReview}
         onSelect={select}
       />
       <SettingsSection title={t("newWorkspace.isolation.label")} flush>
@@ -338,7 +381,7 @@ function LaunchForm({
         />
       </SettingsSection>
       {target.goal && <LaunchGoal goal={target.goal} />}
-      <SettingsSection title={t("collaboration.launch.agents")} flush trailing={promptButton}>
+      <SettingsSection title={t("collaboration.launch.agents")} flush>
         {!catalogLoaded && !state.agentsLocked ? (
           <Spinner />
         ) : (
@@ -349,9 +392,18 @@ function LaunchForm({
           </View>
         )}
       </SettingsSection>
-      <SettingsSection title={t("collaboration.launch.limits")} flush>
-        <TaskLimits model={model} state={state} />
-      </SettingsSection>
+      <SettingsCard>
+        <SettingsCollapsibleRow
+          label={t("collaboration.launch.advanced")}
+          value={advancedSummaryNode}
+          testID="collaboration-advanced"
+        >
+          <View style={styles.advanced}>
+            <TaskLimits model={model} state={state} />
+            {promptButton}
+          </View>
+        </SettingsCollapsibleRow>
+      </SettingsCard>
     </>
   );
 }
@@ -381,14 +433,17 @@ function RoleModels({ role, model, state }: RoleModelsProps) {
         : state.providerOptions,
     [optionalReview, state.providerOptions, t],
   );
-  const providerDisplay = useMemo(
-    () => (selection ? { label: selection.providerLabel } : null),
-    [selection],
-  );
-  const modelDisplay = useMemo(
-    () => (selection?.model ? { label: selection.modelLabel } : null),
-    [selection],
-  );
+  // Prefer the catalog's label: an inherited model carries a raw id, not a display name.
+  const providerDisplay = useMemo(() => {
+    if (!selection) return null;
+    const option = state.providerOptions.find((entry) => entry.value === selection.provider);
+    return { label: option?.label ?? selection.providerLabel };
+  }, [selection, state.providerOptions]);
+  const modelDisplay = useMemo(() => {
+    if (!selection?.model) return null;
+    const option = state.modelOptions[role].find((entry) => entry.value === selection.model);
+    return { label: option?.label ?? selection.modelLabel };
+  }, [role, selection, state.modelOptions]);
   const changeProvider = useCallback(
     (value: string, display: { label: string }) => model.selectProvider(role, value, display.label),
     [model, role],
@@ -574,5 +629,12 @@ const styles = StyleSheet.create((theme) => ({
   field: { flex: 1, minWidth: 0 },
   limitField: { flex: 1, minWidth: 0, gap: theme.spacing[2] },
   secondary: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  summary: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   error: { color: theme.colors.destructive, fontSize: theme.fontSize.sm },
+  advanced: {
+    gap: theme.spacing[4],
+    paddingVertical: theme.spacing[4],
+    paddingHorizontal: theme.spacing[4],
+  },
+  advancedAction: { alignSelf: "flex-start" },
 }));

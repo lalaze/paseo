@@ -23,8 +23,10 @@ export const ja: TranslationResources = {
       },
     },
     chooseMode: "協働モードを選択",
+    enabling: "協働を有効化中...",
     launch: {
       lastSetup: "前回の設定",
+      advanced: "詳細設定",
       change: "変更",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:

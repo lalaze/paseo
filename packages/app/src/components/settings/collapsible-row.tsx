@@ -12,6 +12,8 @@ const hoveredIconColorMapping = (theme: Theme) => ({ color: theme.colors.foregro
 
 interface SettingsCollapsibleRowProps {
   label: string;
+  /** A trailing summary of what the folded rows currently hold, so collapsing never hides the value. */
+  value?: ReactNode;
   defaultExpanded?: boolean;
   testID?: string;
   /** The rows revealed underneath, separated like the rows of a `SettingsCard`. */
@@ -19,18 +21,19 @@ interface SettingsCollapsibleRowProps {
 }
 
 /**
- * A settings row that folds a group of rows under it. Collapsed, it is one row: the label and a
- * trailing chevron that points right, and turns down once expanded. Sits inside a `SettingsCard` like any
- * other row.
+ * A settings row that folds a group of rows under it. Collapsed, it is one row: the label, an optional
+ * summary of the folded values, and a trailing chevron that points right and turns down once expanded.
+ * Sits inside a `SettingsCard` like any other row.
  */
 export function SettingsCollapsibleRow({
   label,
+  value,
   defaultExpanded = false,
   testID,
   children,
 }: SettingsCollapsibleRowProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  const toggle = useCallback(() => setExpanded((current) => !current), []);
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   // React Native Web does not map `accessibilityState.expanded` to `aria-expanded`.
   const webExpandedProps = useMemo(
@@ -66,6 +69,7 @@ export function SettingsCollapsibleRow({
             <View style={settingsStyles.rowContent}>
               <Text style={settingsStyles.rowTitle}>{label}</Text>
             </View>
+            {value ? <View style={styles.value}>{value}</View> : null}
             <View style={chevronStyle}>
               <ThemedChevron
                 size={ICON_SIZE.sm}
@@ -92,6 +96,11 @@ const styles = StyleSheet.create((theme) => ({
   },
   headerPressed: {
     backgroundColor: theme.colors.surface3,
+  },
+  value: {
+    flexShrink: 1,
+    minWidth: 0,
+    marginRight: theme.spacing[2],
   },
   // Optical: the chevron's ink sits about 4px inside its box whether it points right or down; this
   // puts the ink on the card's trailing rail, where the switch and the reports' refresh buttons end.

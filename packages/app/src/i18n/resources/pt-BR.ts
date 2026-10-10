@@ -23,8 +23,10 @@ export const ptBR: TranslationResources = {
       },
     },
     chooseMode: "Escolher modo de colaboração",
+    enabling: "Ativando colaboração...",
     launch: {
       lastSetup: "Última configuração",
+      advanced: "Configurações avançadas",
       change: "Alterar",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:

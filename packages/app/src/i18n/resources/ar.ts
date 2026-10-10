@@ -23,8 +23,10 @@ export const ar: TranslationResources = {
       },
     },
     chooseMode: "اختيار وضع التعاون",
+    enabling: "جارٍ تمكين التعاون...",
     launch: {
       lastSetup: "آخر إعداد",
+      advanced: "إعدادات متقدمة",
       change: "تغيير",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:

@@ -23,8 +23,10 @@ export const ko: TranslationResources = {
       },
     },
     chooseMode: "협업 모드 선택",
+    enabling: "협업 활성화 중...",
     launch: {
       lastSetup: "지난 설정",
+      advanced: "고급 설정",
       change: "변경",
       prompts: en.collaboration.launch.prompts,
       maxReworksHint:

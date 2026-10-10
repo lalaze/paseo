@@ -23,8 +23,10 @@ export const zhCN: TranslationResources = {
       },
     },
     chooseMode: "选择协作模式",
+    enabling: "正在启用协作...",
     launch: {
       lastSetup: "上次的设置",
+      advanced: "高级设置",
       change: "修改",
       prompts: "提示词",
       maxReworksHint:

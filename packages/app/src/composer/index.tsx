@@ -4,6 +4,15 @@ import { useStore } from "zustand";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { CollaborationControl } from "@/collaboration/composer-control";
+import { buildModelSelection } from "@/collaboration/launch-model";
+import {
+  clearCollaborationError,
+  collaborationEnableKey,
+  isCollaborationEnablePending,
+  selectCollaborationEnabling,
+  selectCollaborationError,
+  useCollaborationEnableStore,
+} from "@/collaboration/enable-store";
 import {
   View,
   Pressable,
@@ -40,6 +49,7 @@ import {
   Image as ImageIcon,
   ClipboardPaste,
   Paperclip,
+  X,
 } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { FOOTER_HEIGHT } from "@/constants/layout";
@@ -296,10 +306,25 @@ function renderLeftContent(args: RenderLeftContentArgs): ReactElement | null {
   const { agentControls, agentId, serverId, workspaceId, focusInput, isCompactLayout } = args;
   if (!args.showAgentControls) return null;
   if (resolveAgentControlsMode(agentControls) === "draft" && agentControls) {
+    const draftModel =
+      agentControls.selectedProvider && agentControls.selectedModel
+        ? buildModelSelection(
+            agentControls.selectedProvider,
+            agentControls.selectedModel,
+            agentControls.selectedThinkingOptionId,
+          )
+        : null;
     return (
       <>
         <DraftAgentControls {...agentControls} isCompactLayout={isCompactLayout} />
-        {workspaceId && <CollaborationControl serverId={serverId} workspaceId={workspaceId} />}
+        {workspaceId && (
+          <CollaborationControl
+            serverId={serverId}
+            workspaceId={workspaceId}
+            keyAgentId={agentId}
+            draftModel={draftModel}
+          />
+        )}
       </>
     );
   }
@@ -312,7 +337,12 @@ function renderLeftContent(args: RenderLeftContentArgs): ReactElement | null {
         isCompactLayout={isCompactLayout}
       />
       {workspaceId && (
-        <CollaborationControl serverId={serverId} workspaceId={workspaceId} agentId={agentId} />
+        <CollaborationControl
+          serverId={serverId}
+          workspaceId={workspaceId}
+          agentId={agentId}
+          keyAgentId={agentId}
+        />
       )}
     </>
   );
@@ -1267,6 +1297,18 @@ function ComposerContentImpl({
     isConnected,
     agentDirectoryStatus,
   });
+  // The one-tap collaboration enable is a background request; block the send until it lands.
+  const collaborationKey = collaborationEnableKey(serverId, agentId);
+  const collaborationEnabling = useCollaborationEnableStore((state) =>
+    selectCollaborationEnabling(state, collaborationKey),
+  );
+  const collaborationError = useCollaborationEnableStore((state) =>
+    selectCollaborationError(state, collaborationKey),
+  );
+  const dismissCollaborationError = useCallback(
+    () => clearCollaborationError(collaborationKey),
+    [collaborationKey],
+  );
 
   const { settings: appSettings } = useAppSettings();
 
@@ -1636,6 +1678,8 @@ function ComposerContentImpl({
       outgoingAttachments: ComposerAttachment[],
       forceSend?: boolean,
     ) => {
+      // The one-tap enable is creating this conversation; block the send and keep the draft.
+      if (isCollaborationEnablePending(serverId, agentId)) return;
       const result = await submitAgentInput({
         message: outgoingMessage,
         attachments: outgoingAttachments,
@@ -1678,6 +1722,7 @@ function ComposerContentImpl({
     },
     [
       allowEmptySubmit,
+      agentId,
       beginSubmit,
       clearDraft,
       completeSubmit,
@@ -1685,6 +1730,7 @@ function ComposerContentImpl({
       isAgentRunning,
       mentionableAgents,
       queueMessage,
+      serverId,
       setSelectedAttachments,
       replaceUserInput,
       submitBehavior,
@@ -1695,6 +1741,7 @@ function ComposerContentImpl({
 
   const handleSubmit = useCallback(
     (payload: MessagePayload) => {
+      if (isCollaborationEnablePending(serverId, agentId)) return;
       const outgoingAttachments = buildOutgoingAttachments(attachments);
       const clientSlashCommand = resolveClientSlashCommand({
         text: payload.text,
@@ -1716,6 +1763,7 @@ function ComposerContentImpl({
       void sendMessageWithContent(payload.text, outgoingAttachments, payload.forceSend);
     },
     [
+      agentId,
       attachments,
       blurOnSubmit,
       buildOutgoingAttachments,
@@ -1723,6 +1771,7 @@ function ComposerContentImpl({
       pluginClientSlashCommands,
       runPluginClientSlashCommand,
       sendMessageWithContent,
+      serverId,
     ],
   );
 
@@ -1929,6 +1978,7 @@ function ComposerContentImpl({
 
   const handleSendQueuedNow = useCallback(
     async (id: string) => {
+      if (isCollaborationEnablePending(serverId, agentId)) return;
       if (!sendAgentMessageRef.current && !onSubmitMessageRef.current) return;
       // Reuse the regular send path; server-side send atomically interrupts any active run.
       const result = await sendQueuedComposerMessageNow({
@@ -1943,11 +1993,12 @@ function ComposerContentImpl({
         setSendError(result.errorMessage);
       }
     },
-    [agentId, queueWriter, submitMessage, t],
+    [agentId, queueWriter, serverId, submitMessage, t],
   );
 
   const handleQueue = useCallback(
     (payload: MessagePayload) => {
+      if (isCollaborationEnablePending(serverId, agentId)) return;
       const outgoingAttachments = buildOutgoingAttachments(attachments);
       const clientSlashCommand = resolveClientSlashCommand({
         text: payload.text,
@@ -1965,12 +2016,14 @@ function ComposerContentImpl({
       queueMessage(payload.text, outgoingAttachments);
     },
     [
+      agentId,
       attachments,
       buildOutgoingAttachments,
       pluginClientSlashCommands,
       queueMessage,
       runClientSlashCommand,
       runPluginClientSlashCommand,
+      serverId,
     ],
   );
 
@@ -2353,7 +2406,9 @@ function ComposerContentImpl({
   const isSubmitLoadingVisible =
     isProcessing || isSubmitLoading || isUploadingFile || pendingNativeImagePastes > 0;
   const isSubmitDisabled =
-    isSubmitLoadingVisible || (waitForForgeAutoAttachOnSubmit && isForgeResolving);
+    isSubmitLoadingVisible ||
+    collaborationEnabling ||
+    (waitForForgeAutoAttachOnSubmit && isForgeResolving);
 
   // Disable drops while submitting/uploading: the submit path clears and restores attachments,
   // so a drop in that window would be lost or land on a locked draft. `disabled` hides the
@@ -2379,6 +2434,27 @@ function ComposerContentImpl({
       ) : null,
     [sendError],
   );
+  // A failed one-tap enable stays visible until dismissed, so the failure is not a toast that vanishes.
+  const collaborationErrorNode = useMemo(
+    () =>
+      collaborationError ? (
+        <View style={styles.collaborationErrorRow} testID="composer-collaboration-error">
+          <Text accessibilityRole="alert" style={styles.sendErrorText}>
+            {collaborationError}
+          </Text>
+          <Pressable
+            onPress={dismissCollaborationError}
+            accessibilityRole="button"
+            accessibilityLabel={t("common.actions.dismiss")}
+            testID="composer-collaboration-error-dismiss"
+            style={styles.collaborationErrorDismiss}
+          >
+            <ThemedXIcon size={14} />
+          </Pressable>
+        </View>
+      ) : null,
+    [collaborationError, dismissCollaborationError, t],
+  );
   const githubEmptyText = githubSearchResultsQuery.isFetching
     ? t("composer.github.searching")
     : t("composer.github.noResults");
@@ -2402,6 +2478,7 @@ function ComposerContentImpl({
           <View style={styles.inputAreaContent}>
             {queueList}
             {sendErrorNode}
+            {collaborationErrorNode}
 
             <View ref={messageInputContainerRef} style={styles.messageInputContainer}>
               <ComposerAutocompleteBinding
@@ -2634,9 +2711,18 @@ const styles = StyleSheet.create((theme: Theme) => ({
     color: theme.colors.palette.red[500],
     fontSize: theme.fontSize.base,
   },
+  collaborationErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  collaborationErrorDismiss: {
+    padding: theme.spacing[1],
+  },
 })) as unknown as Record<string, object>;
 
 const ThemedAttachmentSpinner = withUnistyles(LoadingSpinner);
+const ThemedXIcon = withUnistyles(X, (theme) => ({ color: theme.colors.foregroundMuted }));
 const ThemedPencil = withUnistyles(Pencil);
 const ThemedArrowUp = withUnistyles(ArrowUp);
 const ThemedGitPullRequest = withUnistyles(GitPullRequest);

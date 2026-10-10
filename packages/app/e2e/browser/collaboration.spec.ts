@@ -1,3 +1,4 @@
+import { rename } from "node:fs/promises";
 import { expect, test } from "../support/fixtures";
 import type { Page } from "@playwright/test";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
@@ -146,6 +147,154 @@ for (const viewport of [
   });
 }
 
+test("one-tap enable reuses the remembered setup without a dialog and starts no task", async ({
+  page,
+}) => {
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-quick-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-quick",
+  });
+  try {
+    const before = await client.collaborationCommand("status");
+    await gotoWorkspace(page, workspace.workspaceId);
+
+    // Complete the form once so this host remembers the setup.
+    await clickNewChat(page);
+    await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+    await chooseModel(page, "director");
+    await chooseModel(page, "worker");
+    await expect(page.getByTestId("collaboration-continue")).toBeEnabled();
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+
+    // The next task reuses it with no dialog and no run: enabling alone starts nothing.
+    await clickNewChat(page);
+    const control = page.getByTestId("composer-collaboration").filter({ visible: true });
+    await expect(control).toBeVisible();
+    await control.click();
+    await expect
+      .poll(async () => (await client.collaborationCommand("status")).conversations.length)
+      .toBe(before.conversations.length + 2);
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    const after = await client.collaborationCommand("status");
+    const created = after.conversations.filter(
+      (entry) => !before.conversations.some((old) => old.id === entry.id),
+    );
+    expect(created).toHaveLength(2);
+    expect(created.every((entry) => entry.run === undefined)).toBe(true);
+  } finally {
+    await client.close();
+    await workspace.cleanup();
+  }
+});
+
+test("surfaces a failed one-tap enable, keeps the draft, and resumes the same request on retry", async ({
+  page,
+}) => {
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-retry-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-retry",
+  });
+  const movedPath = `${workspace.repoPath}.moved`;
+  let moved = false;
+  try {
+    const before = await client.collaborationCommand("status");
+    await gotoWorkspace(page, workspace.workspaceId);
+
+    // Remember a setup once so the next draft is a one-tap enable.
+    await clickNewChat(page);
+    await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+    await chooseModel(page, "director");
+    await chooseModel(page, "worker");
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+
+    await clickNewChat(page);
+    const draft = "Keep this unsent draft";
+    await composerLocator(page).fill(draft);
+
+    // A real filesystem failure, not a mock: the host cannot create the chat session in a
+    // directory that no longer exists (agent-manager's assertUsableWorkingDirectory).
+    await rename(workspace.repoPath, movedPath);
+    moved = true;
+    const control = page.getByTestId("composer-collaboration").filter({ visible: true });
+    await control.click();
+    const error = page.getByTestId("composer-collaboration-error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Working directory does not exist");
+    await expect(composerLocator(page)).toHaveValue(draft);
+    await expect(control).toContainText("Retry");
+    await expect(page.getByTestId("composer-collaboration-error-dismiss")).toBeVisible();
+
+    // Restore the directory and retry: the same request resumes, adding no second record.
+    await rename(movedPath, workspace.repoPath);
+    moved = false;
+    await control.click();
+    await expect(error).toHaveCount(0);
+    await expect
+      .poll(async () => (await client.collaborationCommand("status")).conversations.length)
+      .toBe(before.conversations.length + 2);
+    const created = (await client.collaborationCommand("status")).conversations.filter(
+      (entry) => !before.conversations.some((old) => old.id === entry.id),
+    );
+    expect(created).toHaveLength(2);
+    expect(created.filter((entry) => !entry.agentId)).toHaveLength(0);
+  } finally {
+    if (moved) await rename(movedPath, workspace.repoPath).catch(() => undefined);
+    await client.close();
+    await workspace.cleanup();
+  }
+});
+
+test("inherits the conversation's model into the first task and preserves the draft on cancel", async ({
+  page,
+}) => {
+  const session = await seedMockAgentWorkspace({
+    repoPrefix: "collaboration-inherit-",
+    title: "Model inheritance",
+    model: "ten-second-stream",
+  });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-inherit",
+  });
+  try {
+    const before = await client.collaborationCommand("status");
+    await openAgentRoute(page, session);
+    const draft = "Keep this unsent draft";
+    await composerLocator(page).fill(draft);
+    await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+    // The first worker inherits the chat's model; review is still unchosen.
+    await expect(page.getByTestId("collaboration-worker-model")).toContainText("Ten second stream");
+    await expect(page.getByTestId("collaboration-director-provider")).toHaveCount(0);
+    await page.getByTestId("collaboration-launch-cancel").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    await expect(composerLocator(page)).toHaveValue(draft);
+    expect((await client.collaborationCommand("status")).conversations).toHaveLength(
+      before.conversations.length,
+    );
+  } finally {
+    await client.close();
+    await session.cleanup();
+  }
+});
+
+test("the config chevron opens the form with Advanced collapsed", async ({ page }) => {
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-config-" });
+  try {
+    await gotoWorkspace(page, workspace.workspaceId);
+    await clickNewChat(page);
+    await page.getByTestId("composer-collaboration-config").filter({ visible: true }).click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toBeVisible();
+    await expect(page.getByTestId("collaboration-advanced")).toBeVisible();
+    // Collapsed by default: the instructions action is not mounted until expanded.
+    await expect(page.getByTestId("collaboration-manage-prompts")).toHaveCount(0);
+    await page.getByTestId("collaboration-advanced-toggle").click();
+    await expect(page.getByTestId("collaboration-manage-prompts")).toBeVisible();
+  } finally {
+    await workspace.cleanup();
+  }
+});
+
 test("preserve inline models and slash-command goal through prompt settings, then launch full workflow from the palette", async ({
   page,
 }) => {
@@ -168,6 +317,8 @@ test("preserve inline models and slash-command goal through prompt settings, the
     await chooseModel(page, "worker");
     await page.getByTestId("collaboration-mode-execute-review").click();
     await chooseModel(page, "reviewer");
+    // Instructions live under Advanced settings, collapsed by default.
+    await page.getByTestId("collaboration-advanced-toggle").click();
     await page.getByTestId("collaboration-manage-prompts").click();
     await page.getByLabel("Review instructions", { exact: true }).fill("Check behavior and tests");
     await page.getByRole("button", { name: "Save collaboration settings", exact: true }).click();

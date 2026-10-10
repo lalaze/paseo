@@ -1,16 +1,30 @@
 # Collaboration
 
 Use **Collaboration** beside the Agent conversation's input, the workspace command palette, or
-type `/director`. All three open the same mode dialog over the current workspace (a bottom sheet
-on phones). Choose a mode before continuing; canceling preserves the conversation and draft.
-`/director <goal>` also supplies the first request. Select each role’s provider and model directly
-in the dialog, with a thinking level for each model that supports it; Provider default leaves the
-level to the provider. You do not need saved Agent profiles. The dialog remembers, per host and on this
-device, the mode, isolation, models, thinking levels, rework limit and time budget of the last task you started. A new task
-then opens on a summary of that setup, so Continue starts it in one tap; **Change** opens the full
-form, which also opens by itself when a remembered model or thinking level is no longer available. New Full workflow conversations also select
-a lead. Enabling collaboration in an existing chat retains that chat’s lead. With no separate
-reviewer in Full workflow, the lead performs the final review.
+type `/director`. The composer control is a split button. The label enables collaboration with the
+last setup remembered on this host and device in one tap — enabling only prepares the conversation,
+so the next message you send is what starts a task. It never starts one on its own and never treats
+earlier chat as the request. The chevron beside it opens the mode dialog to change that setup, and
+does not fire the label. When the setup cannot be reused — nothing remembered yet, or a remembered
+model or thinking level is no longer available on this host — the dialog opens on the full form so
+you finish it. While the enable request is in flight the control shows it and the composer refuses
+to send, so the two cannot race. A failure stays in the composer as a dismissible error and is
+never shown as enabled; pressing the control retries it.
+
+The dialog opens over the current workspace (a bottom sheet on phones). `/director <goal>` also
+supplies the first request, and **Change** on the last-setup summary opens the full form. Canceling
+preserves the conversation and draft.
+
+The form shows the mode, the isolation choice and the execution and review agents. Rework limit,
+time budget and the role-instructions entry sit under **Advanced settings**, collapsed by default;
+the collapsed row shows the chosen rework limit and time budget, so folding it never hides them.
+A model's thinking level expands with the model. Select each role's provider and model directly in
+the dialog; you do not need saved Agent profiles. The first task's execution model inherits the
+conversation's current provider, model and thinking level; review is chosen explicitly. The dialog
+remembers, per host and on this device, the mode, isolation, models, thinking levels, rework limit
+and time budget of the last task you started. New Full workflow conversations also select a lead.
+Enabling collaboration in an existing chat retains that chat’s lead. With no separate reviewer in
+Full workflow, the lead performs the final review.
 
 Host settings → Collaboration contains role instructions and conversation history. Instructions
 can be saved before choosing any models. New tasks use the built-in limits and verification
@@ -41,8 +55,8 @@ when implementation and review use the same profile. Category and task assignmen
 Rework and user-requested changes return to the implementer and then independent review; final
 user acceptance is still required. The main conversation handles communication and dispatch.
 
-The mode picker’s **Instructions** action opens host settings and preserves the goal, mode and
-model selections. Save or return from settings to reopen the picker over the original conversation.
+The **Instructions** action under **Advanced settings** opens host settings and preserves the goal,
+mode and model selections. Save or return from settings to reopen the picker over the original conversation.
 Saving instructions does not start a task. Continue in the picker afterward. With no goal, enabling
 collaboration waits for your next implementation request. Update older hosts to select models in
 the dialog. Existing conversations keep their saved models and instructions, even before a task
