@@ -4,6 +4,7 @@ import type { SplitNode, WorkspaceLayout } from "./workspace-layout-actions";
 const WorkspaceDraftTabSetupStorageSchema = z.strictObject({
   provider: z.string(),
   cwd: z.string(),
+  workspaceId: z.string().optional(),
   modeId: z.string().nullable(),
   model: z.string().nullable(),
   thinkingOptionId: z.string().nullable(),

@@ -91,6 +91,9 @@ export function buildDraftAgentSetup(agent: Agent): WorkspaceDraftTabSetup {
   return {
     provider: agent.provider,
     cwd: agent.cwd,
+    // `/clear` must create the replacement agent in the same workspace as the one it replaces,
+    // so a collaboration worker's fresh session keeps its own worktree instead of the pane's.
+    ...(agent.workspaceId ? { workspaceId: agent.workspaceId } : {}),
     modeId: agent.currentModeId ?? agent.runtimeInfo?.modeId ?? null,
     model: agent.model ?? agent.runtimeInfo?.model ?? null,
     thinkingOptionId: agent.thinkingOptionId ?? agent.runtimeInfo?.thinkingOptionId ?? null,

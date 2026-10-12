@@ -169,6 +169,11 @@ interface WorkspaceLayoutStore {
   resizeSplit: (workspaceKey: string, groupId: string, sizes: number[]) => void;
   resizeExplorerSidebar: (workspaceKey: string, width: number) => void;
   reorderTabsInPane: (workspaceKey: string, paneId: string, tabIds: string[]) => void;
+  /**
+   * Marks an agent as explicitly opened in this workspace so reconcile keeps its tab even when the
+   * agent runs in another workspace (a collaboration worker shown in the main conversation).
+   */
+  pinAgent: (workspaceKey: string, agentId: string) => void;
   unpinAgent: (workspaceKey: string, agentId: string) => void;
   hideAgent: (workspaceKey: string, agentId: string) => void;
   unhideAgent: (workspaceKey: string, agentId: string) => void;
@@ -1605,6 +1610,25 @@ export function createWorkspaceLayoutStore(
                 [normalizedWorkspaceKey]: nextLayout,
               },
             };
+          });
+        },
+        pinAgent: (workspaceKey, agentId) => {
+          const normalizedWorkspaceKey = trimNonEmpty(workspaceKey);
+          const normalizedAgentId = trimNonEmpty(agentId);
+          if (!normalizedWorkspaceKey || !normalizedAgentId) {
+            return;
+          }
+
+          set((state) => {
+            const nextPinnedAgentIdsByWorkspace = addAgentIdToWorkspaceSet(
+              state.pinnedAgentIdsByWorkspace,
+              normalizedWorkspaceKey,
+              normalizedAgentId,
+            );
+            if (nextPinnedAgentIdsByWorkspace === state.pinnedAgentIdsByWorkspace) {
+              return state;
+            }
+            return { pinnedAgentIdsByWorkspace: nextPinnedAgentIdsByWorkspace };
           });
         },
         unpinAgent: (workspaceKey, agentId) => {

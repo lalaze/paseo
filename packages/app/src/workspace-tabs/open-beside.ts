@@ -19,6 +19,11 @@ interface OpenWorkspaceTargetInput {
   workspaceKey: string | null;
   target: WorkspaceTabTarget;
   parentTabId?: string | null;
+  /**
+   * Keeps an explicitly opened agent visible even when it is not active in this workspace, such
+   * as a collaboration worker opened in the main conversation's workspace instead of its own.
+   */
+  pin?: boolean;
 }
 
 export interface OpenPreferredWorkspaceTargetInput extends OpenWorkspaceTargetInput {
@@ -91,6 +96,7 @@ export function openPreferredWorkspaceTarget(
     target: input.target,
     location: input.preferences[input.source] ? "side" : "main",
     parentTabId: input.parentTabId,
+    pin: input.pin,
   });
 }
 
@@ -121,6 +127,7 @@ export function openWorkspaceTargetAtLocation(
     intent: "reveal",
     placement,
     parentTabId: input.parentTabId ?? undefined,
+    pin: input.pin,
   });
 }
 

@@ -154,4 +154,15 @@ describe("buildDraftAgentSetup", () => {
       thinkingOptionId: "runtime-thinking",
     });
   });
+
+  it("carries the agent's own workspace so /clear keeps a worker's worktree", () => {
+    expect(buildDraftAgentSetup(createAgent({ workspaceId: "ws-worker" }))).toMatchObject({
+      cwd: "/repo",
+      workspaceId: "ws-worker",
+    });
+  });
+
+  it("omits the workspace when the agent has none, so the draft uses the pane's workspace", () => {
+    expect(buildDraftAgentSetup(createAgent())).not.toHaveProperty("workspaceId");
+  });
 });

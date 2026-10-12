@@ -2,6 +2,7 @@ import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { expect, type Page } from "@playwright/test";
 import { daemonWsRoutePattern } from "./daemon-port";
 import type { SeededWorkspace } from "./seed-client";
+import { createTempGitRepo } from "./workspace";
 
 type WebSocketMessage = string | Buffer;
 
@@ -35,6 +36,12 @@ export interface SeededCrossWorkspaceSubagentPair {
     id: string;
     workspaceId: string;
   };
+}
+
+export interface SeededCrossCheckoutSubagentPair {
+  parent: { id: string; workspaceId: string; cwd: string };
+  child: { id: string; workspaceId: string; cwd: string };
+  cleanup(): Promise<void>;
 }
 
 export async function seedParentWithSubagent(
@@ -126,6 +133,76 @@ export async function seedParentWithCrossWorkspaceSubagent(
       workspaceId: createdWorkspace.workspace.id,
     },
   };
+}
+
+/**
+ * Seeds a parent in `workspace` and a child subagent in a second workspace backed by its own temp
+ * checkout, so the two agents have genuinely different cwd/worktree.
+ *
+ * This is how a collaboration worker looks: it runs in its own worktree while its conversation is
+ * shown inside the parent's. Unlike {@link seedParentWithCrossWorkspaceSubagent}, which reuses the
+ * parent's directory, this proves the app keeps the worker's own checkout when it opens the
+ * conversation elsewhere.
+ */
+export async function seedParentWithCrossCheckoutSubagent(
+  workspace: Pick<SeededWorkspace, "client" | "repoPath" | "workspaceId">,
+  input: { parentTitle: string; childTitle: string },
+): Promise<SeededCrossCheckoutSubagentPair> {
+  const childRepo = await createTempGitRepo("paseo-e2e-worker-");
+  let childProjectId: string | null = null;
+  try {
+    const parent = await workspace.client.createAgent({
+      provider: "mock",
+      cwd: workspace.repoPath,
+      workspaceId: workspace.workspaceId,
+      title: input.parentTitle,
+      modeId: "load-test",
+      model: "ten-second-stream",
+    });
+    const createdWorkspace = await workspace.client.createWorkspace({
+      source: { kind: "directory", path: childRepo.path },
+      title: "Worker checkout",
+    });
+    const childWorkspace = createdWorkspace.workspace;
+    if (!childWorkspace) {
+      throw new Error(createdWorkspace.error ?? "Failed to create the worker workspace");
+    }
+    childProjectId = childWorkspace.projectId;
+    const childWorkspaceId = childWorkspace.id;
+    // No initial prompt: the worker is seeded idle so its composer is ready for the client slash
+    // commands a spec drives, and the track row does not depend on the worker running.
+    const child = await workspace.client.createAgent({
+      provider: "mock",
+      cwd: childRepo.path,
+      workspaceId: childWorkspaceId,
+      title: input.childTitle,
+      modeId: "load-test",
+      model: "ten-second-stream",
+      labels: {
+        [PARENT_AGENT_ID_LABEL]: parent.id,
+      },
+    });
+    await workspace.client.waitForAgentUpsert(
+      child.id,
+      (snapshot) => snapshot.status === "idle",
+      15_000,
+    );
+
+    return {
+      parent: { id: parent.id, workspaceId: workspace.workspaceId, cwd: workspace.repoPath },
+      child: { id: child.id, workspaceId: childWorkspaceId, cwd: childRepo.path },
+      cleanup: async () => {
+        await workspace.client.removeProject(childWorkspace.projectId).catch(() => undefined);
+        await childRepo.cleanup().catch(() => undefined);
+      },
+    };
+  } catch (error) {
+    if (childProjectId) {
+      await workspace.client.removeProject(childProjectId).catch(() => undefined);
+    }
+    await childRepo.cleanup().catch(() => undefined);
+    throw error;
+  }
 }
 
 /**
