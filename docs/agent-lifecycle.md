@@ -189,6 +189,8 @@ parentAgentId === thisAgent.id  AND  !archivedAt
 
 Clicking either kind opens a workspace tab. A Paseo subagent tab is a normal interactive agent pane. A provider subagent tab is a read-only timeline pane with no composer, archive, detach, rewind, or fork actions. It shows its own direct children in a subagents track. Both panes use `AgentStreamView`, so message, reasoning, tool-call, and layout rendering stay identical.
 
+A Paseo subagent opens in the tab bar of the workspace you are reading, never in the subagent's own workspace, so a collaboration worker in an isolated worktree does not move you out of the main conversation. The tab reuses an already-open one and is pinned, because reconcile prunes agent tabs whose agent is not active in the workspace — which a cross-workspace worker never is. The agent keeps its own `workspaceId`, `cwd` and worktree, including the replacement `/clear` creates, and its pane reads diff, files and changes from that workspace rather than the pane's (`packages/app/src/panels/agent-panel-workspace.ts`). Opening the worker's own workspace still shows it: reconcile auto-opens a cross-workspace subagent there (`packages/app/src/subagents/workspace-root-policy.ts`), which is separate from the track click.
+
 Provider timelines use the same structural timeline item format but deliberately have a separate lifecycle and transport. A provider thread/session identifier is not a Paseo agent identifier, and closing its tab is always layout-only.
 
 Provider descriptors may include one compact subtitle. The provider owns its contents and formatting; clients display and truncate it without interpreting provider-specific model, thinking, or usage fields.

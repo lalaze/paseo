@@ -5,6 +5,12 @@ import type { WorkspaceFileTabTarget } from "@/workspace/file-open";
 export interface WorkspaceDraftTabSetup {
   provider: AgentProvider;
   cwd: string;
+  /**
+   * The workspace the fresh agent should run in. Absent means the workspace the tab is shown in.
+   * A `/clear` on a collaboration worker carries the worker's own workspace so the next agent
+   * keeps that worktree; the tab still lives in the pane's display workspace.
+   */
+  workspaceId?: string;
   modeId: string | null;
   model: string | null;
   thinkingOptionId: string | null;

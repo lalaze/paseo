@@ -7,6 +7,7 @@ import { supportsDesktopPaneSplits, useIsCompactFormFactor } from "@/constants/l
 import { usePaneContext } from "@/panels/pane-context";
 import { useSettings } from "@/hooks/use-settings";
 import { PluginComposerPills } from "@/plugins";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useSessionStore } from "@/stores/session-store";
 import {
   type ArchiveFinishedStatus,
@@ -15,9 +16,10 @@ import {
   type SubagentRow,
 } from "@/subagents";
 import { SubagentsTrack } from "@/subagents/track";
+import { useOpenSubagent } from "@/subagents/use-open-subagent";
 import type { TodoEntry } from "@/types/stream";
-import { navigateToAgent } from "@/utils/navigate-to-agent";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { planAgentChangesOpen } from "@/workspace-tabs/open-agent-changes";
 import { openPreferredWorkspaceTarget } from "@/workspace-tabs/open-beside";
 import { openComposerChanges } from "@/workspace-tabs/open-supporting-view";
 
@@ -27,10 +29,14 @@ import { openComposerChanges } from "@/workspace-tabs/open-supporting-view";
  *
  * The row shares the composer's keyboard transform and owns the space between itself and the
  * transcript. Each pill owns its action while tab placement stays behind the workspace boundary.
+ *
+ * Two workspaces are in play. Tabs and split placement belong to the pane's display workspace
+ * (`usePaneContext`). Diff, changes and plugin data belong to the agent's own workspace, which
+ * differs when a collaboration worker is shown in the main conversation.
  */
 export const AgentTracks = memo(function AgentTracks({
   serverId,
-  workspaceId,
+  agentWorkspaceId,
   agentId,
   cwd,
   subagentRows,
@@ -40,7 +46,8 @@ export const AgentTracks = memo(function AgentTracks({
   hasPluginComposerPills,
 }: {
   serverId: string;
-  workspaceId: string;
+  /** The agent's own workspace, where its diff and plugin data live. */
+  agentWorkspaceId: string;
   agentId: string;
   cwd: string;
   subagentRows: SubagentRow[];
@@ -49,46 +56,29 @@ export const AgentTracks = memo(function AgentTracks({
   onArchiveFinished: () => void;
   hasPluginComposerPills: boolean;
 }): ReactElement | null {
-  const { tabId, openTab } = usePaneContext();
-  const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, workspaceId);
+  const { tabId, openTab, workspaceId: displayWorkspaceId } = usePaneContext();
+  const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, agentWorkspaceId);
   const isCompact = useIsCompactFormFactor();
   const canSplit = supportsDesktopPaneSplits() && !isCompact;
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
-  const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
+  const displayWorkspaceKey = buildWorkspaceTabPersistenceKey({
+    serverId,
+    workspaceId: displayWorkspaceId,
+  });
   const canDetachSubagents = useSessionStore(
     (state) => state.sessions[serverId]?.serverInfo?.features?.agentDetach === true,
   );
   const archiveSubagent = useArchiveSubagent({ serverId });
   const detachSubagent = useDetachSubagent({ serverId });
-  const handleOpenSubagent = useCallback(
-    (subagentId: string) => {
-      const session = useSessionStore.getState().sessions[serverId];
-      const agent = session?.agents.get(subagentId) ?? session?.agentDetails.get(subagentId);
-      if (agent?.workspaceId && agent.workspaceId !== workspaceId) {
-        navigateToAgent({ serverId, agentId: subagentId });
-        return;
-      }
-      if (canSplit && workspaceKey) {
-        openPreferredWorkspaceTarget({
-          isCompact,
-          workspaceKey,
-          target: { kind: "agent", agentId: subagentId },
-          source: "subagents",
-          preferences: openInSidePane,
-          parentTabId: tabId,
-        });
-        return;
-      }
-      navigateToAgent({ serverId, agentId: subagentId });
-    },
-    [canSplit, isCompact, openInSidePane, serverId, tabId, workspaceId, workspaceKey],
-  );
+  // Subagent tabs belong to the workspace the user is reading, so a collaboration worker's
+  // children open next to it rather than in the worker's hidden worktree.
+  const handleOpenSubagent = useOpenSubagent({ serverId });
   const handleOpenProviderSubagent = useCallback(
     (parentAgentId: string, subagentId: string) => {
-      if (canSplit && workspaceKey) {
+      if (canSplit && displayWorkspaceKey) {
         openPreferredWorkspaceTarget({
           isCompact,
-          workspaceKey,
+          workspaceKey: displayWorkspaceKey,
           target: { kind: "provider_subagent", parentAgentId, subagentId },
           source: "subagents",
           preferences: openInSidePane,
@@ -98,19 +88,33 @@ export const AgentTracks = memo(function AgentTracks({
       }
       openTab({ kind: "provider_subagent", parentAgentId, subagentId });
     },
-    [canSplit, isCompact, openInSidePane, openTab, tabId, workspaceKey],
+    [canSplit, displayWorkspaceKey, isCompact, openInSidePane, openTab, tabId],
   );
   const handleOpenChanges = useCallback(() => {
-    if (!workspaceKey) {
+    const plan = planAgentChangesOpen({
+      serverId,
+      displayWorkspaceId,
+      agentWorkspaceId,
+      opensInPane: canSplit,
+    });
+    if (!plan) {
+      return;
+    }
+    if (plan.kind === "navigate") {
+      navigateToWorkspace({
+        serverId,
+        workspaceId: plan.workspaceId,
+        target: { kind: "working_diff" },
+      });
       return;
     }
     openComposerChanges({
       isCompact,
-      workspaceKey,
+      workspaceKey: plan.workspaceKey,
       checkout: { serverId, cwd, isGit: true },
       preferences: openInSidePane,
     });
-  }, [cwd, isCompact, openInSidePane, serverId, workspaceKey]);
+  }, [agentWorkspaceId, canSplit, cwd, displayWorkspaceId, isCompact, openInSidePane, serverId]);
 
   if (
     !hasWorkspaceDiffStat &&
@@ -139,13 +143,13 @@ export const AgentTracks = memo(function AgentTracks({
       />
       <PluginComposerPills
         serverId={serverId}
-        workspaceId={workspaceId}
+        workspaceId={agentWorkspaceId}
         agentId={agentId}
         compact={isCompact}
       />
       <WorkspaceDiffStatPill
         serverId={serverId}
-        workspaceId={workspaceId}
+        workspaceId={agentWorkspaceId}
         onPress={handleOpenChanges}
       />
     </ComposerTrackBar>

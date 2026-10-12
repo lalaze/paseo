@@ -41,7 +41,11 @@ import { useProviderIcon } from "@/components/provider-icons";
 import { useToastHost, type ToastApi, type ToastState } from "@/components/toast-host";
 import type { WorkspaceComposerAttachment } from "@/attachments/types";
 import { useWorkspaceAttachmentScopeKey } from "@/attachments/workspace-attachments-store";
-import { COMPACT_FORM_FACTOR_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
+import {
+  COMPACT_FORM_FACTOR_WIDTH,
+  supportsDesktopPaneSplits,
+  useIsCompactFormFactor,
+} from "@/constants/layout";
 import { isNative, isWeb } from "@/constants/platform";
 import { useAgentAttentionClear } from "@/hooks/use-agent-attention-clear";
 import { useAgentInputDraft, type AgentInputDraft } from "@/composer/draft/input-draft";
@@ -76,6 +80,10 @@ import {
 } from "@/screens/agent/agent-ready-screen-bottom-anchor";
 import { WorkspaceDraftAgentTab } from "@/composer/draft/workspace-tab";
 import { AgentTracks, hasAgentTracks } from "@/panels/agent-tracks";
+import {
+  isAgentPaneCrossWorkspace,
+  resolveAgentPanelWorkspaceId,
+} from "@/panels/agent-panel-workspace";
 import { useCreateFlowStore } from "@/stores/create-flow-store";
 import { buildDraftStoreKey, generateDraftId } from "@/stores/draft-keys";
 import {
@@ -84,8 +92,11 @@ import {
   type Agent,
   useSessionStore,
 } from "@/stores/session-store";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
 import { useWorkspaceLayoutStore } from "@/stores/workspace-layout-store";
+import { closeAgentConversation } from "@/workspace-tabs/close-agent-conversation";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
+import { planAgentChangesOpen } from "@/workspace-tabs/open-agent-changes";
 import { openWorkspaceChanges } from "@/workspace-tabs/open-supporting-view";
 import { useSettings } from "@/hooks/use-settings";
 import type { Theme } from "@/styles/theme";
@@ -370,14 +381,32 @@ function AgentPanel() {
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "agent", "AgentPanel requires agent target");
 
+  // A cross-workspace agent (a collaboration worker opened in the main conversation's workspace)
+  // keeps its own workspace for diff, files and changes. File opens then resolve to that
+  // workspace instead of opening the pane workspace's file of the same path.
+  const agentWorkspaceId = useSessionStore((state) => {
+    const session = state.sessions[serverId];
+    const agent =
+      session?.agents?.get(target.agentId) ?? session?.agentDetails?.get(target.agentId) ?? null;
+    return agent?.workspaceId ?? null;
+  });
+  const panelWorkspaceId = resolveAgentPanelWorkspaceId({
+    paneWorkspaceId: workspaceId,
+    agentWorkspaceId,
+  });
+  const isCrossWorkspace = isAgentPaneCrossWorkspace({
+    paneWorkspaceId: workspaceId,
+    agentWorkspaceId,
+  });
+
   return (
     <RetainedChatContent>
       <AgentPanelContent
         serverId={serverId}
-        workspaceId={workspaceId}
+        workspaceId={panelWorkspaceId}
         agentId={target.agentId}
         isPaneFocused={isInteractive}
-        onOpenWorkspaceFile={openFileInWorkspace}
+        onOpenWorkspaceFile={isCrossWorkspace ? undefined : openFileInWorkspace}
       />
     </RetainedChatContent>
   );
@@ -396,20 +425,34 @@ function DraftPanel() {
   const { isInteractive } = usePaneFocus();
   invariant(target.kind === "draft", "DraftPanel requires draft target");
 
+  // The draft can be a `/clear` on a collaboration worker: the fresh agent runs in the worker's
+  // own workspace, while the tab stays in the workspace the pane shows.
+  const runtimeWorkspaceId = target.setup?.workspaceId?.trim() || workspaceId;
+
   const handleCreated = useCallback(
     (agentSnapshot: Parameters<typeof normalizeAgentSnapshot>[0]) => {
       const normalized = normalizeAgentSnapshot(agentSnapshot, serverId);
       const agent = applyLegacyDaemonWorkspaceOwnership({ serverId, agent: normalized });
       getHostRuntimeStore().acceptAgentSnapshot(serverId, agent);
       retargetCurrentTab({ kind: "agent", agentId: agentSnapshot.id });
+      const createdWorkspaceId = agent.workspaceId?.trim();
+      if (createdWorkspaceId && createdWorkspaceId !== workspaceId) {
+        // The fresh agent runs in another workspace, so reconcile would prune the tab it just
+        // took over. Pin it in the display workspace to keep the conversation on screen.
+        const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
+        if (workspaceKey) {
+          useWorkspaceLayoutStore.getState().pinAgent(workspaceKey, agentSnapshot.id);
+        }
+      }
     },
-    [retargetCurrentTab, serverId],
+    [retargetCurrentTab, serverId, workspaceId],
   );
 
   return (
     <WorkspaceDraftAgentTab
       serverId={serverId}
       workspaceId={workspaceId}
+      runtimeWorkspaceId={runtimeWorkspaceId}
       tabId={tabId}
       draftId={target.draftId}
       initialSetup={target.setup}
@@ -1224,6 +1267,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       <AgentComposerSection
         agentId={agentId}
         serverId={serverId}
+        agentWorkspaceId={workspaceId}
         isPaneFocused={isPaneFocused}
         isArchivingCurrentAgent={isArchivingCurrentAgent}
         archivedAt={agentState.archivedAt}
@@ -1257,7 +1301,7 @@ const ChatAgentReadyContent = memo(function ChatAgentReadyContent({
       {hasActiveComposer ? (
         <AgentTracks
           serverId={serverId}
-          workspaceId={workspaceId}
+          agentWorkspaceId={workspaceId}
           agentId={agentId}
           cwd={cwd}
           subagentRows={subagentRows}
@@ -1474,6 +1518,7 @@ const AgentStreamSection = memo(function AgentStreamSection({
 const AgentComposerSection = memo(function AgentComposerSection({
   agentId,
   serverId,
+  agentWorkspaceId,
   isPaneFocused,
   isArchivingCurrentAgent,
   archivedAt,
@@ -1487,6 +1532,7 @@ const AgentComposerSection = memo(function AgentComposerSection({
 }: {
   agentId?: string;
   serverId: string;
+  agentWorkspaceId: string;
   isPaneFocused: boolean;
   isArchivingCurrentAgent: boolean;
   archivedAt: Date | null;
@@ -1512,6 +1558,7 @@ const AgentComposerSection = memo(function AgentComposerSection({
     <ActiveAgentComposer
       agentId={agentId}
       serverId={serverId}
+      agentWorkspaceId={agentWorkspaceId}
       isPaneFocused={isPaneFocused}
       cwd={cwd}
       isSubmitLoading={isSubmitLoading}
@@ -1527,6 +1574,7 @@ const AgentComposerSection = memo(function AgentComposerSection({
 function ActiveAgentComposer({
   agentId,
   serverId,
+  agentWorkspaceId,
   isPaneFocused,
   cwd,
   isSubmitLoading,
@@ -1538,6 +1586,7 @@ function ActiveAgentComposer({
 }: {
   agentId: string;
   serverId: string;
+  agentWorkspaceId: string;
   isPaneFocused: boolean;
   cwd: string;
   isSubmitLoading: boolean;
@@ -1554,7 +1603,8 @@ function ActiveAgentComposer({
   );
   const paneContext = usePaneContext();
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
-  const { workspaceId, tabId, retargetCurrentTab } = paneContext;
+  // Tab lifecycle follows the workspace the pane shows; the agent may run in another workspace.
+  const { tabId, retargetCurrentTab, workspaceId: displayWorkspaceId } = paneContext;
   const { archiveAgent } = useArchiveAgent();
   const closeWorkspaceTab = useWorkspaceLayoutStore((state) => state.closeTab);
   const hideWorkspaceAgent = useWorkspaceLayoutStore((state) => state.hideAgent);
@@ -1562,7 +1612,7 @@ function ActiveAgentComposer({
   const workspaceAttachmentScopeKey = useWorkspaceAttachmentScopeKey({
     serverId,
     cwd,
-    workspaceId,
+    workspaceId: agentWorkspaceId,
   });
   const attachmentScopeKeys = useMemo(
     () => [workspaceAttachmentScopeKey],
@@ -1573,14 +1623,31 @@ function ActiveAgentComposer({
       if (attachment.kind !== "review") {
         return;
       }
+      const plan = planAgentChangesOpen({
+        serverId,
+        displayWorkspaceId,
+        agentWorkspaceId,
+        opensInPane: supportsDesktopPaneSplits() && !isCompactFormFactor,
+      });
+      if (!plan) {
+        return;
+      }
+      if (plan.kind === "navigate") {
+        navigateToWorkspace({
+          serverId,
+          workspaceId: plan.workspaceId,
+          target: { kind: "working_diff" },
+        });
+        return;
+      }
       openWorkspaceChanges({
         isCompact: isCompactFormFactor,
-        workspaceKey: buildWorkspaceTabPersistenceKey({ serverId, workspaceId }),
+        workspaceKey: plan.workspaceKey,
         checkout: { serverId, cwd, isGit: true },
         preferences: openInSidePane,
       });
     },
-    [cwd, isCompactFormFactor, openInSidePane, serverId, workspaceId],
+    [agentWorkspaceId, cwd, displayWorkspaceId, isCompactFormFactor, openInSidePane, serverId],
   );
 
   const handleClientSlashCommand = useCallback(
@@ -1606,7 +1673,7 @@ function ActiveAgentComposer({
             : null;
         await enableCollaboration({
           serverId,
-          workspaceId,
+          workspaceId: agentWorkspaceId,
           agentId,
           goal: command.args,
           currentModel,
@@ -1618,34 +1685,38 @@ function ActiveAgentComposer({
         throw new Error("Agent not found");
       }
 
-      const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
-      if (workspaceKey) {
-        unpinWorkspaceAgent(workspaceKey, agentId);
-        hideWorkspaceAgent(workspaceKey, agentId);
-      }
-
-      if (command.kind === "replace-agent-with-draft") {
-        retargetCurrentTab({
-          kind: "draft",
-          draftId: generateDraftId(),
-          setup: buildDraftAgentSetup(agent),
-        });
-      } else if (workspaceKey) {
-        closeWorkspaceTab(workspaceKey, tabId);
-      }
+      closeAgentConversation(
+        {
+          serverId,
+          displayWorkspaceId,
+          agentId,
+          tabId,
+          nextTarget:
+            command.kind === "replace-agent-with-draft"
+              ? { kind: "draft", draftId: generateDraftId(), setup: buildDraftAgentSetup(agent) }
+              : null,
+        },
+        {
+          unpinAgent: unpinWorkspaceAgent,
+          hideAgent: hideWorkspaceAgent,
+          closeTab: closeWorkspaceTab,
+          retargetCurrentTab,
+        },
+      );
 
       await archiveAgent({ serverId, agentId });
     },
     [
       agentId,
+      agentWorkspaceId,
       archiveAgent,
       closeWorkspaceTab,
+      displayWorkspaceId,
       hideWorkspaceAgent,
       retargetCurrentTab,
       serverId,
       tabId,
       unpinWorkspaceAgent,
-      workspaceId,
     ],
   );
 
@@ -1654,7 +1725,7 @@ function ActiveAgentComposer({
       <Composer
         agentId={agentId}
         serverId={serverId}
-        workspaceId={workspaceId}
+        workspaceId={agentWorkspaceId}
         blurOnSubmit={isNative}
         isPaneFocused={isPaneFocused}
         textSource={agentInputDraft.textSource}

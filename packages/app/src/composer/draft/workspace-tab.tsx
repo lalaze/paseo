@@ -40,12 +40,15 @@ import {
   useWorkspaceAttachmentsStore,
 } from "@/attachments/workspace-attachments-store";
 import type { UserMessageImageAttachment } from "@/types/stream";
-import { COMPACT_FORM_FACTOR_WIDTH, useIsCompactFormFactor } from "@/constants/layout";
-import { isWeb } from "@/constants/platform";
 import {
-  buildWorkspaceTabPersistenceKey,
-  type WorkspaceDraftTabSetup,
-} from "@/workspace-tabs/model";
+  COMPACT_FORM_FACTOR_WIDTH,
+  supportsDesktopPaneSplits,
+  useIsCompactFormFactor,
+} from "@/constants/layout";
+import { isWeb } from "@/constants/platform";
+import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
+import type { WorkspaceDraftTabSetup } from "@/workspace-tabs/model";
+import { planDraftReviewOpen } from "@/composer/draft/review-open";
 import { openWorkspaceChanges } from "@/workspace-tabs/open-supporting-view";
 import { useSettings } from "@/hooks/use-settings";
 
@@ -291,7 +294,14 @@ function resolveDraftWorkingDirectory(input: {
 
 interface WorkspaceDraftAgentTabProps {
   serverId: string;
+  /** The workspace the tab is shown in. Owns the tab's lifecycle. */
   workspaceId: string;
+  /**
+   * The workspace the created agent should run in. Defaults to the display workspace; a `/clear`
+   * on a collaboration worker passes the worker's own workspace so the fresh agent keeps its
+   * worktree instead of running in the pane's checkout.
+   */
+  runtimeWorkspaceId?: string;
   tabId: string;
   draftId: string;
   initialSetup?: WorkspaceDraftTabSetup;
@@ -314,6 +324,7 @@ function resolveImportPillPress(
 export function WorkspaceDraftAgentTab({
   serverId,
   workspaceId,
+  runtimeWorkspaceId = undefined,
   tabId,
   draftId,
   initialSetup = undefined,
@@ -324,7 +335,9 @@ export function WorkspaceDraftAgentTab({
 }: WorkspaceDraftAgentTabProps) {
   const { t } = useTranslation();
   const client = useHostRuntimeClient(serverId);
-  const workspaceFields = useWorkspaceFields(serverId, workspaceId, (w) => ({
+  // The agent is created in the runtime workspace; the tab stays in the display workspace.
+  const agentWorkspaceId = runtimeWorkspaceId ?? workspaceId;
+  const workspaceFields = useWorkspaceFields(serverId, agentWorkspaceId, (w) => ({
     workspaceDirectory: w.workspaceDirectory,
     id: w.id,
   }));
@@ -412,7 +425,7 @@ export function WorkspaceDraftAgentTab({
   const workspaceAttachmentScopeKey = useWorkspaceAttachmentScopeKey({
     serverId,
     cwd: composerState.workingDir,
-    workspaceId,
+    workspaceId: agentWorkspaceId,
   });
   const draftAttachmentScopeKey = useDraftWorkspaceAttachmentScopeKey(draftId);
   const openInSidePane = useSettings((settings) => settings.openInSidePane);
@@ -428,14 +441,43 @@ export function WorkspaceDraftAgentTab({
       if (attachment.kind !== "review") {
         return;
       }
+      // The draft's tab lives in `workspaceId`, but the agent it creates runs in
+      // `agentWorkspaceId`, and the review describes that checkout. A cross-workspace worker's
+      // draft shown in the main workspace would otherwise open the main checkout's diff — the
+      // desktop Changes pane reads its cwd from the pane's workspace, not from `checkout`.
+      const action = planDraftReviewOpen({
+        serverId,
+        displayWorkspaceId: workspaceId,
+        runtimeWorkspaceId,
+        cwd: composerState.workingDir,
+        opensInPane: supportsDesktopPaneSplits() && !isCompactFormFactor,
+      });
+      if (!action) {
+        return;
+      }
+      if (action.kind === "navigate") {
+        navigateToWorkspace({
+          serverId,
+          workspaceId: action.workspaceId,
+          target: { kind: "working_diff" },
+        });
+        return;
+      }
       openWorkspaceChanges({
         isCompact: isCompactFormFactor,
-        workspaceKey: buildWorkspaceTabPersistenceKey({ serverId, workspaceId: workspaceId ?? "" }),
-        checkout: { serverId, cwd: composerState.workingDir, isGit: true },
+        workspaceKey: action.workspaceKey,
+        checkout: { serverId, cwd: action.checkoutCwd, isGit: true },
         preferences: openInSidePane,
       });
     },
-    [composerState.workingDir, isCompactFormFactor, openInSidePane, serverId, workspaceId],
+    [
+      composerState.workingDir,
+      isCompactFormFactor,
+      openInSidePane,
+      runtimeWorkspaceId,
+      serverId,
+      workspaceId,
+    ],
   );
 
   const {
@@ -661,7 +703,7 @@ export function WorkspaceDraftAgentTab({
           <Composer
             agentId={tabId}
             serverId={serverId}
-            workspaceId={workspaceId}
+            workspaceId={agentWorkspaceId}
             isPaneFocused={isPaneFocused}
             onSubmitMessage={handleCreateFromInput}
             isSubmitLoading={isSubmitting}

@@ -85,9 +85,13 @@ export function normalizeWorkspaceDraftTabSetup(
   if (!provider || !cwd) {
     return undefined;
   }
+  const workspaceId = trimOptionalString(
+    typeof record.workspaceId === "string" ? record.workspaceId : null,
+  );
   return {
     provider,
     cwd,
+    ...(workspaceId ? { workspaceId } : {}),
     modeId: trimOptionalString(typeof record.modeId === "string" ? record.modeId : null),
     model: trimOptionalString(typeof record.model === "string" ? record.model : null),
     thinkingOptionId: trimOptionalString(
@@ -172,6 +176,7 @@ function workspaceDraftTabSetupsEqual(
   return (
     left.provider === right.provider &&
     left.cwd === right.cwd &&
+    left.workspaceId === right.workspaceId &&
     left.modeId === right.modeId &&
     left.model === right.model &&
     left.thinkingOptionId === right.thinkingOptionId &&

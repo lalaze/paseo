@@ -30,7 +30,10 @@ import { useMutation } from "@tanstack/react-query";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { Check, ChevronDown, X } from "lucide-react-native";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
-import { openExplorerSidebarView } from "@/workspace-tabs/explorer-sidebar";
+import {
+  openExplorerSidebarView,
+  usesCompactExplorerSidebar,
+} from "@/workspace-tabs/explorer-sidebar";
 import {
   AssistantMessage,
   SpeakMessage,
@@ -496,6 +499,22 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
             });
           }
           return;
+        }
+
+        // A pane that shows a workspace other than the agent's own withholds `onOpenWorkspaceFile`
+        // (see AgentPanel). The desktop Explorer is a workspace pane, so opening it in the agent's
+        // own — hidden — workspace layout would show nothing. Navigate there first, exactly as the
+        // file branch above does. The compact/dock Explorer is checkout-based and already visible.
+        if (
+          !onOpenWorkspaceFile &&
+          context.workspaceId &&
+          !usesCompactExplorerSidebar({ isCompact: isMobile })
+        ) {
+          navigateToWorkspace({
+            serverId: resolvedServerId,
+            workspaceId: context.workspaceId,
+            target: { kind: "files" },
+          });
         }
 
         void requestDirectoryListing(normalized.directory, {
