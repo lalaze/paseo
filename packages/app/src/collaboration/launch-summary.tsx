@@ -25,8 +25,8 @@ export function LaunchSummary({
   const { t } = useTranslation();
   const size = useIsCompactFormFactor() ? "md" : "sm";
   const roles: LaunchRole[] = state.showDirector
-    ? ["director", "worker", "reviewer"]
-    : ["worker", "reviewer"];
+    ? ["director", "reviewer", "worker"]
+    : ["reviewer", "worker"];
   const change = useMemo(
     () => (
       <Button
@@ -52,6 +52,9 @@ export function LaunchSummary({
           <Text style={styles.primary}>
             {`${t(`collaboration.modes.${state.mode}`)} · ${t(`newWorkspace.isolation.${state.isolation}`)}`}
           </Text>
+          {state.mode === "full" && state.requirePlanApproval && (
+            <Text style={styles.secondary}>{t("collaboration.requireApproval")}</Text>
+          )}
           {roles.map((role) => (
             <Text key={role} style={styles.secondary}>
               {`${t(`collaboration.${role}ProfileId`)}: ${selectionLabel(state.selections[role]) ?? t("collaboration.sameReviewer")}`}

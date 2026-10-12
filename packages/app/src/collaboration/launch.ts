@@ -73,8 +73,9 @@ export async function enableCollaboration(
   const client = getHostRuntimeStore().getClient(target.serverId);
   if (!client) throw new Error("Host disconnected");
   const features = client.getLastServerInfoMessage()?.features;
-  if (target.mode === "execute_review" && !features?.collaborationExecuteReview)
-    throw new Error("Update the host to use execution + review.");
+  // COMPAT(collaborationUnified): added in v0.11.1, remove after 2027-04-11 once the host floor supports reviewer-led collaboration.
+  if (!features?.collaborationUnified)
+    throw new Error("Update the host to use reviewer-led collaboration.");
   if (target.isolation === "worktree" && !features?.collaborationWorktree)
     throw new Error("Update the host to run collaboration in a separate worktree.");
   const state = await client.collaborationCommand("status");

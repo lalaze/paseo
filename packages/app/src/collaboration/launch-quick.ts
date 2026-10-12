@@ -13,8 +13,7 @@ export type QuickLaunch = { kind: "start"; resolution: LaunchResolution } | { ki
 
 /** What the host can run. The form disables the same choices; quick launch refuses them too. */
 export interface QuickLaunchCapabilities {
-  inlineModels: boolean;
-  executeReview: boolean;
+  unified: boolean;
   worktree: boolean;
 }
 
@@ -35,7 +34,7 @@ export function resolveQuickLaunch(input: {
   selections?: LaunchSelections;
   limits?: LaunchLimits;
 }): QuickLaunch {
-  if (!input.capabilities.inlineModels) return { kind: "configure" };
+  if (!input.capabilities.unified) return { kind: "configure" };
   if (!input.remembered && !input.snapshot.conversation) return { kind: "configure" };
   const model = openCollaborationLaunch(
     input.snapshot,
@@ -48,9 +47,6 @@ export function resolveQuickLaunch(input: {
   const resolution = model.resolve();
   model.close();
   if (!resolution) return { kind: "configure" };
-  if (resolution.mode === "execute_review" && !input.capabilities.executeReview) {
-    return { kind: "configure" };
-  }
   if (resolution.isolation === "worktree" && !input.capabilities.worktree) {
     return { kind: "configure" };
   }

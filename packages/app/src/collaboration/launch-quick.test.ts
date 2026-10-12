@@ -35,8 +35,7 @@ const providers: ProviderSnapshotEntry[] = [
 ];
 
 const capabilities: QuickLaunchCapabilities = {
-  inlineModels: true,
-  executeReview: true,
+  unified: true,
   worktree: true,
 };
 
@@ -105,9 +104,10 @@ describe("resolveQuickLaunch", () => {
           },
           { id: "reviewer", label: "opus", provider: "claude/opus", transport: "mcp" },
         ],
-        directorProfileId: "worker",
+        directorProfileId: "reviewer",
         workerProfileId: "worker",
         reviewerProfileId: "reviewer",
+        reviewerAsLead: true,
         categoryOverrides: {},
         taskOverrides: {},
         allowDirectorSelection: false,
@@ -181,22 +181,12 @@ describe("resolveQuickLaunch", () => {
     expect(decision).toEqual({ kind: "configure" });
   });
 
-  it("opens the form when the host cannot do inline models", () => {
+  it("opens the form when the host cannot run reviewer-led collaboration", () => {
     const decision = resolveQuickLaunch({
       snapshot: snapshot(),
       remembered: preferences(),
       providers,
-      capabilities: { ...capabilities, inlineModels: false },
-    });
-    expect(decision).toEqual({ kind: "configure" });
-  });
-
-  it("opens the form when the host cannot run execution + review", () => {
-    const decision = resolveQuickLaunch({
-      snapshot: snapshot(),
-      remembered: preferences(),
-      providers,
-      capabilities: { ...capabilities, executeReview: false },
+      capabilities: { ...capabilities, unified: false },
     });
     expect(decision).toEqual({ kind: "configure" });
   });

@@ -21,7 +21,7 @@ export function CollaborationPage({ serverId }: { serverId: string }) {
 }
 function CollaborationHostPage({ serverId }: { serverId: string }) {
   const { t } = useTranslation();
-  const { client, query, command, supportsInlineModels } = useCollaboration(serverId);
+  const { client, query, command, supportsUnified } = useCollaboration(serverId);
   const { mutateAsync } = command;
   const compact = useIsCompactFormFactor();
   const openHistory = useCallback(() => {
@@ -67,7 +67,7 @@ function CollaborationHostPage({ serverId }: { serverId: string }) {
       >
         {t("collaboration.history.title")}
       </Button>
-      {supportsInlineModels ? (
+      {supportsUnified ? (
         <SettingsEditor
           initial={query.data.rolePrompts ?? emptyPrompts}
           save={save}

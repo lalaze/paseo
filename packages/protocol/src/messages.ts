@@ -3688,6 +3688,8 @@ export const ServerInfoStatusPayloadSchema = z
         collaboration: z.boolean().optional(),
         collaborationExecuteReview: z.boolean().optional(),
         collaborationInlineModels: z.boolean().optional(),
+        // COMPAT(collaborationUnified): added in v0.11.1, remove gate after 2027-04-11.
+        collaborationUnified: z.boolean().optional(),
         // COMPAT(collaborationWorktree): added in v0.9.2, remove gate after 2027-03-26 once daemons honor isolation.
         collaborationWorktree: z.boolean().optional(),
         // COMPAT(collaborationDisable): added in v0.11.1, remove gate after 2027-04-10 once daemons expose conversation.disable.

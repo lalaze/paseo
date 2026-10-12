@@ -23,7 +23,10 @@ export const ptBR: TranslationResources = {
         awaitingAcceptance: "Aguardando sua aceitação",
       },
     },
-    chooseMode: "Escolher modo de colaboração",
+    chooseMode: "Configurar colaboração",
+    planFirst: "Planejar primeiro",
+    planFirstHint:
+      "O agente revisor conduz a conversa, prepara o plano e revisa o trabalho realizado.",
     enabling: "Ativando colaboração...",
     disabling: "Saindo da colaboração...",
     disable: "Sair da colaboração",
@@ -53,20 +56,20 @@ export const ptBR: TranslationResources = {
       worker: "Execução",
       reviewer: "Revisão",
       unconfigured: "Não configurado",
-      reviewerHint:
-        "Escolha um agente de revisão independente. Ele pode usar o mesmo modelo do executor.",
+      reviewerHint: "Escolha o agente que conduz a conversa e revisa o trabalho realizado.",
       configureReviewer: "Configurar revisor",
       goal: "Objetivo da tarefa",
     },
     modes: {
-      full: "Fluxo completo",
-      execute_review: "Implementação + revisão",
+      full: "Planejar primeiro",
+      execute_review: "Executar diretamente",
     },
     modeDescriptions: {
-      full: "Planejamento → execução → revisão → sua aprovação",
-      execute_review: "Um executor, com revisão independente antes da sua aprovação",
+      full: "Plano → implementação → revisão → aceitação",
+      execute_review: "Implementação → revisão → aceitação",
     },
-    modeLocked: "O modo desta tarefa está fixado. Inicie outra conversa para mudar de modo.",
+    modeLocked:
+      "O planejamento está fixado para esta tarefa. Inicie outra conversa para alterá-lo.",
     isolationDescriptions: {
       local: "Mantém as alterações não commitadas e troca aqui para um branch director.",
       worktree:
@@ -78,7 +81,7 @@ export const ptBR: TranslationResources = {
       configure: "Salve as configurações de colaboração antes de continuar.",
       reviewerRequired:
         "Escolha um agente de revisão independente nas configurações de colaboração.",
-      updateHost: "Atualize o host para usar implementação + revisão.",
+      updateHost: "Atualize o host para usar a colaboração conduzida pelo agente revisor.",
       updateHostWorktree: "Atualize o host para executar a colaboração em um worktree separado.",
       updateHostDisable: "Atualize o host para sair da colaboração.",
     },
@@ -92,7 +95,7 @@ export const ptBR: TranslationResources = {
     title: "Colaboração",
     directorProfileId: "Agente principal",
     workerProfileId: "Agente de implementação",
-    reviewerProfileId: "Agente de revisão",
+    reviewerProfileId: "Agente revisor / principal",
     selectProfile: "Escolher um perfil",
     chooseProfiles: "Crie um perfil com um modelo para configurar a colaboração.",
     conversations: "Conversas de colaboração",

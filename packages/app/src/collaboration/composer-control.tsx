@@ -71,9 +71,8 @@ export function CollaborationControl({
 }: CollaborationControlProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { query, supportsInlineModels } = useCollaboration(serverId);
+  const { query, supportsUnified } = useCollaboration(serverId);
   const refetch = query.refetch;
-  const supportsExecuteReview = useHostFeature(serverId, "collaborationExecuteReview");
   const supportsDisable = useHostFeature(serverId, "collaborationDisable");
   const supportsWorktree =
     useHostFeatureAvailabilityMap([serverId], "collaborationWorktree").get(serverId) === true;
@@ -180,8 +179,7 @@ export function CollaborationControl({
         remembered,
         providers: entries,
         capabilities: {
-          inlineModels: supportsInlineModels,
-          executeReview: supportsExecuteReview,
+          unified: supportsUnified,
           worktree: supportsWorktree,
         },
       });
@@ -214,8 +212,7 @@ export function CollaborationControl({
     openConfig,
     queryClient,
     serverId,
-    supportsExecuteReview,
-    supportsInlineModels,
+    supportsUnified,
     supportsWorktree,
     workspaceId,
   ]);
@@ -287,7 +284,7 @@ export function CollaborationControl({
       void startDisable();
       return;
     }
-    if (!supportsInlineModels || statusError) {
+    if (!supportsUnified || statusError) {
       openConfig();
       return;
     }
@@ -307,7 +304,7 @@ export function CollaborationControl({
     startDisable,
     startQuick,
     statusError,
-    supportsInlineModels,
+    supportsUnified,
   ]);
 
   const label = resolveCollaborationLabel({

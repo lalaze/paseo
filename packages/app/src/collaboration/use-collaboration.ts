@@ -31,7 +31,7 @@ export function collaborationQueryKey(serverId: string) {
 
 export function useCollaboration(serverId: string) {
   const client = useHostRuntimeClient(serverId);
-  const supportsInlineModels = useHostFeature(serverId, "collaborationInlineModels");
+  const supportsUnified = useHostFeature(serverId, "collaborationUnified");
   const query = useFetchQuery({
     dataShape: "value",
     staleTimeMs: 0,
@@ -50,5 +50,5 @@ export function useCollaboration(serverId: string) {
       await query.refetch();
     },
   });
-  return { client, query, command, supportsInlineModels };
+  return { client, query, command, supportsUnified };
 }

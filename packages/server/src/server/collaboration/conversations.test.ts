@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import { readCollaborationNotice } from "@getpaseo/protocol/collaboration/presentation";
 import { Conversations, validateChatApproval, type ConversationGateway } from "./conversations.js";
+import { finalAcceptance } from "@getpaseo/protocol/collaboration/schema";
 import { CHAT_PROMPT, noticeInstruction } from "./prompts.js";
 import { Store } from "./store.js";
 import { Engine } from "./engine.js";
@@ -141,6 +142,126 @@ test("visual mode selection persists, starts one direct task, and cannot change 
   assert.equal(h.store.all().length, 1);
   await assert.rejects(h.chats.open({ ...input, mode: "full" }), /不能切换/);
   assert.equal((await h.chats.open(input)).mode, "execute_review");
+});
+
+for (const mode of ["full", "execute_review"] as const)
+  test(`reviewer leads ${mode}, implements in a child and reviews in the main conversation`, async (t) => {
+    const h = await fixture(t);
+    const selected = { ...reviewerSettings(), directorProfileId: "audit", reviewerAsLead: true };
+    const c = await h.chats.open({
+      requestId: `reviewer-main-${mode}`,
+      workspaceId: "workspace",
+      fresh: true,
+      mode,
+      settings: selected,
+    });
+    h.gateway.user(c.agentId!, "goal", "实现功能");
+    h.gateway.idle(c.agentId!);
+    await h.chats.start(c.id, { sourceMessageId: "goal", goal: "实现功能" });
+    if (mode === "full") {
+      await h.engine.tick();
+      const planning = h.store.all()[0].operations.at(-1)!;
+      assert.equal(planning.kind, "plan");
+      assert.equal(planning.agentId, c.agentId);
+      assert.equal(planning.profileId, "audit");
+      await h.chats.submit(c.id, planning.id, plan);
+      h.gateway.idle(c.agentId!);
+    }
+    for (let i = 0; i < 4; i++) await h.engine.tick();
+    const run = h.store.all()[0];
+    const execution = run.operations.at(-1)!;
+    assert.equal(execution.kind, "execute");
+    assert.notEqual(execution.agentId, c.agentId);
+    assert.equal(execution.profileId, "worker");
+    await h.engine.submit(run.id, "task-1", execution.id, result);
+    h.gateway.idle(execution.agentId!);
+    for (let i = 0; i < 4; i++) await h.engine.tick();
+    const audit = h.store.all()[0].operations.at(-1)!;
+    assert.equal(audit.kind, "final");
+    assert.equal(audit.agentId, c.agentId);
+    assert.equal(audit.profileId, "audit");
+    await h.chats.submit(c.id, audit.id, {
+      ...review(true),
+      criteria: finalAcceptance(h.store.all()[0].plan!).map((criterion) => ({
+        criterion,
+        passed: true,
+        evidence: "已检查实际代码",
+      })),
+    });
+    h.gateway.idle(c.agentId!);
+    await h.engine.tick();
+    assert.equal(h.store.all()[0].phase, "awaiting_acceptance");
+    assert.equal(h.gateway.created.length, 1);
+  });
+
+test("enabling in a matching review conversation keeps its identity and selected reviewer binding", async (t) => {
+  const h = await fixture(t);
+  h.gateway.histories.set("original", []);
+  h.gateway.idle("original");
+  const selected = reviewerSettings();
+  selected.directorProfileId = "audit";
+  selected.reviewerAsLead = true;
+  selected.profiles.find((p) => p.id === "audit")!.provider = "current/model";
+  const c = await h.chats.open({
+    requestId: "matching-reviewer",
+    workspaceId: "workspace",
+    agentId: "original",
+    mode: "execute_review",
+    settings: selected,
+  });
+  assert.equal(c.agentId, "original");
+  assert.equal(h.store.conversation(c.id).settings.directorProfileId, "audit");
+  assert.equal(h.store.conversation(c.id).sourceAgentId, undefined);
+  assert.equal(h.gateway.mains.size, 0);
+});
+
+test("enabling with a different review model keeps the original chat and opens the selected reviewer", async (t) => {
+  const h = await fixture(t);
+  h.gateway.histories.set("original", []);
+  h.gateway.user("original", "old", "旧任务不得自动执行");
+  h.gateway.idle("original");
+  const input = {
+    requestId: "reviewer-takeover",
+    workspaceId: "workspace",
+    agentId: "original",
+    mode: "execute_review" as const,
+    settings: { ...reviewerSettings(), directorProfileId: "audit", reviewerAsLead: true },
+  };
+  const c = await h.chats.open(input);
+  assert.notEqual(c.agentId, "original");
+  const saved = h.store.conversation(c.id);
+  assert.equal(saved.sourceAgentId, "original");
+  assert.equal(saved.settings.directorProfileId, "audit");
+  assert.equal(saved.settings.profiles.find((p) => p.id === "audit")!.provider, "vendor-c/model-c");
+  assert.equal(h.gateway.histories.get("original")!.length, 1);
+  assert.equal((await h.chats.status(c.id)).latestUserMessage, undefined);
+  await assert.rejects(
+    h.chats.start(c.id, { sourceMessageId: "old", goal: "旧任务不得自动执行" }),
+    /最新的真实用户消息/,
+  );
+  assert.equal((await h.chats.open(input)).agentId, c.agentId);
+  assert.equal(h.gateway.mains.size, 1);
+});
+
+test("reviewer handoff waits for the original turn and retries without creating duplicate conversations", async (t) => {
+  const h = await fixture(t);
+  h.gateway.histories.set("original", []);
+  h.gateway.states.set("original", { status: "running", seen: true, output: "" });
+  const input = {
+    requestId: "busy-reviewer-handoff",
+    workspaceId: "workspace",
+    agentId: "original",
+    mode: "execute_review" as const,
+    settings: { ...reviewerSettings(), directorProfileId: "audit", reviewerAsLead: true },
+  };
+  await assert.rejects(h.chats.open(input), /原对话仍在执行/);
+  assert.equal(h.gateway.mains.size, 0);
+  assert.equal(h.store.conversations().length, 1);
+  h.gateway.idle("original");
+  const c = await h.chats.open(input);
+  assert.notEqual(c.agentId, "original");
+  assert.equal(h.gateway.mains.size, 1);
+  assert.equal(h.store.conversations().length, 1);
 });
 
 test("starting a worktree conversation prepares an isolated workspace", async (t) => {

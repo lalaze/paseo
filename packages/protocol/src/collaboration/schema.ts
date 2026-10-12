@@ -50,6 +50,8 @@ export const SettingsSchema = z
     workerProfileId: Id,
     /** Omitted means review in the original design session, preserving old settings. */
     reviewerProfileId: Id.optional(),
+    /** The reviewer owns the main conversation, including planning when enabled. */
+    reviewerAsLead: z.boolean().optional(),
     rolePrompts: RolePromptsSchema.optional(),
     categoryOverrides: z.record(z.string(), Id).default({}),
     taskOverrides: z.record(z.string(), Id).default({}),
@@ -62,6 +64,8 @@ export const SettingsSchema = z
     verificationCommands: z.array(CommandSchema).max(12).default([]),
   })
   .superRefine((s, ctx) => {
+    if (s.reviewerAsLead && s.reviewerProfileId !== s.directorProfileId)
+      ctx.addIssue({ code: "custom", message: "主 Agent 必须使用审核 Agent 配置" });
     const ids = new Set(s.profiles.map((p) => p.id));
     if (ids.size !== s.profiles.length)
       ctx.addIssue({ code: "custom", message: "AI 配置 ID 不能重复" });
@@ -166,10 +170,12 @@ export type AgentRole = "director" | "worker" | "reviewer";
 export const REVIEWER_ACTOR = "role:reviewer";
 export function operationRole(settings: Settings, kind: Operation["kind"]): AgentRole {
   if (kind === "execute") return "worker";
-  if (kind === "plan" || !settings.reviewerProfileId) return "director";
+  if (kind === "plan" || settings.reviewerAsLead || !settings.reviewerProfileId) return "director";
   return "reviewer";
 }
 export function operationLabel(settings: Settings, kind: Operation["kind"]): string {
+  if (settings.reviewerAsLead && kind !== "execute")
+    return kind === "plan" ? "主 Agent" : "审核 AI";
   const role = operationRole(settings, kind);
   if (role === "worker") return "执行 AI";
   if (role === "reviewer") return "审核 AI";

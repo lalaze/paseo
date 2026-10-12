@@ -10,6 +10,8 @@ import type {
 } from "@getpaseo/protocol/collaboration/schema";
 import { AdaptiveModalSheet } from "@/components/adaptive-modal-sheet";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { settingsStyles } from "@/styles/settings";
 import { SelectField } from "@/components/ui/select-field";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { SettingsSection } from "@/components/settings/headings/settings-section";
@@ -17,7 +19,7 @@ import { SettingsCard, SettingsCollapsibleRow } from "@/components/settings";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { buildSettingsHostSectionRoute } from "@/utils/host-routes";
 import { useProvidersSnapshot } from "@/hooks/use-providers-snapshot";
-import { useHostFeature, useHostFeatureAvailabilityMap } from "@/runtime/host-features";
+import { useHostFeatureAvailabilityMap } from "@/runtime/host-features";
 import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { LaunchIsolationOptions, LaunchModeOptions } from "./launch-mode-options";
 import { LaunchGoal } from "./launch-goal";
@@ -52,7 +54,7 @@ function LaunchDialog({ target }: { target: CollaborationTarget }) {
   const pathname = usePathname();
   const [origin] = useState(() => useCollaborationLaunchStore.getState().originPath ?? pathname);
   const configuring = useCollaborationLaunchStore((state) => state.configuring);
-  const { query, supportsInlineModels } = useCollaboration(target.serverId);
+  const { query, supportsUnified } = useCollaboration(target.serverId);
   const configPath = buildSettingsHostSectionRoute(target.serverId, "collaboration");
   const close = useCallback(() => setClosing(true), []);
   const dismissed = useCallback(() => {
@@ -106,7 +108,7 @@ function LaunchDialog({ target }: { target: CollaborationTarget }) {
       onDismiss={dismissed}
       onRetry={retry}
       error={query.error?.message ?? query.data?.error ?? null}
-      supported={supportsInlineModels}
+      supported={supportsUnified}
     />
   );
 }
@@ -143,7 +145,6 @@ function ModePicker({
 }: ModePickerProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const supportsExecuteReview = useHostFeature(target.serverId, "collaborationExecuteReview");
   const supportsWorktree =
     useHostFeatureAvailabilityMap([target.serverId], "collaborationWorktree").get(
       target.serverId,
@@ -272,7 +273,6 @@ function ModePicker({
               target={target}
               model={model}
               state={state}
-              supportsExecuteReview={supportsExecuteReview}
               supportsWorktree={supportsWorktree}
               catalogLoaded={Boolean(catalog.entries)}
               onConfigure={onConfigure}
@@ -302,7 +302,6 @@ function LaunchForm({
   target,
   model,
   state,
-  supportsExecuteReview,
   supportsWorktree,
   catalogLoaded,
   onConfigure,
@@ -310,7 +309,6 @@ function LaunchForm({
   target: CollaborationTarget;
   model: LaunchModel;
   state: ReturnType<LaunchModel["getState"]>;
-  supportsExecuteReview: boolean;
   supportsWorktree: boolean | null;
   catalogLoaded: boolean;
   onConfigure: (selections: LaunchSelections, limits: LaunchLimits) => void;
@@ -337,6 +335,7 @@ function LaunchForm({
     onConfigure(current.selections, {
       maxReworks: current.maxReworks,
       runTimeoutMs: current.runTimeoutMs,
+      requirePlanApproval: current.requirePlanApproval,
     });
   }, [model, onConfigure]);
   const advancedSummaryNode = useMemo(
@@ -372,9 +371,22 @@ function LaunchForm({
       <LaunchModeOptions
         mode={state.mode}
         disabled={state.locked || state.pending}
-        supportsExecuteReview={supportsExecuteReview}
         onSelect={select}
       />
+      {state.mode === "full" && (
+        <View style={[settingsStyles.row, styles.planningRow]}>
+          <View style={settingsStyles.rowContent}>
+            <Text style={settingsStyles.rowTitle}>{t("collaboration.requireApproval")}</Text>
+          </View>
+          <Switch
+            value={state.requirePlanApproval}
+            onValueChange={model.selectRequirePlanApproval}
+            disabled={state.agentsLocked || state.pending}
+            accessibilityLabel={t("collaboration.requireApproval")}
+            testID="collaboration-plan-approval"
+          />
+        </View>
+      )}
       <SettingsSection title={t("newWorkspace.isolation.label")} flush>
         <LaunchIsolationOptions
           isolation={state.isolation}
@@ -390,8 +402,8 @@ function LaunchForm({
         ) : (
           <View style={styles.roles}>
             {state.showDirector && <RoleModels role="director" model={model} state={state} />}
-            <RoleModels role="worker" model={model} state={state} />
             <RoleModels role="reviewer" model={model} state={state} />
+            <RoleModels role="worker" model={model} state={state} />
           </View>
         )}
       </SettingsSection>
@@ -420,7 +432,7 @@ function RoleModels({ role, model, state }: RoleModelsProps) {
   const compact = useIsCompactFormFactor();
   const size = compact ? "md" : "sm";
   const selection = state.selections[role];
-  const optionalReview = role === "reviewer" && state.mode === "full";
+  const optionalReview = role === "reviewer" && state.agentsLocked && !selection;
   const options = useMemo(
     () =>
       optionalReview
@@ -623,6 +635,7 @@ function TaskLimits({ model, state }: Omit<RoleModelsProps, "role">) {
 }
 const Spinner = withUnistyles(LoadingSpinner, (theme) => ({ color: theme.colors.foregroundMuted }));
 const styles = StyleSheet.create((theme) => ({
+  planningRow: { paddingHorizontal: 0 },
   content: { gap: theme.spacing[6] },
   roles: { gap: theme.spacing[4] },
   role: { gap: theme.spacing[2] },

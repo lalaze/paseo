@@ -204,6 +204,33 @@ export class Conversations {
     c.isolation = isolation;
     this.store.saveConversation(c);
   }
+  private takeoverIdentity(input: {
+    settings: Settings;
+    profile: Pick<Profile, "provider" | "modeId" | "thinkingOptionId">;
+    agentId: string;
+  }): Pick<Conversation, "agentId" | "sourceAgentId"> {
+    const { settings, profile, agentId } = input;
+    const lead = settings.profiles.find((p) => p.id === settings.directorProfileId)!;
+    if (settings.reviewerAsLead) {
+      const sameConfiguration =
+        lead.provider === profile.provider && lead.thinkingOptionId === profile.thinkingOptionId;
+      return sameConfiguration ? { agentId } : { sourceAgentId: agentId };
+    }
+    // COMPAT(collaborationUnified): added in v0.11.1, remove after 2027-04-11 once clients select the reviewer as lead.
+    let profileId = "current-chat";
+    while (settings.profiles.some((p) => p.id === profileId)) profileId += "-";
+    if (settings.profiles.length >= 30)
+      throw new Error("协作配置已满，请先移除一个未使用的 AI 配置再接管当前对话");
+    settings.profiles.push({
+      ...lead,
+      ...profile,
+      id: profileId,
+      label: "当前对话",
+      transport: "structured",
+    });
+    settings.directorProfileId = profileId;
+    return { agentId };
+  }
   private async takeover(input: {
     settings?: Settings;
     requestId: string;
@@ -228,35 +255,25 @@ export class Conversations {
         .conversations()
         .find(
           (candidateConversation) =>
-            candidateConversation.agentId === input.agentId && !candidateConversation.disabledAt,
+            (candidateConversation.agentId === input.agentId ||
+              candidateConversation.sourceAgentId === input.agentId) &&
+            !candidateConversation.disabledAt,
         );
-      if (request && request.agentId !== input.agentId) throw new Error("请求已绑定其他对话");
+      if (request && request.agentId !== input.agentId && request.sourceAgentId !== input.agentId)
+        throw new Error("请求已绑定其他对话");
       if (c && c.workspaceId !== input.workspaceId) throw new Error("会话不属于当前工作区");
       if (!c) {
         // COMPAT(collaborationInlineModels): added in v0.9.0, remove after 2027-03-24 once clients send per-conversation settings.
         const settings = SettingsSchema.parse(input.settings ?? this.store.settings());
         const mode = collaborationMode(input);
         validateCollaborationMode(mode, settings);
-        const lead = settings.profiles.find((p) => p.id === settings.directorProfileId)!;
-        let profileId = "current-chat";
-        while (settings.profiles.some((p) => p.id === profileId)) profileId += "-";
-        // Keep worker/reviewer bindings intact even when they share the old lead profile.
-        if (settings.profiles.length >= 30)
-          throw new Error("协作配置已满，请先移除一个未使用的 AI 配置再接管当前对话");
-        settings.profiles.push({
-          ...lead,
-          ...profile,
-          id: profileId,
-          label: "当前对话",
-          transport: "structured",
-        });
-        settings.directorProfileId = profileId;
+        const identity = this.takeoverIdentity({ settings, profile, agentId: input.agentId });
         c = {
           mode,
           id: `chat-${digest(input.requestId)}`,
           requestId: input.requestId,
           workspaceId: input.workspaceId,
-          agentId: input.agentId,
+          ...identity,
           cwd: await this.gateway.workspaceDirectory(input.workspaceId),
           settings,
           createdAt: Date.now(),
@@ -377,15 +394,20 @@ export class Conversations {
     this.store.saveConversation(c);
   }
   private async ensureSession(c: Conversation) {
-    if (c.takeover && !c.linksReady) {
-      if (!c.agentId || !this.gateway.adoptConversation) throw new Error("当前对话无法接管");
-      c.takeover.instruction = await this.gateway.adoptConversation(c);
-      this.store.saveConversation(c);
-    }
     if (!c.agentId) {
+      if (c.sourceAgentId) {
+        const source = await this.gateway.inspect(c.sourceAgentId, "reviewer-handoff", c.createdAt);
+        if (source.status === "running" || source.status === "permission")
+          throw new Error("原对话仍在执行或等待权限，请完成或停止当前轮次后重试开启协作");
+      }
       const found = await this.gateway.findConversation(c.id, c.generation);
       if (found.length > 1) throw new Error("发现多个主会话，请先核对，未重复创建");
       c.agentId = found[0] ?? (await this.gateway.createConversation(c));
+      this.store.saveConversation(c);
+    }
+    if (c.takeover && !c.linksReady) {
+      if (!this.gateway.adoptConversation) throw new Error("当前对话无法接管");
+      c.takeover.instruction = await this.gateway.adoptConversation(c);
       this.store.saveConversation(c);
     }
     if (c.runId) {

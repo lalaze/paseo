@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
@@ -8,8 +8,9 @@ import type {
 } from "@getpaseo/protocol/collaboration/schema";
 import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/segmented-control";
 import { useIsCompactFormFactor } from "@/constants/layout";
+import { Switch } from "@/components/ui/switch";
+import { settingsStyles } from "@/styles/settings";
 
-const modes: CollaborationMode[] = ["full", "execute_review"];
 const isolations: CollaborationIsolation[] = ["local", "worktree"];
 
 interface Choice<T extends string> extends SegmentedControlOption<T> {
@@ -20,33 +21,31 @@ interface Choice<T extends string> extends SegmentedControlOption<T> {
 export function LaunchModeOptions({
   mode,
   disabled,
-  supportsExecuteReview,
   onSelect,
 }: {
   mode: CollaborationMode;
   disabled: boolean;
-  supportsExecuteReview: boolean;
   onSelect: (mode: CollaborationMode) => void;
 }) {
   const { t } = useTranslation();
-  const options = useMemo(
-    () =>
-      modes.map((value): Choice<CollaborationMode> => {
-        const unavailable = value === "execute_review" && !supportsExecuteReview;
-        return {
-          value,
-          label: t(`collaboration.modes.${value}`),
-          description: t(`collaboration.modeDescriptions.${value}`),
-          disabled: disabled || unavailable,
-          notice: unavailable ? t("collaboration.launchErrors.updateHost") : undefined,
-          testID:
-            value === "full" ? "collaboration-mode-full" : "collaboration-mode-execute-review",
-        };
-      }),
-    [disabled, supportsExecuteReview, t],
+  const toggle = useCallback(
+    (enabled: boolean) => onSelect(enabled ? "full" : "execute_review"),
+    [onSelect],
   );
   return (
-    <ChoiceControl value={mode} options={options} onSelect={onSelect} testID="collaboration-mode" />
+    <View style={[settingsStyles.row, styles.planningRow]}>
+      <View style={settingsStyles.rowContent}>
+        <Text style={settingsStyles.rowTitle}>{t("collaboration.planFirst")}</Text>
+        <Text style={settingsStyles.rowHint}>{t("collaboration.planFirstHint")}</Text>
+      </View>
+      <Switch
+        value={mode === "full"}
+        onValueChange={toggle}
+        disabled={disabled}
+        accessibilityLabel={t("collaboration.planFirst")}
+        testID="collaboration-plan-first"
+      />
+    </View>
   );
 }
 
@@ -124,6 +123,7 @@ function ChoiceControl<T extends string>({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  planningRow: { paddingHorizontal: 0 },
   choice: { alignItems: "flex-start", gap: theme.spacing[2] },
   description: {
     fontSize: theme.fontSize.sm,

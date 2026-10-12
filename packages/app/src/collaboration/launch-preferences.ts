@@ -22,6 +22,7 @@ const PreferencesSchema = z.object({
   maxReworks: z.number().int().min(0).max(10),
   // Absent in preferences saved before the time budget became selectable.
   runTimeoutMs: z.number().int().min(3600000).max(86400000).optional(),
+  requirePlanApproval: z.boolean().optional(),
 });
 const PersistedSchema = z.object({ byServer: z.record(z.string(), PreferencesSchema) });
 type StoredPreferences = z.infer<typeof PreferencesSchema>;

@@ -23,7 +23,10 @@ export const fr: TranslationResources = {
         awaitingAcceptance: "En attente de votre validation",
       },
     },
-    chooseMode: "Choisir le mode de collaboration",
+    chooseMode: "Configurer la collaboration",
+    planFirst: "Planifier d’abord",
+    planFirstHint:
+      "L’agent de révision mène la conversation, prépare le plan et vérifie le travail réalisé.",
     enabling: "Activation de la collaboration...",
     disabling: "Sortie de la collaboration…",
     disable: "Quitter la collaboration",
@@ -53,18 +56,17 @@ export const fr: TranslationResources = {
       worker: "Exécution",
       reviewer: "Révision",
       unconfigured: "Non configuré",
-      reviewerHint:
-        "Choisissez un agent de révision indépendant. Il peut utiliser le même modèle que l’exécutant.",
+      reviewerHint: "Choisissez l’agent qui mène la conversation et vérifie le travail réalisé.",
       configureReviewer: "Configurer la révision",
       goal: "Objectif de la tâche",
     },
     modes: {
-      full: "Parcours complet",
-      execute_review: "Réalisation + vérification",
+      full: "Planifier d’abord",
+      execute_review: "Exécuter directement",
     },
     modeDescriptions: {
-      full: "Conception → exécution → révision → votre validation",
-      execute_review: "Un exécutant, avec une révision indépendante avant votre validation",
+      full: "Plan → réalisation → révision → validation",
+      execute_review: "Réalisation → révision → validation",
     },
     modeLocked:
       "Le mode de cette tâche est fixé. Ouvrez une nouvelle conversation pour changer de mode.",
@@ -79,7 +81,8 @@ export const fr: TranslationResources = {
       configure: "Enregistrez les paramètres de collaboration avant de continuer.",
       reviewerRequired:
         "Choisissez un agent de vérification indépendant dans les paramètres de collaboration.",
-      updateHost: "Mettez à jour l’hôte pour utiliser réalisation + vérification.",
+      updateHost:
+        "Mettez à jour l’hôte pour utiliser la collaboration menée par l’agent de révision.",
       updateHostWorktree:
         "Mettez à jour l’hôte pour exécuter la collaboration dans un worktree séparé.",
       updateHostDisable: "Mettez à jour l’hôte pour quitter la collaboration.",
@@ -94,7 +97,7 @@ export const fr: TranslationResources = {
     title: "Collaboration",
     directorProfileId: "Agent principal",
     workerProfileId: "Agent de réalisation",
-    reviewerProfileId: "Agent de vérification",
+    reviewerProfileId: "Agent de révision / principal",
     selectProfile: "Choisir un profil",
     chooseProfiles: "Créez un profil avec un modèle pour configurer la collaboration.",
     conversations: "Conversations collaboratives",

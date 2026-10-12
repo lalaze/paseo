@@ -30,6 +30,7 @@ export const RUN_TIMEOUT_HOURS = [1, 2, 4, 8, 12, 24] as const;
 export interface LaunchLimits {
   maxReworks: number;
   runTimeoutMs: number;
+  requirePlanApproval?: boolean;
 }
 /** The choices of the last task started on a host, which prefill the next new task. */
 export interface LaunchPreferences extends LaunchLimits {
@@ -91,7 +92,7 @@ export function openCollaborationLaunch(
   // An existing conversation keeps its own choices; only a new task starts from the last one.
   function defaultMode(next: LaunchSnapshot): CollaborationMode {
     if (next.conversation) return collaborationMode(next.conversation);
-    return remembered?.mode ?? collaborationMode({});
+    return remembered?.mode ?? "execute_review";
   }
   function defaultIsolation(next: LaunchSnapshot): CollaborationIsolation {
     if (next.conversation) return next.conversation.isolation ?? "local";
@@ -123,6 +124,8 @@ export function openCollaborationLaunch(
   let maxReworks = restoredLimits?.maxReworks ?? remembered?.maxReworks ?? DEFAULT_MAX_REWORKS;
   let runTimeoutMs =
     restoredLimits?.runTimeoutMs ?? remembered?.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
+  let requirePlanApproval =
+    restoredLimits?.requirePlanApproval ?? remembered?.requirePlanApproval ?? false;
   let entries: ProviderSnapshotEntry[] = [];
   let pending = false;
   let error = "";
@@ -143,11 +146,12 @@ export function openCollaborationLaunch(
     );
   }
   /** An existing conversation shows its saved limits; a new task uses the chosen ones. */
-  function limits(): LaunchLimits {
+  function limits(): Required<LaunchLimits> {
     const saved = snapshot.conversation?.settings;
     return {
       maxReworks: saved?.maxReworks ?? maxReworks,
       runTimeoutMs: saved?.runTimeoutMs ?? runTimeoutMs,
+      requirePlanApproval: saved?.requirePlanApproval ?? requirePlanApproval,
     };
   }
   function read() {
@@ -157,10 +161,12 @@ export function openCollaborationLaunch(
       isolation = snapshot.conversation?.isolation ?? "local";
     }
     const agentsLocked = Boolean(snapshot.conversation);
-    const showDirector = mode === "full" && !snapshot.currentAgent;
-    const directorValid = !showDirector || valid(selections.director);
-    const reviewerValid = (mode === "full" && !selections.reviewer) || valid(selections.reviewer);
-    const complete = valid(selections.worker) && directorValid && reviewerValid;
+    // COMPAT(collaborationUnified): added in v0.11.1, remove after 2027-04-11 once legacy conversations no longer have a separate lead.
+    const legacyLead = Boolean(
+      snapshot.conversation && !snapshot.conversation.settings?.reviewerAsLead,
+    );
+    const showDirector = legacyLead && !snapshot.currentAgent && mode === "full";
+    const complete = valid(selections.worker) && valid(selections.reviewer);
     const savedReviewer = snapshot.conversation?.settings?.reviewerProfileId;
     const canReopen = mode === "full" || Boolean(savedReviewer);
     return {
@@ -227,18 +233,14 @@ export function openCollaborationLaunch(
         transport: "mcp",
       };
     }
-    const profiles = [profile("worker")];
-    let directorProfileId = "worker";
-    if (state.showDirector) {
-      profiles.push(profile("director"));
-      directorProfileId = "director";
-    }
-    if (selections.reviewer) profiles.push(profile("reviewer"));
+    const profiles = [profile("worker"), profile("reviewer")];
     return SettingsSchema.parse({
       profiles,
-      directorProfileId,
+      directorProfileId: "reviewer",
       workerProfileId: "worker",
-      reviewerProfileId: selections.reviewer ? "reviewer" : undefined,
+      reviewerProfileId: "reviewer",
+      reviewerAsLead: true,
+      requirePlanApproval: mode === "full" && requirePlanApproval,
       maxReworks,
       runTimeoutMs,
     });
@@ -260,6 +262,7 @@ export function openCollaborationLaunch(
       selections: state.selections,
       maxReworks: state.maxReworks,
       runTimeoutMs: state.runTimeoutMs,
+      requirePlanApproval: state.requirePlanApproval,
     }),
     /** What a launch would send right now, or null when the setup is incomplete or locked out. */
     resolve: resolveLaunch,
@@ -334,6 +337,12 @@ export function openCollaborationLaunch(
     selectRunTimeout(next: number) {
       if (pending || state.agentsLocked) return;
       runTimeoutMs = Math.min(24 * HOUR_MS, Math.max(HOUR_MS, Math.trunc(next)));
+      error = "";
+      publish();
+    },
+    selectRequirePlanApproval(next: boolean) {
+      if (pending || state.agentsLocked) return;
+      requirePlanApproval = next;
       error = "";
       publish();
     },

@@ -22,6 +22,8 @@ export interface Conversation {
   workspaceId: string;
   cwd: string;
   agentId?: string;
+  /** A new reviewer conversation can inherit context from a differently configured chat. */
+  sourceAgentId?: string;
   settings: Settings;
   runId?: string;
   createdAt: number;

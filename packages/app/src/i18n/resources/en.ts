@@ -20,7 +20,10 @@ export const en = {
         awaitingAcceptance: "Awaiting your acceptance",
       },
     },
-    chooseMode: "Choose collaboration mode",
+    chooseMode: "Configure collaboration",
+    planFirst: "Plan first",
+    planFirstHint:
+      "The review agent leads the conversation, creates the plan, and reviews the implementer’s work.",
     enabling: "Enabling collaboration...",
     disabling: "Exiting collaboration...",
     disable: "Exit collaboration",
@@ -51,19 +54,19 @@ export const en = {
       reviewer: "Review",
       unconfigured: "Not configured",
       reviewerHint:
-        "Choose an independent review agent. It can use the same model as the implementer.",
+        "Choose the agent that leads the conversation and reviews the implementer’s work.",
       configureReviewer: "Configure review agent",
       goal: "Task goal",
     },
     modes: {
-      full: "Full workflow",
-      execute_review: "Execution + review",
+      full: "Plan first",
+      execute_review: "Start directly",
     },
     modeDescriptions: {
       full: "Plan → implement → review → your acceptance",
-      execute_review: "One implementer, independently reviewed before your acceptance",
+      execute_review: "Implement → review → your acceptance",
     },
-    modeLocked: "This task’s mode is fixed. Start a new conversation to use another mode.",
+    modeLocked: "Planning is fixed for this task. Start a new conversation to change it.",
     isolationDescriptions: {
       local: "Keep uncommitted changes and work on a director branch here.",
       worktree:
@@ -74,7 +77,7 @@ export const en = {
     launchErrors: {
       configure: "Save collaboration settings before continuing.",
       reviewerRequired: "Choose an independent review agent in collaboration settings.",
-      updateHost: "Update the host to choose collaboration models here.",
+      updateHost: "Update the host to use reviewer-led collaboration.",
       updateHostWorktree: "Update the host to run collaboration in a separate worktree.",
       updateHostDisable: "Update the host to exit collaboration.",
     },
@@ -88,7 +91,7 @@ export const en = {
     title: "Collaboration",
     directorProfileId: "Lead agent",
     workerProfileId: "Implementation agent",
-    reviewerProfileId: "Review agent",
+    reviewerProfileId: "Review / lead agent",
     selectProfile: "Choose an agent profile",
     chooseProfiles: "Create an agent profile with a model to configure collaboration.",
     conversations: "Collaboration conversations",

@@ -48,9 +48,10 @@ test("new collaboration chooses models without profiles and uses default task se
           modeId: "auto-review",
           transport: "mcp",
         })),
-        directorProfileId: "worker",
+        directorProfileId: "reviewer",
         workerProfileId: "worker",
         reviewerProfileId: "reviewer",
+        reviewerAsLead: true,
       }),
     );
   });
@@ -76,14 +77,12 @@ test("collaboration saves independent thinking levels and restores them for the 
   ];
   const model = openCollaborationLaunch({ settings: null, currentAgent: false });
   model.applyProviders(catalog);
-  for (const role of ["director", "worker", "reviewer"] as const) choose(model, role);
-  model.selectThinking("director", "high", "High");
+  for (const role of ["worker", "reviewer"] as const) choose(model, role);
   model.selectThinking("worker", "low", "Low");
   model.selectThinking("reviewer", "high", "High");
   await model.start(async (_mode, settings) => {
     expect(settings?.profiles.map((profile) => [profile.id, profile.thinkingOptionId])).toEqual([
       ["worker", "low"],
-      ["director", "high"],
       ["reviewer", "high"],
     ]);
   });
@@ -128,6 +127,7 @@ test("collaboration clears thinking on model changes and requires stale saved le
   const model = openCollaborationLaunch({ settings: null, currentAgent: true });
   model.applyProviders(catalog);
   choose(model, "worker");
+  choose(model, "reviewer");
   model.selectThinking("worker", "high", "High");
   model.applyProviders(catalog);
   model.selectModel("worker", "model-a", "Model A");
@@ -286,6 +286,7 @@ test("changing provider clears its model and catalog refresh preserves explicit 
   const model = openCollaborationLaunch({ settings: null, currentAgent: true });
   model.applyProviders(providers);
   choose(model, "worker");
+  choose(model, "reviewer");
   expect(model.getState().canContinue).toBe(true);
   model.selectProvider("worker", "claude", "Claude");
   expect(model.getState().selections.worker?.model).toBe("");
@@ -306,26 +307,37 @@ test("changing provider clears its model and catalog refresh preserves explicit 
   model.close();
 });
 
-test("full workflow requires a lead for new conversations and preserves selections across modes and settings", () => {
+test("planning uses the reviewer as lead and preserves models and approval across setup", async () => {
   const model = openCollaborationLaunch({ settings: null, currentAgent: false });
   model.applyProviders(providers);
+  expect(model.getState().mode).toBe("execute_review");
+  expect(model.getState().showDirector).toBe(false);
   choose(model, "worker");
   expect(model.getState().canContinue).toBe(false);
-  choose(model, "director");
-  expect(model.getState().canContinue).toBe(true);
-  model.selectMode("execute_review");
+  model.selectMode("full");
   expect(model.getState().canContinue).toBe(false);
   choose(model, "reviewer");
+  model.selectRequirePlanApproval(true);
   const reopened = openCollaborationLaunch(
     { settings: null, currentAgent: false },
     model.getState().mode,
     model.getState().selections,
+    { maxReworks: 2, runTimeoutMs: 4 * 3600000, requirePlanApproval: true },
   );
   reopened.applyProviders(providers);
   expect(reopened.getState().selections).toEqual(model.getState().selections);
-  expect(reopened.getState().mode).toBe("execute_review");
-  reopened.selectMode("full");
-  expect(reopened.getState().canContinue).toBe(true);
+  expect(reopened.getState().mode).toBe("full");
+  expect(reopened.getState().showDirector).toBe(false);
+  await reopened.start(async (_mode, settings) => {
+    expect(settings?.directorProfileId).toBe("reviewer");
+    expect(settings?.reviewerAsLead).toBe(true);
+    expect(settings?.requirePlanApproval).toBe(true);
+  });
+  reopened.selectMode("execute_review");
+  await reopened.start(async (_mode, settings) => {
+    expect(settings?.directorProfileId).toBe("reviewer");
+    expect(settings?.requirePlanApproval).toBe(false);
+  });
   model.close();
   reopened.close();
 });
@@ -334,6 +346,7 @@ test("launch locks pending edits and duplicate submissions, then retries failure
   const model = openCollaborationLaunch({ settings: null, currentAgent: true });
   model.applyProviders(providers);
   choose(model, "worker");
+  choose(model, "reviewer");
   let finish = () => {};
   let starts = 0;
   const pending = model.start(() => {
@@ -343,12 +356,12 @@ test("launch locks pending edits and duplicate submissions, then retries failure
     });
   });
   model.selectProvider("worker", "claude", "Claude");
-  model.selectMode("execute_review");
+  model.selectMode("full");
   await model.start(async () => {
     starts++;
   });
   expect(starts).toBe(1);
-  expect(model.getState().mode).toBe("full");
+  expect(model.getState().mode).toBe("execute_review");
   expect(model.getState().selections.worker?.provider).toBe("codex");
   expect(model.getState().canContinue).toBe(false);
   finish();
@@ -375,6 +388,7 @@ test("legacy advanced defaults do not carry into a new task, existing conversati
   });
   const model = openCollaborationLaunch({ settings, currentAgent: false });
   model.applyProviders(providers);
+  choose(model, "reviewer");
   await model.start(async (_mode, next) => {
     expect(next?.maxReworks).toBe(2);
     expect(next?.requirePlanApproval).toBe(false);
