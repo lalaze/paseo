@@ -247,38 +247,25 @@ test("personal activation refuses a runtime missing quota patches before stoppin
   assert.equal(fixture.runtime.running, fixture.oldEntry);
 });
 
-test("personal quota patches retain built-ins and renew Kimi file credentials before reading usage", async () => {
-  const { patchQuotaModules, antigravityUsageModule, antigravityLocalModule } =
-    await import("./personal-quota/install.mjs");
+test("personal quota patches omit Copilot usage and only renew Kimi file credentials", async () => {
+  const { patchQuotaModules } = await import("./personal-quota/install.mjs");
   const original = {
-    registry: 'export const builtinPlugins = [\n"kimi-usage-source",\n];',
+    registry:
+      'export const builtinPlugins = [\n    "antigravity-provider",\n    "copilot-usage-source",\n    "kimi-usage-source",\n];',
     kimi: "async function fetchUsage(input) {\n  const credentials = await readCredentials(input);\n}",
   };
   const patched = patchQuotaModules(original);
-  assert.match(patched.registry, /"antigravity-usage-source"/);
-  assert.match(patched.registry, /"kimi-usage-source"/);
+  assert.equal(
+    patched.registry,
+    'export const builtinPlugins = [\n    "antigravity-provider",\n    "kimi-usage-source",\n];',
+  );
   assert.match(patched.kimi, /input.store === "file"/);
   assert.match(
     patched.kimi,
     /await ensureKimiCredentialsFresh\(input.locator, credentials\);\n\s+credentials = await readCredentials\(input\);/,
   );
-  assert.throws(() => patchQuotaModules(patched), /existing Antigravity/);
+  assert.throws(() => patchQuotaModules(patched), /Kimi is already patched/);
   assert.throws(() => patchQuotaModules({ ...original, kimi: "changed upstream" }), /exactly one/);
-  assert.throws(
-    () => patchQuotaModules({ ...original, registry: "changed upstream" }),
-    /exactly one/,
-  );
-  const reader = antigravityUsageModule(
-    await readFile(join(repoRoot, "scripts/personal-quota/providers/antigravity.js"), "utf8"),
-  );
-  assert.match(reader, /@getpaseo\/plugin\/server\/usage/);
-  assert.doesNotMatch(reader, /AntigravityQuotaProvider|unavailableUsage|readLocalQuota/);
-  const localReader = antigravityLocalModule(
-    await readFile(join(repoRoot, "scripts/personal-quota/providers/antigravity-local.js"), "utf8"),
-    "/runtime/packages/server/package.json",
-  );
-  assert.doesNotMatch(localReader, /import\.meta/);
-  assert.match(localReader, /createRequire\("\/runtime\/packages\/server\/package\.json"\)/);
 });
 
 test("incompatible quota runtime aborts installation before writing patch payloads", async (t) => {
@@ -311,10 +298,6 @@ test("quota verification detects changed and missing installed files before acti
     "server/plugins/builtin/index.js",
     "builtin-plugins/kimi-usage-source/server/usage.ts",
     "builtin-plugins/kimi-usage-source/server/kimi-refresh.js",
-    "builtin-plugins/antigravity-usage-source/paseo-plugin.json",
-    "builtin-plugins/antigravity-usage-source/index.server.ts",
-    "builtin-plugins/antigravity-usage-source/server/antigravity.js",
-    "builtin-plugins/antigravity-usage-source/server/antigravity-local.js",
   ];
   for (const file of paths) {
     const relative = `${base}/${file}`;
@@ -325,6 +308,16 @@ test("quota verification detects changed and missing installed files before acti
   const receipt = { snapshotId: await quotaPatchSnapshot(), files };
   await writeFile(join(fixture.release, "quota-patches.json"), JSON.stringify(receipt));
   await verifyQuotaPatches(fixture.release);
+  const registry = join(fixture.release, base, paths[0]);
+  await writeFile(registry, 'export const builtinPlugins = ["antigravity-usage-source"];');
+  await assert.rejects(activate({ ...fixture, verify: undefined }), /Retired Antigravity/);
+  assert.deepEqual(fixture.calls, []);
+  await writeFile(registry, 'export const builtinPlugins = ["copilot-usage-source"];');
+  await assert.rejects(
+    activate({ ...fixture, verify: undefined }),
+    /must not query GitHub Copilot/,
+  );
+  assert.deepEqual(fixture.calls, []);
   await writeFile(join(fixture.release, base, paths[0]), "accidentally overwritten");
   await assert.rejects(activate({ ...fixture, verify: undefined }), /Quota runtime changed/);
   assert.deepEqual(fixture.calls, []);

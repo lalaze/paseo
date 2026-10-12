@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -8,8 +8,7 @@ const bundle = import.meta.dirname;
 const builtinBase = "packages/server/dist/server/builtin-plugins";
 const registryFile = "packages/server/dist/server/server/plugins/builtin/index.js";
 const kimiFile = `${builtinBase}/kimi-usage-source/server/usage.ts`;
-const antigravityBase = `${builtinBase}/antigravity-usage-source`;
-const payloads = ["antigravity.js", "antigravity-local.js", "kimi-refresh.js"];
+const payloads = ["kimi-refresh.js"];
 const receiptFile = "quota-patches.json";
 
 function sha(value) {
@@ -25,15 +24,11 @@ export function patchQuotaModules({ registry, kimi }) {
   assert.doesNotMatch(
     registry,
     /antigravity-usage-source/,
-    "Review existing Antigravity usage support",
+    "Retired Antigravity quota extension must not be loaded",
   );
   assert.doesNotMatch(kimi, /ensureKimiCredentialsFresh/, "Kimi is already patched");
   return {
-    registry: replaceOnce(
-      registry,
-      "export const builtinPlugins = [",
-      'export const builtinPlugins = [\n    "antigravity-usage-source",',
-    ),
+    registry: replaceOnce(registry, '    "copilot-usage-source",\n', ""),
     kimi:
       'import { ensureKimiCredentialsFresh } from "./kimi-refresh.js";\n' +
       replaceOnce(
@@ -48,31 +43,11 @@ export function patchQuotaModules({ registry, kimi }) {
   };
 }
 
-export function antigravityUsageModule(source) {
-  const windowsEnd = source.indexOf("export class AntigravityQuotaProvider");
-  assert.ok(windowsEnd > 0, "Antigravity quota converter boundary changed");
-  return replaceOnce(
-    source.slice(0, windowsEnd),
-    'import { unavailableUsage, windowFromUsedPct, toneFromUsedPct } from "../usage.js";',
-    'import { windowFromUsedPct, toneFromUsedPct } from "@getpaseo/plugin/server/usage";',
-  ).replace('import { readLocalQuota } from "./antigravity-local.js";\n', "");
-}
-
-export function antigravityLocalModule(source, serverPackage) {
-  // Built-ins evaluate without import.meta.url. Resolve node-pty from this immutable runtime.
-  return replaceOnce(
-    source,
-    "const require = createRequire(import.meta.url);",
-    `const require = createRequire(${JSON.stringify(serverPackage)});`,
-  );
-}
-
 export async function quotaPatchSnapshot() {
   const hash = createHash("sha256");
   for (const file of [
     "install.mjs",
     "compatibility.json",
-    "index.server.ts",
     ...payloads.map((f) => `providers/${f}`),
   ]) {
     hash.update(await readFile(path.join(bundle, file)));
@@ -126,24 +101,7 @@ export async function installQuotaPatches(release) {
   const pty = JSON.parse(await readFile(path.join(release, ptyFile), "utf8"));
   assert.equal(pty.version, baseline.nodePtyVersion, "node-pty compatibility changed");
   const patched = patchQuotaModules({ registry, kimi });
-  await mkdir(path.join(release, antigravityBase, "server"), { recursive: true });
   const contents = {
-    [`${antigravityBase}/paseo-plugin.json`]:
-      JSON.stringify({
-        id: "antigravity-usage-source",
-        requirements: { paseo: ">=0.11.1" },
-      }) + "\n",
-    [`${antigravityBase}/index.server.ts`]: await readFile(
-      path.join(bundle, "index.server.ts"),
-      "utf8",
-    ),
-    [`${antigravityBase}/server/antigravity.js`]: antigravityUsageModule(
-      await readFile(path.join(bundle, "providers/antigravity.js"), "utf8"),
-    ),
-    [`${antigravityBase}/server/antigravity-local.js`]: antigravityLocalModule(
-      await readFile(path.join(bundle, "providers/antigravity-local.js"), "utf8"),
-      path.join(release, "packages/server/package.json"),
-    ),
     [`${builtinBase}/kimi-usage-source/server/kimi-refresh.js`]: await readFile(
       path.join(bundle, "providers/kimi-refresh.js"),
     ),
@@ -176,14 +134,20 @@ export async function verifyQuotaPatches(release) {
   const required = [
     registryFile,
     kimiFile,
-    `${antigravityBase}/paseo-plugin.json`,
-    `${antigravityBase}/index.server.ts`,
-    `${antigravityBase}/server/antigravity.js`,
-    `${antigravityBase}/server/antigravity-local.js`,
     `${builtinBase}/kimi-usage-source/server/kimi-refresh.js`,
   ];
   for (const file of required)
     assert.equal(typeof receipt.files[file], "string", `Missing quota patch: ${file}`);
+  assert.doesNotMatch(
+    await readFile(path.join(release, registryFile), "utf8"),
+    /antigravity-usage-source/,
+    "Retired Antigravity quota extension must not be loaded",
+  );
+  assert.doesNotMatch(
+    await readFile(path.join(release, registryFile), "utf8"),
+    /copilot-usage-source/,
+    "Personal runtime must not query GitHub Copilot usage",
+  );
   for (const [file, expected] of Object.entries(receipt.files)) {
     const relative = runtimeRelative(release, path.resolve(release, file));
     assert.equal(

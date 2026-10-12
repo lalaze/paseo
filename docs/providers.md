@@ -22,6 +22,10 @@ provider icon map. You do not need a core manifest entry or provider factory.
 | Antigravity | Installed `agy` CLI                        | [Antigravity](../public-docs/supported-providers.md#antigravity) |
 | Muse Code   | MSP over one `muse serve` host per session | [Muse Code](../public-docs/muse-code.md)                         |
 
+Antigravity quota reads use the official `agy -p /usage` command. Check the CLI version before
+sending it: versions before 1.1.11 treat `/usage` as a model prompt. Keep subprocess deadlines
+inside the daemon's Usage deadline; do not restore the retired Hub quota reader.
+
 ## Provider-native session options
 
 The provider owns validation and application of the opaque record in

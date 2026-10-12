@@ -1,12 +1,13 @@
 # Personal quota bundle
 
-The three provider payloads come from
+The Kimi renewal payload comes from
 [`lalaze/paseo-plugins`, commit `34f097f42627b5794d78675c05cc03820fd37f82`](https://github.com/lalaze/paseo-plugins/tree/34f097f42627b5794d78675c05cc03820fd37f82/agy-quota/src).
-They retain the existing Antigravity reader and Kimi-owned credential renewal, formatted with
-this repository's formatter. Paseo 0.11.1 moved quotas to built-in Usage sources.
-The installer reuses the Antigravity window converter through the Usage SDK, adds an in-process
-built-in source, and renews Kimi's file-backed login before its source fetches usage. Environment
-API keys remain read-only. The baseline pins the reviewed built-in registry, Kimi reader, Usage
+It retains Kimi-owned credential renewal, formatted with this repository's formatter.
+Paseo 0.11.1 moved quotas to built-in Usage sources. The personal runtime omits the Copilot
+Usage source without changing GitHub credentials and renews Kimi's file-backed login before
+its source fetches usage. Other official built-ins remain enabled.
+Do not restore the retired Antigravity Hub or quota reader; those are archived in `paseo-plugins`.
+Environment API keys remain read-only. The baseline pins the reviewed built-in registry, Kimi reader, Usage
 registry and SDK, wire schemas, and node-pty version.
 The payload directory is excluded from application lint rules so deployment integration does
 not refactor the separately maintained readers. The installer and deployment tests stay linted.

@@ -18,6 +18,22 @@ if (args.includes("--version")) {
   process.stdout.write(`${process.env.AGY_TEST_VERSION || "1.2.13"}\n`);
   process.exit(0);
 }
+if (args.includes("/usage")) {
+  if (process.env.AGY_TEST_USAGE === "hang")
+    await new Promise(() => {
+      setInterval(() => {}, 1000);
+    });
+  const output = JSON.parse(
+    readFileSync(new URL("./fixtures/usage.stdout.json", import.meta.url), "utf8"),
+  );
+  if (process.env.AGY_TEST_USAGE === "model-turn") output.num_turns = 1;
+  if (process.env.AGY_TEST_USAGE === "error") {
+    process.stderr.write("private CLI diagnostic must not reach the Usage card\n");
+    process.exit(1);
+  }
+  process.stdout.write(JSON.stringify(output) + "\n");
+  process.exit(0);
+}
 if (args.includes("models")) {
   if (process.env.AGY_TEST_MODELS_DELAY_MS) {
     await new Promise((resolve) =>

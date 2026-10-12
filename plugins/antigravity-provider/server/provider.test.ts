@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   PROVIDER_CAPABILITIES,
@@ -15,11 +15,96 @@ import {
 } from "@getpaseo/plugin/server/provider";
 import { signalPlan } from "./internal/signals.js";
 import { createAntigravityProvider } from "./provider.js";
+import { Usage } from "./usage.js";
 
 const temporary: string[] = [];
 const connections: ProviderConnection[] = [];
 const fake = fileURLToPath(new URL("../test/agy.mjs", import.meta.url));
 const provider = createAntigravityProvider();
+
+async function quotaHarness(env: Record<string, string> = {}) {
+  const home = await mkdtemp(path.join(os.tmpdir(), "antigravity-quota-"));
+  temporary.push(home);
+  const binary = path.join(home, process.platform === "win32" ? "agy.cmd" : "agy.mjs");
+  const launcher =
+    process.platform === "win32"
+      ? `@echo off\r\n"${process.execPath}" "${fake}" %*\r\n`
+      : `#!${process.execPath}\nimport ${JSON.stringify(pathToFileURL(fake).href)};\n`;
+  await writeFile(binary, launcher, { mode: 0o700 });
+  const log = path.join(home, "argv.ndjson");
+  const source = new Usage().registration();
+  const accounts = await source.discover({
+    kind: "session",
+    provider: "antigravity",
+    env: { HOME: home, PASEO_ANTIGRAVITY_BIN: binary, AGY_TEST_LOG: log, ...env },
+  });
+  expect(accounts).toHaveLength(1);
+  return {
+    source,
+    input: accounts[0]!.input,
+    async commands() {
+      return (await readFile(log, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).args);
+    },
+  };
+}
+
+it("reads official Antigravity quota without starting a Hub or a model turn", async () => {
+  const h = await quotaHarness();
+  expect(await h.source.fetch(h.input)).toMatchObject({
+    status: "available",
+    windows: [
+      { id: "gemini-weekly", label: "Gemini Models · Weekly limit", usedPct: 20, remainingPct: 80 },
+      { id: "gemini-5h", label: "Gemini Models · 5-hour limit", usedPct: 50, remainingPct: 50 },
+      {
+        id: "3p-weekly",
+        label: "Claude and GPT models · Weekly limit",
+        usedPct: 0,
+        remainingPct: 100,
+      },
+      { id: "3p-5h", label: "Claude and GPT models · 5-hour limit", usedPct: 100, remainingPct: 0 },
+    ],
+  });
+  expect(await h.commands()).toEqual([
+    ["--version"],
+    ["-p", "/usage", "--output-format", "json", "--print-timeout", "12s"],
+  ]);
+});
+
+it("refuses to send /usage to an Antigravity CLI that treats it as a prompt", async () => {
+  const h = await quotaHarness({ AGY_TEST_VERSION: "1.1.10" });
+  expect(await h.source.fetch(h.input)).toEqual({
+    status: "unavailable",
+    problem: { kind: "no_quota", detail: "Update agy to 1.1.11 or later to read quota." },
+  });
+  expect(await h.commands()).toEqual([["--version"]]);
+});
+
+it("rejects a model-turn envelope instead of showing it as quota", async () => {
+  const h = await quotaHarness({ AGY_TEST_USAGE: "model-turn" });
+  expect(await h.source.fetch(h.input)).toEqual({
+    status: "error",
+    error: "Antigravity did not return a read-only quota result.",
+  });
+});
+
+it("does not expose private CLI diagnostics in quota errors", async () => {
+  const h = await quotaHarness({ AGY_TEST_USAGE: "error" });
+  expect(await h.source.fetch(h.input)).toEqual({
+    status: "error",
+    error: "Antigravity quota query failed. Run agy /usage in a terminal to check your login.",
+  });
+});
+
+it("terminates a stuck quota command within the daemon Usage deadline", async () => {
+  const h = await quotaHarness({ AGY_TEST_USAGE: "hang" });
+  expect(await h.source.fetch(h.input)).toEqual({
+    status: "error",
+    error: "Antigravity quota query timed out. Retry Refresh.",
+  });
+}, 20_000);
 
 it("publishes a monochrome, theme-aware provider icon", async () => {
   const icon = await readFile(new URL("../icon.svg", import.meta.url), "utf8");
