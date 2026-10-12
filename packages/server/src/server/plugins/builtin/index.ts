@@ -11,7 +11,6 @@ export const builtinPlugins = [
   "grok-usage-source",
   "kimi-usage-source",
   "minimax-usage-source",
-  "muse-provider",
   "opencode-go-usage-source",
   "zai-usage-source",
 ] as const;
