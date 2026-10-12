@@ -31,6 +31,7 @@ import {
   findPaneById,
   findPaneContainingTab,
   FOCUSED_PANE_PLACEMENT,
+  selectExplorerSidebarPaneId,
   getFocusedBrowserId,
   getTreeDepth,
   insertSplit,
@@ -1154,6 +1155,55 @@ describe("workspace-layout-store actions", () => {
       { kind: "files" },
       { kind: "changes_tree" },
     ]);
+  });
+
+  it("closes a browser's DevTools tab when that browser tab closes", () => {
+    const workspaceKey = createWorkspaceKey();
+    const store = workspaceLayoutStore.getState();
+    const browserA = store.openTab({
+      workspaceKey,
+      target: { kind: "browser", browserId: "page-a" },
+      intent: "reveal",
+    });
+    store.openTab({
+      workspaceKey,
+      target: { kind: "browser", browserId: "page-b" },
+      intent: "background",
+    });
+    if (!browserA) throw new Error("Expected browser tab");
+    const explorerPaneId = selectExplorerSidebarPaneId(
+      workspaceLayoutStore.getState(),
+      workspaceKey,
+    );
+    if (!explorerPaneId) throw new Error("Expected Explorer pane");
+    store.openTab({
+      workspaceKey,
+      target: { kind: "browser_devtools", browserId: "page-a" },
+      intent: "reveal",
+      placement: { mode: "pane", paneId: explorerPaneId },
+    });
+    store.openTab({
+      workspaceKey,
+      target: { kind: "browser_devtools", browserId: "page-b" },
+      intent: "reveal",
+      placement: { mode: "pane", paneId: explorerPaneId },
+    });
+
+    store.closeTab(workspaceKey, browserA);
+
+    const root = workspaceLayoutStore.getState().layoutByWorkspace[workspaceKey].root;
+    const targets = collectAllTabs(root)
+      .filter((tab) => tab.target.kind !== "new_tab")
+      .map((tab) => tab.target);
+    expect(targets).toContainEqual({ kind: "browser", browserId: "page-b" });
+    expect(targets).toContainEqual({ kind: "browser_devtools", browserId: "page-b" });
+    expect(targets).toContainEqual({ kind: "files" });
+    expect(targets).toContainEqual({ kind: "changes_tree" });
+    expect(targets).not.toContainEqual({ kind: "browser", browserId: "page-a" });
+    expect(targets).not.toContainEqual({ kind: "browser_devtools", browserId: "page-a" });
+    const explorer = findPaneById(root, explorerPaneId);
+    const focused = collectAllTabs(root).find((tab) => tab.tabId === explorer?.focusedTabId);
+    expect(focused?.target).not.toEqual({ kind: "browser_devtools", browserId: "page-a" });
   });
 
   it("replaces a pane's sole New tab when real content opens", () => {

@@ -36,7 +36,7 @@ The browser's DevTools button opens its inspector as an Explorer tab alongside F
 Pressing it also moves an existing inspector into the dock. Inspectors keep the source page in
 their tooltip; the tab label stays short. Switching browser tabs shows the matching open inspector,
 or another Explorer tab when that page has no inspector. Returning restores the inspector unless
-you explicitly selected another Explorer tab.
+you explicitly selected another Explorer tab. Closing the browser tab also closes its inspector.
 
 ## Explorer sidebar
 

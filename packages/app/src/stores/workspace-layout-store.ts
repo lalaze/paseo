@@ -612,6 +612,83 @@ function reconcileRememberedSidePane(
   };
 }
 
+/** Closes one workspace tab, including the empty-pane and Explorer focus rules. */
+function closeWorkspaceTabInStore(input: {
+  layout: WorkspaceLayout;
+  tabId: string;
+  explorerSidebarPaneId: string | null;
+}): WorkspaceLayout | null {
+  const closingPane = findPaneContainingTab(input.layout.root, input.tabId);
+  const closingTab = collectAllTabs(input.layout.root).find((tab) => tab.tabId === input.tabId);
+  if (closingPane?.tabIds.length === 1 && closingTab?.target.kind === "new_tab") {
+    return closingPane.id === input.explorerSidebarPaneId
+      ? setPaneHiddenInLayout({
+          layout: input.layout,
+          paneId: closingPane.id,
+          hidden: true,
+        })
+      : closePaneInLayout({
+          layout: input.layout,
+          paneId: closingPane.id,
+          explorerSidebarPaneId: input.explorerSidebarPaneId,
+        });
+  }
+  const closedLayout = closeTabInLayout({
+    layout: input.layout,
+    tabId: input.tabId,
+    explorerSidebarPaneId: input.explorerSidebarPaneId,
+  });
+  const nextLayout =
+    closedLayout &&
+    closingPane?.id === input.explorerSidebarPaneId &&
+    closingPane.tabIds.length === 1
+      ? (setPaneHiddenInLayout({
+          layout: closedLayout,
+          paneId: input.explorerSidebarPaneId,
+          hidden: true,
+        }) ?? closedLayout)
+      : closedLayout;
+  return nextLayout
+    ? keepWorkspaceFocusOutOfExplorerSidebar(
+        nextLayout,
+        input.explorerSidebarPaneId,
+        input.layout.focusedPaneId,
+      )
+    : null;
+}
+
+/**
+ * A browser inspector is only useful while its page tab exists. Closing the page
+ * removes the inspector; switching away from the page leaves it in place.
+ */
+function closeOrphanedBrowserDevToolsTabs(input: {
+  layout: WorkspaceLayout;
+  browserId: string;
+  explorerSidebarPaneId: string | null;
+}): WorkspaceLayout {
+  const browserStillOpen = collectAllTabs(input.layout.root).some(
+    (tab) => tab.target.kind === "browser" && tab.target.browserId === input.browserId,
+  );
+  if (browserStillOpen) {
+    return input.layout;
+  }
+  let nextLayout = input.layout;
+  const devtoolsTabIds = collectAllTabs(nextLayout.root)
+    .filter(
+      (tab) => tab.target.kind === "browser_devtools" && tab.target.browserId === input.browserId,
+    )
+    .map((tab) => tab.tabId);
+  for (const tabId of devtoolsTabIds) {
+    nextLayout =
+      closeWorkspaceTabInStore({
+        layout: nextLayout,
+        tabId,
+        explorerSidebarPaneId: input.explorerSidebarPaneId,
+      }) ?? nextLayout;
+  }
+  return nextLayout;
+}
+
 function attachParentTab(input: {
   layout: WorkspaceLayout;
   childTabId: string | null;
@@ -886,59 +963,23 @@ export function createWorkspaceLayoutStore(
               layout,
               state.explorerSidebarPaneIdByWorkspace[normalizedWorkspaceKey],
             );
-            const closingPane = findPaneContainingTab(layout.root, normalizedTabId);
             const closingTab = collectAllTabs(layout.root).find(
               (tab) => tab.tabId === normalizedTabId,
             );
-            if (closingPane?.tabIds.length === 1 && closingTab?.target.kind === "new_tab") {
-              const nextLayout =
-                closingPane.id === explorerSidebarPaneId
-                  ? setPaneHiddenInLayout({
-                      layout,
-                      paneId: closingPane.id,
-                      hidden: true,
-                    })
-                  : closePaneInLayout({
-                      layout,
-                      paneId: closingPane.id,
-                      explorerSidebarPaneId,
-                    });
-              if (!nextLayout) {
-                return state;
-              }
-              return {
-                ...withoutFocusRestoration(state, normalizedWorkspaceKey),
-                ...reconcileRememberedSidePane(state, normalizedWorkspaceKey, nextLayout),
-                layoutByWorkspace: {
-                  ...state.layoutByWorkspace,
-                  [normalizedWorkspaceKey]: nextLayout,
-                },
-              };
-            }
-            const closedLayout = closeTabInLayout({
+            let nextLayout = closeWorkspaceTabInStore({
               layout,
               tabId: normalizedTabId,
               explorerSidebarPaneId,
             });
-            const nextLayoutBeforeFocusNormalization =
-              closedLayout &&
-              closingPane?.id === explorerSidebarPaneId &&
-              closingPane.tabIds.length === 1
-                ? (setPaneHiddenInLayout({
-                    layout: closedLayout,
-                    paneId: explorerSidebarPaneId,
-                    hidden: true,
-                  }) ?? closedLayout)
-                : closedLayout;
-            const nextLayout = nextLayoutBeforeFocusNormalization
-              ? keepWorkspaceFocusOutOfExplorerSidebar(
-                  nextLayoutBeforeFocusNormalization,
-                  explorerSidebarPaneId,
-                  layout.focusedPaneId,
-                )
-              : null;
             if (!nextLayout) {
               return state;
+            }
+            if (closingTab?.target.kind === "browser") {
+              nextLayout = closeOrphanedBrowserDevToolsTabs({
+                layout: nextLayout,
+                browserId: closingTab.target.browserId,
+                explorerSidebarPaneId,
+              });
             }
 
             return {
