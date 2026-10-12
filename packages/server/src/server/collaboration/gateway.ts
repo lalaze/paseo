@@ -25,13 +25,27 @@ import type {
 import type { WorkspaceRegistry } from "../workspace-registry.js";
 import type { AgentGateway, AgentSnapshot } from "./engine.js";
 import type { ConversationGateway } from "./conversations.js";
-import { CHAT_PROMPT, PRE_DISABLE_CHAT_PROMPT, ROLE_PROMPT } from "./prompts.js";
+import {
+  CHAT_PROMPT,
+  PRE_DELIVERY_CHAT_PROMPT,
+  PRE_MERGE_RECOVERY_CHAT_PROMPT,
+  PRE_DISABLE_CHAT_PROMPT,
+  ROLE_PROMPT,
+} from "./prompts.js";
 
 export const CHAT_TOOLS = [
   "get_conversation_status",
   "start_task",
   "submit_operation",
   "control_task",
+  "merge_result",
+  "prepare_merge_recovery",
+  "finish_merge_recovery",
+];
+const PREVIOUS_CHAT_PROMPTS = [
+  PRE_MERGE_RECOVERY_CHAT_PROMPT,
+  PRE_DELIVERY_CHAT_PROMPT,
+  PRE_DISABLE_CHAT_PROMPT,
 ];
 const ROLE_TOOLS: Record<string, readonly string[]> = {
   chat: CHAT_TOOLS,
@@ -123,8 +137,23 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     private legacyMcpPort?: number,
   ) {}
   private async load(agentId: string) {
-    const record = await this.host.agentStorage.get(agentId);
+    let record = await this.host.agentStorage.get(agentId);
     if (record?.archivedAt) throw new Error("会话已归档，请先恢复会话");
+    const previousPrompt = record?.config?.systemPrompt;
+    const ownedPrompt =
+      previousPrompt && PREVIOUS_CHAT_PROMPTS.find((prompt) => previousPrompt.startsWith(prompt));
+    if (
+      record &&
+      ownedPrompt &&
+      record.labels?.["director-role"] === "chat" &&
+      !this.host.agentManager.getAgent(agentId)
+    ) {
+      // Refresh the host-owned policy before resuming a durable chat. Keep the user's suffix and
+      // never reload a live session, which could interrupt its current turn.
+      const systemPrompt = CHAT_PROMPT + previousPrompt.slice(ownedPrompt.length);
+      await this.host.agentManager.setAgentSystemPrompt(agentId, systemPrompt);
+      record = { ...record, config: { ...record.config, systemPrompt } };
+    }
     const server = record?.config?.mcpServers?.director;
     if (record && this.isLegacyServer(server)) {
       const mcpServers = { ...record.config?.mcpServers };
@@ -375,7 +404,7 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     // Strip only the collaboration-owned prefix; never touch a prompt the user replaced, and only
     // when the prompt actually starts with it (a taken-over chat never has it).
     if (!current) return;
-    const ownedPrompt = [CHAT_PROMPT, PRE_DISABLE_CHAT_PROMPT].find((prompt) =>
+    const ownedPrompt = [CHAT_PROMPT, ...PREVIOUS_CHAT_PROMPTS].find((prompt) =>
       current.startsWith(prompt),
     );
     if (!ownedPrompt) return;

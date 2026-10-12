@@ -122,6 +122,37 @@ export class FakeRepository implements Repository {
   passed = true;
   verifications = 0;
   discarded: Evidence[] = [];
+  merges = 0;
+  mergeError: Error | null = null;
+  unmergedFiles: string[] = [];
+  async mergeRecoveryContext(run: Run) {
+    if (run.delivery?.status !== "failed") throw new Error("No failed merge");
+    return {
+      repository: run.repository,
+      cwd: run.cwd,
+      branch: run.branch,
+      targetBranch: run.sourceBranch!,
+      targetCwd: run.repository,
+      currentBranch: run.branch,
+      artifactId: run.finalEvidence!.id,
+      error: run.delivery.error,
+      changedFiles: run.finalEvidence!.changedFiles,
+      verificationCommands: run.settings.verificationCommands,
+      sourceStatus: "",
+      targetStatus: "",
+      unmergedFiles: this.unmergedFiles,
+    };
+  }
+  async mergeAccepted(run: Run) {
+    this.merges++;
+    if (this.mergeError) throw this.mergeError;
+    return {
+      status: "merged" as const,
+      targetBranch: run.sourceBranch!,
+      cwd: run.repository,
+      commit: "delivered-commit",
+    };
+  }
   async fingerprint() {
     return this.version;
   }
@@ -134,6 +165,7 @@ export class FakeRepository implements Repository {
       cwd: currentWorkspace ? repository : `/worktrees/${runId}`,
       baseCommit: "base",
       branch: `director/${runId}`,
+      sourceBranch: "main",
     };
   }
   async capture() {

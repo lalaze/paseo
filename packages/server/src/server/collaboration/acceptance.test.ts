@@ -19,6 +19,126 @@ async function finishRound(h: Harness) {
   await h.complete(review(true));
 }
 
+test("delivery requires user acceptance, survives restart, and repeated delivery never merges twice", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await finishRound(h);
+  await assert.rejects(h.engine.mergeAccepted(h.id), /先验收/);
+  assert.equal(h.repository.merges, 0);
+  await h.engine.control(h.id, "accept_final", undefined, input(h.run()));
+  const delivered = await h.engine.mergeAccepted(h.id);
+  await h.restart();
+  assert.deepEqual(await h.engine.mergeAccepted(h.id), delivered);
+  assert.equal(h.repository.merges, 1);
+  assert.equal(h.run().delivery?.status, "merged");
+});
+
+test("a failed delivery retains acceptance and retries without creating another run or acceptance", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await finishRound(h);
+  await h.engine.control(h.id, "accept_final", undefined, input(h.run()));
+  const accepted = h.run().userAcceptance;
+  h.repository.mergeError = new Error("merge conflict");
+  await assert.rejects(h.engine.mergeAccepted(h.id), /merge conflict/);
+  assert.deepEqual(h.run().delivery, { status: "failed", error: "merge conflict" });
+  assert.deepEqual(h.run().userAcceptance, accepted);
+  // The user can stop repair before the main Agent has claimed a recovery context.
+  await h.engine.control(h.id, "pause");
+  await assert.rejects(h.engine.prepareMergeRecovery(h.id, "user"), /合并失败/);
+  await assert.rejects(h.engine.mergeAccepted(h.id), /暂停或取消/);
+  await h.engine.control(h.id, "resume");
+  await h.restart();
+  h.repository.mergeError = null;
+  await h.engine.mergeAccepted(h.id);
+  assert.equal(h.run().delivery?.status, "merged");
+  assert.equal(h.store.all().length, 1);
+  assert.deepEqual(h.run().userAcceptance, accepted);
+});
+
+test("main Agent merge repair sends changed results back through review and user acceptance", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await finishRound(h);
+  await h.engine.control(h.id, "accept_final", undefined, input(h.run()));
+  h.repository.mergeError = new Error("merge conflict");
+  await assert.rejects(h.engine.mergeAccepted(h.id), /merge conflict/);
+  const recovery = await h.engine.prepareMergeRecovery(h.id, "merge-request");
+  assert.equal(recovery.branch, h.run().branch);
+  assert.equal(recovery.targetBranch, "main");
+  h.repository.version = "resolved-artifact";
+  const finished = await h.engine.finishMergeRecovery(h.id, {
+    sourceMessageId: "merge-request",
+    summary: "Resolved the conflict in src/api.ts; validation passed",
+  });
+  assert.equal(finished.status, "review_required");
+  assert.equal(h.run().phase, "planning");
+  assert.equal(h.run().userAcceptance, undefined);
+  assert.equal(h.run().delivery, undefined);
+  assert.match(h.run().changeRequests![0].feedback, /Resolved the conflict/);
+  assert.equal(h.repository.merges, 1);
+});
+
+test("merge recovery requires an accepted failed delivery and retains checkout ownership through restart", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await assert.rejects(h.engine.prepareMergeRecovery(h.id, "user"), /合并失败/);
+  await finishRound(h);
+  await h.engine.control(h.id, "accept_final", undefined, input(h.run()));
+  await assert.rejects(h.engine.prepareMergeRecovery(h.id, "user"), /合并失败/);
+  h.repository.mergeError = new Error("Git hook failed");
+  await assert.rejects(h.engine.mergeAccepted(h.id), /Git hook/);
+  await h.engine.prepareMergeRecovery(h.id, "user");
+  await h.restart();
+  assert.deepEqual(
+    h.store
+      .unfinishedWorkspaceRuns()
+      .map((run) => run.cwd)
+      .sort(),
+    [h.run().cwd, h.run().repository].sort(),
+  );
+  await h.engine.control(h.id, "pause");
+  await assert.rejects(
+    h.engine.finishMergeRecovery(h.id, { sourceMessageId: "user", summary: "Fixed hook" }),
+    /合并失败/,
+  );
+  await assert.rejects(h.engine.mergeAccepted(h.id), /暂停或取消/);
+  await h.engine.control(h.id, "resume");
+  h.repository.unmergedFiles = ["src/api.ts"];
+  await assert.rejects(
+    h.engine.finishMergeRecovery(h.id, { sourceMessageId: "user", summary: "Fixed hook" }),
+    /未解决.*src\/api.ts/,
+  );
+  h.repository.unmergedFiles = [];
+  h.repository.mergeError = null;
+  assert.equal(
+    (
+      await h.engine.finishMergeRecovery(h.id, {
+        sourceMessageId: "user",
+        summary: "Fixed hook without changing source",
+      })
+    ).status,
+    "merged",
+  );
+  assert.equal(h.store.unfinishedWorkspaceRuns().length, 0);
+  assert.equal(h.run().userAcceptance?.decision, "approved");
+});
+
+test("canceling merge recovery preserves the accepted result and revokes repair and merge", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await finishRound(h);
+  await h.engine.control(h.id, "accept_final", undefined, input(h.run()));
+  h.repository.mergeError = new Error("merge conflict");
+  await assert.rejects(h.engine.mergeAccepted(h.id));
+  await h.engine.prepareMergeRecovery(h.id, "user");
+  await h.engine.control(h.id, "cancel");
+  await assert.rejects(h.engine.prepareMergeRecovery(h.id, "user"), /合并失败/);
+  await assert.rejects(h.engine.mergeAccepted(h.id), /暂停或取消/);
+  assert.equal(h.store.unfinishedWorkspaceRuns().length, 0);
+  assert.equal(h.run().userAcceptance?.decision, "approved");
+});
+
 test("AI final approval waits durably for the user, never resumes itself or consumes the waiting budget", async (t) => {
   const h = await harness();
   t.onTestFinished(() => h.cleanup());

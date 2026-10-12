@@ -59,7 +59,11 @@ function PendingGlyph({ size, color }: AgentControlIconProps) {
 }
 
 function runActive(run: CollaborationState["conversations"][number]["run"]): boolean {
-  return !!run && run.phase !== "completed" && run.control !== "canceled";
+  return (
+    !!run &&
+    (run.phase !== "completed" || run.deliveryStatus === "failed") &&
+    run.control !== "canceled"
+  );
 }
 
 export function CollaborationControl({

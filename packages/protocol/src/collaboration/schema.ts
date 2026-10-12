@@ -223,6 +223,12 @@ export interface Run {
   cwd: string;
   baseCommit: string;
   branch: string;
+  /** Local branch selected before collaboration prepared its result branch. */
+  sourceBranch?: string;
+  delivery?:
+    | { status: "merging" }
+    | { status: "failed"; error: string; recovery?: { sourceMessageId: string } }
+    | { status: "merged"; targetBranch: string; cwd: string; commit: string };
   settings: Settings;
   /** Absent on legacy runs, which use an isolated worktree. */
   workspaceId?: string;
@@ -335,7 +341,12 @@ export function acceptanceMessage(run: Run): string {
 export type RunSummary = Pick<
   Run,
   "id" | "goal" | "cwd" | "phase" | "control" | "message" | "createdAt" | "updatedAt"
-> & { done: number; total: number; mode?: CollaborationMode };
+> & {
+  done: number;
+  total: number;
+  mode?: CollaborationMode;
+  deliveryStatus?: NonNullable<Run["delivery"]>["status"];
+};
 export function summarize(run: Run): RunSummary {
   const { id, goal, cwd, phase, control, message, createdAt, updatedAt } = run;
   const waiting = awaitingAcceptance(run);
@@ -351,6 +362,7 @@ export function summarize(run: Run): RunSummary {
     updatedAt,
     done: run.tasks.filter(executionComplete).length,
     total: run.tasks.length,
+    deliveryStatus: run.delivery?.status,
   };
 }
 export function profileForTask(settings: Settings, task: Task): string {

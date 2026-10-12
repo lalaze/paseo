@@ -171,7 +171,7 @@ export class Store {
   unfinishedWorkspaceRuns(): Pick<Run, "id" | "workspaceId" | "cwd">[] {
     return this.db
       .prepare(
-        "SELECT id, json_extract(data,'$.workspaceId') AS workspaceId, json_extract(data,'$.cwd') AS cwd FROM runs WHERE json_extract(data,'$.phase') <> 'completed' AND json_extract(data,'$.control') <> 'canceled'",
+        "SELECT id, json_extract(data,'$.workspaceId') AS workspaceId, json_extract(data,'$.cwd') AS cwd FROM runs WHERE (json_extract(data,'$.phase') <> 'completed' OR json_type(data,'$.delivery.recovery') = 'object') AND json_extract(data,'$.control') <> 'canceled' UNION ALL SELECT id, json_extract(data,'$.workspaceId') AS workspaceId, json_extract(data,'$.repository') AS cwd FROM runs WHERE json_type(data,'$.delivery.recovery') = 'object' AND json_extract(data,'$.control') <> 'canceled' AND json_extract(data,'$.repository') <> json_extract(data,'$.cwd')",
       )
       .all() as Pick<Run, "id" | "workspaceId" | "cwd">[];
   }

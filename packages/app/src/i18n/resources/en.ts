@@ -129,6 +129,10 @@ export const en = {
     confirmation: {
       approvePlan: "Approve plan",
       accept: "Accept",
+      acceptAndMerge: "Accept and merge",
+      retryMerge: "Retry merge",
+      mergeHint:
+        "Commits the reviewed changes and merges into {{branch}} locally. Nothing is pushed.",
       reject: "Reject",
       planHint: "To change the plan, describe it in the message box.",
       changesHint: "To request changes, describe them in the message box.",

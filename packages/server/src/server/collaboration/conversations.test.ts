@@ -1,6 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
@@ -326,85 +326,155 @@ test("only the latest real user message can start a task, with retries creating 
   assert.equal(h.store.all()[0].chat?.mainAgentId, c.agentId);
 });
 
-test("native chat plan, child execution, review and explicit acceptance form a complete workflow", async (t) => {
-  const h = await fixture(t),
-    c = await h.chats.open({ requestId: "flow", workspaceId: "workspace", goal: "实现功能" });
-  const initial = await h.chats.status(c.id);
-  await h.chats.start(c.id, { goal: "实现功能", sourceMessageId: initial.latestUserMessage!.id });
-  h.gateway.idle(c.agentId!);
-  async function until(kind: "plan" | "execute" | "final") {
-    for (let i = 0; i < 30; i++) {
-      await h.engine.tick();
-      const run = h.chats.summary(c.id).run!,
-        op = run.operations.find((o) => o.id === run.activeOperationId);
-      if (op?.kind === kind && op.state === "sent") return op;
+for (const { reply, retry } of [
+  { reply: "验收通过", retry: false },
+  { reply: "验收并合并", retry: false },
+  { reply: "验收并合并", retry: true },
+])
+  test(`native chat plan, child execution, review and ${reply} form a complete workflow${retry ? " with delivery retry" : ""}`, async (t) => {
+    const h = await fixture(t),
+      c = await h.chats.open({ requestId: "flow", workspaceId: "workspace", goal: "实现功能" });
+    const initial = await h.chats.status(c.id);
+    await h.chats.start(c.id, { goal: "实现功能", sourceMessageId: initial.latestUserMessage!.id });
+    h.gateway.idle(c.agentId!);
+    async function until(kind: "plan" | "execute" | "final") {
+      for (let i = 0; i < 30; i++) {
+        await h.engine.tick();
+        const run = h.chats.summary(c.id).run!,
+          op = run.operations.find((o) => o.id === run.activeOperationId);
+        if (op?.kind === kind && op.state === "sent") return op;
+      }
+      throw new Error(JSON.stringify(h.chats.summary(c.id)));
     }
-    throw new Error(JSON.stringify(h.chats.summary(c.id)));
-  }
-  const design = await until("plan");
-  // Ordinary conversation while waiting for a structured tool submission is fine.
-  h.gateway.user(c.agentId!, "question", "进度怎么样？");
-  h.gateway.idle(c.agentId!);
-  await h.engine.tick();
-  assert.equal(h.chats.summary(c.id).run?.control, "running");
-  await h.chats.submit(c.id, design.id, plan);
-  await h.engine.tick();
-  const worker = await until("execute");
-  h.gateway.user(c.agentId!, "question2", "先解释一下这个方案");
-  await h.chats.status(c.id);
-  await h.engine.tick();
-  assert.equal(h.chats.summary(c.id).run?.activeOperationId, worker.id);
-  await assert.rejects(h.chats.submit(c.id, worker.id, result), /无权/);
-  h.gateway.states.set(worker.agentId!, {
-    status: "idle",
-    seen: true,
-    output: JSON.stringify(result),
-  });
-  await h.engine.tick();
-  const audit = await until("final");
-  await h.chats.submit(c.id, audit.id, review(true));
-  h.gateway.idle(c.agentId!);
-  await h.engine.tick();
-  assert.equal(h.chats.summary(c.id).run?.phase, "awaiting_acceptance");
-  await h.chats.tick();
-  h.gateway.idle(c.agentId!);
-  const pending = h.chats.summary(c.id).confirmation!;
-  assert.ok(pending);
-  // The app renders this notice as the acceptance stage card; the Agent owes one report.
-  const notice = h.gateway.sent.find((entry) => entry.opId === pending.noticeId);
-  const card = readCollaborationNotice(pending.noticeId, notice!.prompt);
-  assert.equal(card?.confirmation, "final");
-  assert.match(card!.instruction, /实际改动、验证及结果、已知限制/);
-  assert.match(card!.reply!, /单独回复“验收通过”.+单独回复“不采纳成果”.+描述需要修改的内容/);
-  h.gateway.user(c.agentId!, "ambiguous", "好");
-  await assert.rejects(
-    h.chats.control(c.id, {
+    const design = await until("plan");
+    // Ordinary conversation while waiting for a structured tool submission is fine.
+    h.gateway.user(c.agentId!, "question", "进度怎么样？");
+    h.gateway.idle(c.agentId!);
+    await h.engine.tick();
+    assert.equal(h.chats.summary(c.id).run?.control, "running");
+    await h.chats.submit(c.id, design.id, plan);
+    await h.engine.tick();
+    const worker = await until("execute");
+    h.gateway.user(c.agentId!, "question2", "先解释一下这个方案");
+    await h.chats.status(c.id);
+    await h.engine.tick();
+    assert.equal(h.chats.summary(c.id).run?.activeOperationId, worker.id);
+    await assert.rejects(h.chats.submit(c.id, worker.id, result), /无权/);
+    h.gateway.states.set(worker.agentId!, {
+      status: "idle",
+      seen: true,
+      output: JSON.stringify(result),
+    });
+    await h.engine.tick();
+    const audit = await until("final");
+    await h.chats.submit(c.id, audit.id, review(true));
+    h.gateway.idle(c.agentId!);
+    await h.engine.tick();
+    assert.equal(h.chats.summary(c.id).run?.phase, "awaiting_acceptance");
+    await h.chats.tick();
+    h.gateway.idle(c.agentId!);
+    const pending = h.chats.summary(c.id).confirmation!;
+    assert.ok(pending);
+    // The app renders this notice as the acceptance stage card; the Agent owes one report.
+    const notice = h.gateway.sent.find((entry) => entry.opId === pending.noticeId);
+    const card = readCollaborationNotice(pending.noticeId, notice!.prompt);
+    assert.equal(card?.confirmation, "final");
+    assert.match(card!.instruction, /实际改动、验证及结果、已知限制/);
+    assert.match(card!.reply!, /单独回复“验收通过”.+单独回复“不采纳成果”.+描述需要修改的内容/);
+    h.gateway.user(c.agentId!, "ambiguous", "好");
+    await assert.rejects(
+      h.chats.control(c.id, {
+        action: "accept_final",
+        sourceMessageId: "ambiguous",
+        confirmationKey: pending.key,
+      }),
+      /单独回复/,
+    );
+    h.gateway.user(c.agentId!, "approve", reply);
+    if (retry) {
+      h.repo.mergeError = new Error("Target has uncommitted changes");
+      await assert.rejects(
+        h.chats.confirm(c.id, { sourceMessageId: "approve", noticeId: pending.noticeId }),
+        /uncommitted changes/,
+      );
+      assert.equal(h.chats.summary(c.id).run?.userAcceptance?.decision, "approved");
+      assert.deepEqual(h.chats.summary(c.id).run?.delivery, {
+        status: "failed",
+        error: "Target has uncommitted changes",
+      });
+      await h.chats.tick();
+      assert.equal(h.chats.summary(c.id).confirmation, undefined);
+      const failureNotice = h.gateway.sent.at(-1)!;
+      assert.match(failureNotice.prompt, /prepare_merge_recovery/);
+      await assert.rejects(
+        h.chats.prepareMergeRecovery(c.id, "fabricated-user"),
+        /最新的真实用户消息/,
+      );
+      const recovery = await h.chats.prepareMergeRecovery(c.id, "approve");
+      assert.equal(recovery.targetBranch, "main");
+      assert.equal(recovery.cwd, h.chats.summary(c.id).run!.cwd);
+      assert.equal(recovery.error, "Target has uncommitted changes");
+      h.repo.mergeError = null;
+      await h.chats.finishMergeRecovery(c.id, {
+        sourceMessageId: "approve",
+        summary: "Safely isolated target edits",
+      });
+      await h.chats.confirm(c.id, { sourceMessageId: "approve", noticeId: pending.noticeId });
+    }
+    const accepted = await h.chats.control(c.id, {
       action: "accept_final",
-      sourceMessageId: "ambiguous",
+      sourceMessageId: "approve",
       confirmationKey: pending.key,
-    }),
-    /单独回复/,
-  );
-  h.gateway.user(c.agentId!, "approve", "验收通过");
-  await h.chats.control(c.id, {
-    action: "accept_final",
-    sourceMessageId: "approve",
-    confirmationKey: pending.key,
+    });
+    await h.chats.control(c.id, {
+      action: "accept_final",
+      sourceMessageId: "approve",
+      confirmationKey: pending.key,
+    });
+    assert.equal(h.chats.summary(c.id).run?.phase, "completed");
+    const mergeAttempts = retry ? 2 : 1;
+    assert.equal(h.repo.merges, reply === "验收并合并" ? mergeAttempts : 0);
+    if (reply === "验收并合并") {
+      assert.deepEqual(accepted, {
+        ok: true,
+        delivery: {
+          status: "merged",
+          targetBranch: "main",
+          cwd: h.dir,
+          commit: "delivered-commit",
+        },
+      });
+      assert.equal(h.store.conversation(c.id).disabledAt, undefined);
+      assert.equal(h.chats.summary(c.id).run?.delivery?.status, "merged");
+    } else {
+      h.gateway.user(c.agentId!, "quoted-merge", "‘合并成果’");
+      await assert.rejects(h.chats.merge(c.id, { sourceMessageId: "quoted-merge" }), /单独回复/);
+      h.gateway.user(c.agentId!, "wrong-target", "合并成果到 wrong-target");
+      await assert.rejects(
+        h.chats.merge(c.id, { sourceMessageId: "wrong-target", targetBranch: "wrong-target" }),
+        /不能更换交付目标/,
+      );
+      assert.equal(h.repo.merges, 0);
+      const legacyRun = h.chats.summary(c.id).run!;
+      delete legacyRun.sourceBranch;
+      h.store.save(legacyRun);
+      h.gateway.user(c.agentId!, "legacy-merge", "合并成果到 feature/original");
+      const delivered = await h.chats.merge(c.id, {
+        sourceMessageId: "legacy-merge",
+        targetBranch: "feature/original",
+      });
+      assert.equal(delivered.targetBranch, "feature/original");
+      assert.equal(h.chats.summary(c.id).run?.sourceBranch, "feature/original");
+    }
+    h.gateway.user(c.agentId!, "change", "请补充输入校验");
+    await h.chats.control(c.id, {
+      action: "request_changes",
+      sourceMessageId: "change",
+      feedback: "补充输入校验",
+    });
+    assert.equal(h.chats.summary(c.id).run?.phase, "planning");
+    assert.equal(h.chats.summary(c.id).run?.delivery, undefined);
   });
-  await h.chats.control(c.id, {
-    action: "accept_final",
-    sourceMessageId: "approve",
-    confirmationKey: pending.key,
-  });
-  assert.equal(h.chats.summary(c.id).run?.phase, "completed");
-  h.gateway.user(c.agentId!, "change", "请补充输入校验");
-  await h.chats.control(c.id, {
-    action: "request_changes",
-    sourceMessageId: "change",
-    feedback: "补充输入校验",
-  });
-  assert.equal(h.chats.summary(c.id).run?.phase, "planning");
-});
 
 test("approval rejects quotes, model text, stale anchors and approvals before the question", () => {
   const notice: AgentTimelineItem = {
@@ -420,6 +490,9 @@ test("approval rejects quotes, model text, stale anchors and approvals before th
     "> 验收通过",
     "```验收通过```",
     "验收通过，但是请先改完",
+    "‘验收并合并’",
+    "> 验收并合并",
+    "验收并合并，但是请先改完",
   ]) {
     assert.throws(() =>
       validateChatApproval([notice, { type: "user_message", messageId: "u", text }], {
@@ -920,7 +993,7 @@ test("main Agent replies stay out of the stage card and end acceptance with exac
 async function advanceTo(
   h: Awaited<ReturnType<typeof fixture>>,
   id: string,
-  kind: "plan" | "execute",
+  kind: "plan" | "execute" | "final",
 ) {
   for (let i = 0; i < 30; i++) {
     await h.engine.tick();
@@ -990,6 +1063,69 @@ test("exiting collaboration during a run cancels it, keeps the branch and stops 
   await assert.rejects(h.chats.submit(c.id, worker.id, result), /关闭/);
   await assert.rejects(h.engine.submit(run.id, "task-1", worker.id, result));
 });
+
+for (const control of ["running", "paused"] as const)
+  test(`exiting ${control} merge recovery cancels delivery and releases both workspaces`, async (t) => {
+    const h = await fixture(t);
+    h.gateway.directory = realpathSync(h.dir);
+    const c = await h.chats.open({
+      requestId: "close-recovery",
+      workspaceId: "workspace",
+      isolation: "worktree",
+      goal: "实现功能",
+    });
+    await h.chats.start(c.id, {
+      goal: "实现功能",
+      sourceMessageId: (await h.chats.status(c.id)).latestUserMessage!.id,
+    });
+    h.gateway.idle(c.agentId!);
+    const design = await advanceTo(h, c.id, "plan");
+    await h.chats.submit(c.id, design.id, plan);
+    h.gateway.idle(c.agentId!);
+    const worker = await advanceTo(h, c.id, "execute");
+    h.gateway.states.set(worker.agentId!, {
+      status: "idle",
+      seen: true,
+      output: JSON.stringify(result),
+    });
+    const audit = await advanceTo(h, c.id, "final");
+    await h.chats.submit(c.id, audit.id, review(true));
+    h.gateway.idle(c.agentId!);
+    await h.engine.tick();
+    const run = h.chats.summary(c.id).run!;
+    await h.engine.control(run.id, "accept_final", undefined, {
+      artifactId: run.finalEvidence!.id,
+      expectedRevision: run.revision,
+    });
+    h.repo.mergeError = new Error("merge conflict");
+    await assert.rejects(h.engine.mergeAccepted(run.id), /merge conflict/);
+    await h.engine.prepareMergeRecovery(run.id, "accept");
+    if (control === "paused") await h.engine.control(run.id, "pause");
+    assert.deepEqual(
+      h.store
+        .unfinishedWorkspaceRuns()
+        .map((entry) => entry.cwd)
+        .sort(),
+      [run.cwd, run.repository].sort(),
+    );
+    await assert.rejects(h.chats.disable(c.id, { cancelRunning: false }), /确认停止/);
+    assert.equal(h.store.conversation(c.id).disabledAt, undefined);
+    assert.deepEqual(h.gateway.released, []);
+
+    await h.chats.disable(c.id, { cancelRunning: true });
+    assert.equal(h.store.get(run.id).control, "canceled");
+    assert.equal(h.store.get(run.id).userAcceptance?.decision, "approved");
+    assert.deepEqual(h.store.unfinishedWorkspaceRuns(), []);
+    assert.deepEqual(h.gateway.released, [c.agentId]);
+    await assert.rejects(h.engine.mergeAccepted(run.id), /暂停或取消/);
+    const next = await h.engine.create({
+      requestId: "after-recovery-exit",
+      repository: run.repository,
+      workspaceId: "workspace",
+      goal: "实现另一个功能",
+    });
+    assert.notEqual(next, run.id);
+  });
 
 test("closing clears the pending confirmation and unsent notices so no stale card survives", async (t) => {
   const h = await fixture(t);

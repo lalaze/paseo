@@ -6,6 +6,27 @@ import { pipeline } from "node:stream/promises";
 import { join, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { Run, Evidence, Command } from "@getpaseo/protocol/collaboration/schema";
+import {
+  commitChanges,
+  getCheckoutSnapshotFacts,
+  mergeToBase,
+  parseWorktreeList,
+} from "../../utils/checkout-git.js";
+
+export type MergedResult = Extract<NonNullable<Run["delivery"]>, { status: "merged" }>;
+
+export interface MergeRecoveryContext extends Pick<Run, "repository" | "cwd" | "branch"> {
+  targetBranch: string;
+  targetCwd: string;
+  currentBranch: string;
+  artifactId: string;
+  error: string;
+  changedFiles: string[];
+  verificationCommands: Run["settings"]["verificationCommands"];
+  sourceStatus: string;
+  targetStatus: string;
+  unmergedFiles: string[];
+}
 
 const exec = promisify(execFile);
 export interface IsolatedWorkspaceRequest {
@@ -42,6 +63,7 @@ export interface Repository {
     cwd: string;
     baseCommit: string;
     branch: string;
+    sourceBranch?: string;
     workspaceId?: string;
   }>;
   assertBranch(run: Run): Promise<void>;
@@ -49,6 +71,8 @@ export interface Repository {
   fingerprint(run: Run): Promise<string>;
   capture(run: Run): Promise<Omit<Evidence, "checks" | "passed">>;
   verify(run: Run, signal: AbortSignal): Promise<Evidence>;
+  mergeAccepted(run: Run): Promise<MergedResult>;
+  mergeRecoveryContext(run: Run): Promise<MergeRecoveryContext>;
   /** Best-effort removal of files only this evidence references. */
   discard(evidence: Evidence): Promise<void>;
 }
@@ -91,6 +115,16 @@ export class GitRepository implements Repository {
     const exitCode = await exited;
     if (exitCode !== 0) throw new Error(`git ${args[0]} failed (${exitCode}): ${stderr.trim()}`);
   }
+  private async recordSourceBranch(repository: string, branch: string) {
+    const key = `branch.${branch}.paseoSourceBranch`;
+    // Keep this across partial preparation/recovery, even if the source checkout switched later.
+    const recorded = await this.git(repository, ["config", "--get", key]).catch(() => "");
+    if (recorded) return recorded;
+    const current = await this.git(repository, ["branch", "--show-current"]);
+    if (!current || current === branch) return undefined;
+    await this.git(repository, ["config", key, current]);
+    return current;
+  }
   async prepare(repository: string, runId: string, currentWorkspace = false) {
     if (!isAbsolute(repository)) throw new Error("仓库路径必须是绝对路径");
     const source = await realpath(repository);
@@ -102,16 +136,29 @@ export class GitRepository implements Repository {
     const baseCommit = await this.git(repositoryRoot, ["rev-parse", "HEAD"]);
     const legacyCwd = join(this.root, "worktrees", runId);
     const branch = `director/${runId}`;
+    const sourceBranch = await this.recordSourceBranch(repositoryRoot, branch);
     if (currentWorkspace) {
       // Branching at HEAD keeps staged, unstaged and untracked work in place.
       // Keep HEAD as the review base so pre-existing changes are reviewed too.
       const currentBranch = await this.git(repositoryRoot, ["branch", "--show-current"]);
       if (currentBranch !== branch) await this.git(repositoryRoot, ["switch", "-c", branch]);
-      return { repository: repositoryRoot, cwd: repositoryRoot, baseCommit, branch };
+      return {
+        repository: repositoryRoot,
+        cwd: repositoryRoot,
+        baseCommit,
+        branch,
+        sourceBranch,
+      };
     }
     const recovered = await this.recoverLegacyWorktree(legacyCwd, branch);
     if (recovered) {
-      return { repository: repositoryRoot, cwd: legacyCwd, baseCommit: recovered, branch };
+      return {
+        repository: repositoryRoot,
+        cwd: legacyCwd,
+        baseCommit: recovered,
+        branch,
+        sourceBranch,
+      };
     }
     // A new run has no director branch. Skip the worktree and workspace scans until one exists.
     // A leftover branch was cut before its run was recorded, so its tip is that run's base.
@@ -127,18 +174,31 @@ export class GitRepository implements Repository {
     };
     const existing = leftoverBase ? await this.findIsolatedWorkspace?.(request) : undefined;
     const base = leftoverBase ?? baseCommit;
-    if (existing) return this.adoptIsolatedWorkspace(repositoryRoot, base, existing);
+    if (existing)
+      return {
+        ...(await this.adoptIsolatedWorkspace(repositoryRoot, base, existing)),
+        sourceBranch,
+      };
     if (this.createIsolatedWorkspace) {
       const created = await this.createIsolatedWorkspace(request);
       if (created.branch !== branch) {
         await this.discardIsolatedWorkspace?.(created);
         throw new Error("协作工作区分支不匹配");
       }
-      return this.adoptIsolatedWorkspace(repositoryRoot, base, created);
+      return {
+        ...(await this.adoptIsolatedWorkspace(repositoryRoot, base, created)),
+        sourceBranch,
+      };
     }
     await mkdir(join(this.root, "worktrees"), { recursive: true, mode: 0o700 });
     await this.git(repositoryRoot, ["worktree", "add", "-b", branch, legacyCwd, baseCommit]);
-    return { repository: repositoryRoot, cwd: legacyCwd, baseCommit, branch };
+    return {
+      repository: repositoryRoot,
+      cwd: legacyCwd,
+      baseCommit,
+      branch,
+      sourceBranch,
+    };
   }
   private async adoptIsolatedWorkspace(
     repository: string,
@@ -198,6 +258,101 @@ export class GitRepository implements Repository {
   }
   async fingerprint(run: Run) {
     return (await this.writeTree(run, join(this.root, "artifacts", run.id))).id;
+  }
+  async mergeRecoveryContext(run: Run): Promise<MergeRecoveryContext> {
+    if (run.delivery?.status !== "failed" || !run.sourceBranch || !run.finalEvidence)
+      throw new Error("当前没有可处理的合并失败");
+    const worktrees = parseWorktreeList(
+      await this.gitOutput(run.cwd, ["worktree", "list", "--porcelain"]),
+    );
+    const target = worktrees.find((entry) => entry.branchRef === `refs/heads/${run.sourceBranch}`);
+    const targetCwd = target?.path ?? run.cwd;
+    const currentBranch = await this.git(run.cwd, ["branch", "--show-current"]);
+    const sourceStatus = await this.gitOutput(run.cwd, ["status", "--porcelain"]);
+    const targetStatus = await this.gitOutput(targetCwd, ["status", "--porcelain"]);
+    const unmerged = await this.gitOutput(run.cwd, [
+      "diff",
+      "--name-only",
+      "--diff-filter=U",
+      "-z",
+    ]);
+    return {
+      repository: run.repository,
+      cwd: run.cwd,
+      branch: run.branch,
+      targetBranch: run.sourceBranch,
+      targetCwd,
+      currentBranch,
+      artifactId: run.finalEvidence.id,
+      error: run.delivery.error,
+      changedFiles: run.finalEvidence.changedFiles,
+      verificationCommands: run.settings.verificationCommands,
+      sourceStatus,
+      targetStatus,
+      unmergedFiles: unmerged.split("\0").filter(Boolean),
+    };
+  }
+  async mergeAccepted(run: Run): Promise<MergedResult> {
+    if (!run.sourceBranch) throw new Error("此任务未记录原分支，请指定合并目标后再交付");
+    if (
+      !run.finalEvidence ||
+      run.userAcceptance?.decision !== "approved" ||
+      run.userAcceptance.artifactId !== run.finalEvidence.id
+    )
+      throw new Error("请先验收当前成果，再合并");
+    if ((await this.git(run.cwd, ["branch", "--show-current"])) !== run.branch)
+      throw new Error(`请切回成果分支 ${run.branch} 后重试合并`);
+    if ((await this.fingerprint(run)) !== run.finalEvidence.id)
+      throw new Error("代码已在验收后发生变化，请重新审核并验收后再合并");
+    await this.git(run.cwd, ["rev-parse", "--verify", `refs/heads/${run.sourceBranch}`]);
+    const worktrees = parseWorktreeList(
+      await this.gitOutput(run.cwd, ["worktree", "list", "--porcelain"]),
+    );
+    const target = worktrees.find((entry) => entry.branchRef === `refs/heads/${run.sourceBranch}`);
+    if (
+      target &&
+      target.path !== run.cwd &&
+      (await this.git(target.path, ["status", "--porcelain"]))
+    )
+      throw new Error(
+        `目标分支 ${run.sourceBranch} 有未提交改动，请先处理这些改动再重试合并；成果已保留`,
+      );
+    const mergeHead = await this.git(run.cwd, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      "MERGE_HEAD",
+    ]).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === 1) return undefined;
+      throw error;
+    });
+    // A resolution can retain HEAD's tree while still needing a merge commit to record ancestry.
+    if (mergeHead || (await this.git(run.cwd, ["status", "--porcelain"]))) {
+      await commitChanges(run.cwd, { message: `Paseo: ${run.goal.split("\n")[0].slice(0, 100)}` });
+    }
+    // Hooks can format source files. Never merge a commit that differs from what the user accepted.
+    if (
+      (await this.git(run.cwd, ["rev-parse", "HEAD^{tree}"])) !== run.finalEvidence.tree ||
+      (await this.fingerprint(run)) !== run.finalEvidence.id
+    )
+      throw new Error("提交钩子改变了验收成果，请重新审核并验收后再合并；成果提交已保留");
+    const commit = await this.git(run.cwd, ["rev-parse", "HEAD"]);
+    const facts = await getCheckoutSnapshotFacts(run.cwd);
+    if (!facts.isGit) throw new Error("成果工作区已不是 Git 仓库");
+    // Collaboration targets the exact local launch branch, independently of the workspace's
+    // ordinary upstream/base metadata. The existing merge engine owns worktrees and conflicts.
+    const cwd = await mergeToBase(
+      run.cwd,
+      { baseRef: `refs/heads/${run.sourceBranch}` },
+      {
+        facts: {
+          ...facts,
+          storedBaseRef: `refs/heads/${run.sourceBranch}`,
+          resolvedBaseRef: `refs/heads/${run.sourceBranch}`,
+        },
+      },
+    );
+    return { status: "merged", targetBranch: run.sourceBranch, cwd, commit };
   }
   async capture(run: Run) {
     const directory = join(this.root, "artifacts", run.id);

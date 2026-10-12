@@ -132,6 +132,10 @@ export const ptBR: TranslationResources = {
     },
     confirmation: {
       approvePlan: "Aprovar plano",
+      acceptAndMerge: "Aceitar e mesclar",
+      retryMerge: "Tentar mesclar novamente",
+      mergeHint:
+        "Cria um commit das alterações revisadas e mescla localmente em {{branch}}. Nada é enviado ao remoto.",
       accept: "Aceitar",
       reject: "Rejeitar",
       planHint: "Para mudar o plano, descreva na caixa de mensagem.",

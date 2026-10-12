@@ -129,6 +129,10 @@ export const ko: TranslationResources = {
     },
     confirmation: {
       approvePlan: "계획 승인",
+      acceptAndMerge: "승인 및 병합",
+      retryMerge: "병합 재시도",
+      mergeHint:
+        "검토한 변경 사항을 커밋하고 {{branch}}에 로컬로 병합합니다. 원격 저장소로 푸시하지 않습니다.",
       accept: "수락",
       reject: "거절",
       planHint: "계획을 바꾸려면 메시지 입력란에 적어 주세요.",

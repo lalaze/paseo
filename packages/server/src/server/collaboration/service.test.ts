@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import { z } from "zod";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -23,6 +23,12 @@ import type {
 import type { PaseoToolCatalog } from "../agent/tools/types.js";
 import { Store } from "./store.js";
 import { plan, result } from "./test-utils/harness.js";
+import {
+  CHAT_PROMPT,
+  PRE_MERGE_RECOVERY_CHAT_PROMPT,
+  PRE_DELIVERY_CHAT_PROMPT,
+  PRE_DISABLE_CHAT_PROMPT,
+} from "./prompts.js";
 
 class NativeToolClient implements AgentClient {
   readonly provider = "codex";
@@ -308,6 +314,37 @@ test.for(["full", "execute_review"] as const)(
     ).not.toHaveProperty("isError", true);
     expect(current().phase).toBe("completed");
     expect(current().userAcceptance?.decision).toBe("approved");
+    if (mode === "full") {
+      const target = join(daemon.paseoHome, "target-checkout");
+      await exec("git", ["worktree", "add", target, current().sourceBranch!], { cwd: repo });
+      await writeFile(join(target, "personal.txt"), "Preserve user work\n");
+      await client.sendMessage(main.id, "合并成果", { messageId: "merge-recovery-request" });
+      const failed = await tools.executeTool("merge_result", {
+        sourceMessageId: "merge-recovery-request",
+      });
+      expect(failed.isError).toBe(true);
+      expect(current().delivery?.status).toBe("failed");
+      const prepared = await tools.executeTool("prepare_merge_recovery", {
+        sourceMessageId: "merge-recovery-request",
+      });
+      expect(prepared.isError).not.toBe(true);
+      const repair = JSON.parse(prepared.content[0].text!);
+      expect(repair.targetCwd).toBe(await realpath(target));
+      expect(repair.branch).toBe(current().branch);
+      expect(repair.targetStatus).toContain("personal.txt");
+      await exec("git", ["stash", "push", "--include-untracked", "-m", "merge recovery"], {
+        cwd: target,
+      });
+      const stash = (await exec("git", ["rev-parse", "refs/stash"], { cwd: target })).stdout.trim();
+      const finished = await tools.executeTool("finish_merge_recovery", {
+        sourceMessageId: "merge-recovery-request",
+        summary: "Isolated target edits for delivery; restoring them afterward",
+      });
+      expect(finished.isError).not.toBe(true);
+      expect(JSON.parse(finished.content[0].text!).status).toBe("merged");
+      await exec("git", ["stash", "apply", "--index", stash], { cwd: target });
+      expect(await readFile(join(target, "personal.txt"), "utf8")).toBe("Preserve user work\n");
+    }
   },
   60000,
 );
@@ -414,17 +451,20 @@ test("conversation.disable exits collaboration, keeps history, and refuses late 
 test.for([
   {
     name: "current",
-    firstLine:
-      "你是用户的主 Agent，使用正常中文对话协作。先调用 get_conversation_status 确认协作工具可用，再回答用户；不要输出协议 JSON。如果状态提示协作已在当前对话退出，就按普通聊天继续，不要重试协作工具或启动任务，等用户在界面重新启用。",
+    prompt: CHAT_PROMPT,
+  },
+  { name: "before-merge-recovery", prompt: PRE_MERGE_RECOVERY_CHAT_PROMPT },
+  {
+    name: "before-delivery",
+    prompt: PRE_DELIVERY_CHAT_PROMPT,
   },
   {
     name: "before-exit",
-    firstLine:
-      "你是用户的主 Agent，使用正常中文对话协作。先调用 get_conversation_status 确认协作工具可用，再回答用户；不要输出协议 JSON。",
+    prompt: PRE_DISABLE_CHAT_PROMPT,
   },
 ])(
   "exiting a Paseo-created collaboration restores the $name prompt and keeps the chat normal",
-  async ({ firstLine }, t) => {
+  async ({ prompt }, t) => {
     const repo = await mkdtemp(join(tmpdir(), "collaboration-created-"));
     t.onTestFinished(() => rm(repo, { recursive: true, force: true }));
     await exec("git", ["init", repo]);
@@ -483,7 +523,7 @@ test.for([
     const originalPrompt = daemon.daemon.agentManager.getAgent(mainId)!.config.systemPrompt!;
     await daemon.daemon.agentManager.setAgentSystemPrompt(
       mainId,
-      firstLine + originalPrompt.slice(originalPrompt.indexOf("\n")),
+      prompt + originalPrompt.slice(CHAT_PROMPT.length),
     );
     await client.collaborationCommand("conversation.disable", { id: conversation.id });
     const released = daemon.daemon.agentManager.getAgent(mainId)!;

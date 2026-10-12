@@ -188,6 +188,8 @@ export interface DispatchComposerAgentMessageInput {
   client: ComposerSendClient;
   agentId: string;
   text: string;
+  /** Reuse an id when a follow-up action must reference this exact user message. */
+  messageId?: string;
   attachments: ComposerAttachment[];
   attachmentSubmitFormat?: ComposerAttachmentSubmitFormat;
   encodeImages: (
@@ -204,7 +206,7 @@ export async function dispatchComposerAgentMessage(
   const wirePayload = splitComposerAttachmentsForSubmit(input.attachments, {
     format: input.attachmentSubmitFormat,
   });
-  const clientMessageId = generateMessageId();
+  const clientMessageId = input.messageId ?? generateMessageId();
   const userMessage = createUserMessage({
     clientMessageId,
     text: input.text,

@@ -1,6 +1,6 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -9,6 +9,186 @@ import { GitRepository, executeCheck } from "./repository.js";
 import { settings } from "./test-utils/harness.js";
 import type { Run } from "@getpaseo/protocol/collaboration/schema";
 const exec = promisify(execFile);
+
+async function acceptedRepositoryFixture(
+  t: { onTestFinished(fn: () => Promise<void>): void },
+  currentWorkspace = true,
+) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "collaboration-merge-")));
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const repo = join(root, "repo");
+  await mkdir(repo);
+  for (const args of [
+    ["init", "-b", "feature/original"],
+    ["config", "user.name", "Test"],
+    ["config", "user.email", "test@example.invalid"],
+  ])
+    await exec("git", args, { cwd: repo });
+  await writeFile(join(repo, "app.txt"), "before\n");
+  await exec("git", ["add", "."], { cwd: repo });
+  await exec("git", ["commit", "-m", "base"], { cwd: repo });
+  const repository = new GitRepository(join(root, "state"));
+  const workspace = await repository.prepare(repo, "delivery", currentWorkspace);
+  assert.equal(workspace.sourceBranch, "feature/original");
+  await writeFile(join(workspace.cwd, "app.txt"), "accepted\n");
+  await writeFile(join(workspace.cwd, "new.txt"), "new file\n");
+  const run: Run = {
+    ...workspace,
+    id: "delivery",
+    requestId: "delivery",
+    revision: 0,
+    goal: "Update the application",
+    settings: settings(),
+    createdAt: 1,
+    updatedAt: 1,
+    phase: "completed",
+    control: "running",
+    message: "Accepted",
+    planApproved: true,
+    tasks: [],
+    operations: [],
+    events: [],
+  };
+  run.finalEvidence = { ...(await repository.capture(run)), checks: [], passed: true };
+  run.userAcceptance = {
+    decision: "approved",
+    artifactId: run.finalEvidence.id,
+    decidedAt: 1,
+  };
+  return { repo, repository, workspace, run };
+}
+
+test("accepted collaboration changes commit and merge locally into the launch branch", async (t) => {
+  const { repo, repository, workspace, run } = await acceptedRepositoryFixture(t);
+  const merged = await repository.mergeAccepted(run);
+  assert.equal(merged.targetBranch, "feature/original");
+  assert.equal(merged.cwd, repo);
+  assert.equal(
+    (await exec("git", ["show", "feature/original:app.txt"], { cwd: repo })).stdout,
+    "accepted\n",
+  );
+  assert.equal(
+    (await exec("git", ["show", "feature/original:new.txt"], { cwd: repo })).stdout,
+    "new file\n",
+  );
+  assert.equal((await exec("git", ["status", "--porcelain"], { cwd: repo })).stdout, "");
+  assert.equal(
+    (await exec("git", ["branch", "--show-current"], { cwd: repo })).stdout.trim(),
+    workspace.branch,
+  );
+  assert.equal(
+    (await exec("git", ["rev-parse", "feature/original"], { cwd: repo })).stdout.trim(),
+    merged.commit,
+  );
+});
+
+test("isolated delivery preserves a dirty target and succeeds when it is clean", async (t) => {
+  const { repo, repository, run } = await acceptedRepositoryFixture(t, false);
+  await writeFile(join(repo, "personal.txt"), "keep my work\n");
+  await exec("git", ["add", "personal.txt"], { cwd: repo });
+  const index = (await exec("git", ["diff", "--cached"], { cwd: repo })).stdout;
+  await assert.rejects(repository.mergeAccepted(run), /目标分支.*未提交改动/);
+  run.delivery = { status: "failed", error: "Dirty target" };
+  const recovery = await repository.mergeRecoveryContext(run);
+  assert.equal(recovery.cwd, run.cwd);
+  assert.equal(recovery.targetCwd, repo);
+  assert.equal(recovery.targetBranch, "feature/original");
+  assert.match(recovery.targetStatus, /personal\.txt/);
+  assert.equal(recovery.artifactId, run.finalEvidence!.id);
+  assert.deepEqual(recovery.unmergedFiles, []);
+  assert.equal((await exec("git", ["diff", "--cached"], { cwd: repo })).stdout, index);
+  assert.equal(await readFile(join(repo, "personal.txt"), "utf8"), "keep my work\n");
+  assert.equal((await exec("git", ["show", "HEAD:app.txt"], { cwd: repo })).stdout, "before\n");
+  // The user's resolution is a separate commit; delivery must preserve it.
+  await exec("git", ["commit", "-m", "personal work"], { cwd: repo });
+  const delivered = await repository.mergeAccepted(run);
+  assert.equal(delivered.cwd, repo);
+  assert.equal(await readFile(join(repo, "app.txt"), "utf8"), "accepted\n");
+  assert.equal(await readFile(join(repo, "personal.txt"), "utf8"), "keep my work\n");
+  assert.equal((await exec("git", ["status", "--porcelain"], { cwd: run.cwd })).stdout, "");
+});
+
+test("delivery refuses unreviewed changes without staging or merging them", async (t) => {
+  const { repo, repository, run } = await acceptedRepositoryFixture(t);
+  await writeFile(join(repo, "app.txt"), "unreviewed\n");
+  const before = (await exec("git", ["status", "--porcelain"], { cwd: repo })).stdout;
+  await assert.rejects(repository.mergeAccepted(run), /验收后发生变化/);
+  assert.equal((await exec("git", ["status", "--porcelain"], { cwd: repo })).stdout, before);
+  assert.equal(
+    (await exec("git", ["show", "feature/original:app.txt"], { cwd: repo })).stdout,
+    "before\n",
+  );
+});
+
+test("conflicting delivery aborts the merge and retains both branches and their files", async (t) => {
+  const { repo, repository, run } = await acceptedRepositoryFixture(t, false);
+  await writeFile(join(repo, "app.txt"), "conflicting target\n");
+  await exec("git", ["add", "app.txt"], { cwd: repo });
+  await exec("git", ["commit", "-m", "target change"], { cwd: repo });
+  const targetCommit = (await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout;
+  await assert.rejects(repository.mergeAccepted(run));
+  assert.equal((await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout, targetCommit);
+  assert.equal(await readFile(join(repo, "app.txt"), "utf8"), "conflicting target\n");
+  assert.equal(await readFile(join(run.cwd, "app.txt"), "utf8"), "accepted\n");
+  assert.equal((await exec("git", ["status", "--porcelain"], { cwd: repo })).stdout, "");
+  assert.equal((await exec("git", ["status", "--porcelain"], { cwd: run.cwd })).stdout, "");
+  run.delivery = { status: "failed", error: "Merge conflict" };
+  // Resolve on the result branch so the target keeps its accepted contents until review.
+  await assert.rejects(
+    exec("git", ["merge", "--no-commit", "--no-ff", "feature/original"], { cwd: run.cwd }),
+  );
+  assert.deepEqual((await repository.mergeRecoveryContext(run)).unmergedFiles, ["app.txt"]);
+  await writeFile(join(run.cwd, "app.txt"), "Resolved integration\n");
+  await exec("git", ["add", "app.txt"], { cwd: run.cwd });
+  assert.deepEqual((await repository.mergeRecoveryContext(run)).unmergedFiles, []);
+  assert.notEqual(await repository.fingerprint(run), run.finalEvidence!.id);
+  assert.equal((await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout, targetCommit);
+});
+
+test("delivery does not merge a commit changed by a formatting hook", async (t) => {
+  const { repo, repository, run } = await acceptedRepositoryFixture(t);
+  const hook = join(repo, ".git", "hooks", "pre-commit");
+  await writeFile(hook, "#!/bin/sh\nprintf 'hook changed\\n' > app.txt\ngit add app.txt\n");
+  await chmod(hook, 0o755);
+  await assert.rejects(repository.mergeAccepted(run), /提交钩子改变/);
+  assert.equal(
+    (await exec("git", ["show", "feature/original:app.txt"], { cwd: repo })).stdout,
+    "before\n",
+  );
+  assert.equal(
+    (await exec("git", ["show", "HEAD:app.txt"], { cwd: repo })).stdout,
+    "hook changed\n",
+  );
+});
+
+test("delivery completes a resolved merge when the accepted tree has not changed", async (t) => {
+  const { repo, repository, run } = await acceptedRepositoryFixture(t, false);
+  await writeFile(join(repo, "app.txt"), "conflicting target\n");
+  await exec("git", ["add", "app.txt"], { cwd: repo });
+  await exec("git", ["commit", "-m", "target change"], { cwd: repo });
+  const targetCommit = (await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
+  await assert.rejects(repository.mergeAccepted(run));
+  await assert.rejects(
+    exec("git", ["merge", "--no-commit", "--no-ff", "feature/original"], { cwd: run.cwd }),
+  );
+  await writeFile(join(run.cwd, "app.txt"), "accepted\n");
+  await exec("git", ["add", "app.txt"], { cwd: run.cwd });
+  assert.equal((await exec("git", ["status", "--porcelain"], { cwd: run.cwd })).stdout, "");
+  assert.equal(await repository.fingerprint(run), run.finalEvidence!.id);
+
+  const delivered = await repository.mergeAccepted(run);
+  assert.equal(delivered.cwd, repo);
+  assert.equal(await readFile(join(repo, "app.txt"), "utf8"), "accepted\n");
+  assert.equal(
+    (await exec("git", ["rev-parse", "feature/original^{tree}"], { cwd: repo })).stdout.trim(),
+    run.finalEvidence!.tree,
+  );
+  assert.equal(
+    (await exec("git", ["rev-parse", "HEAD^2"], { cwd: run.cwd })).stdout.trim(),
+    targetCommit,
+  );
+  await assert.rejects(exec("git", ["rev-parse", "--verify", "MERGE_HEAD"], { cwd: run.cwd }));
+});
 
 test("current-workspace mode preserves dirty work and index, reviews existing changes, and refuses switched checkouts", async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "director-current-")));

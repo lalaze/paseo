@@ -130,6 +130,10 @@ export const ja: TranslationResources = {
     },
     confirmation: {
       approvePlan: "プランを承認",
+      acceptAndMerge: "承認してマージ",
+      retryMerge: "マージを再試行",
+      mergeHint:
+        "レビュー済みの変更をコミットし、ローカルの {{branch}} にマージします。リモートにはプッシュしません。",
       accept: "受け入れる",
       reject: "却下",
       planHint: "プランを変更するには、メッセージ欄に内容を書いてください。",

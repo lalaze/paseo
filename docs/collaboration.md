@@ -101,6 +101,24 @@ The buttons on the pending approval or acceptance card send the same exact reply
 message, so they pass the same check; the host reports which notice is pending
 (`confirmation.noticeId` in collaboration status) so only that card shows them.
 
+Choose **Accept and merge** on the final card, or reply `验收并合并`, to accept the result,
+commit the reviewed changes and merge into the exact local branch you started from. The host
+performs delivery, so you stay in the same conversation and do not copy worktree paths or branch
+names. It never pushes or deploys. **Accept** / `验收通过` only accepts the result; afterward you
+can reply `合并成果` in the same conversation to deliver it. Delivery includes the whole reviewed
+snapshot, including pre-existing changes reviewed in Local mode. Inspect that diff before accepting.
+For older tasks or detached HEAD without a recorded launch branch, reply `合并成果到 <branch>` once
+after accepting to select the local target. Changed code, a dirty target checkout or a merge
+conflict stops delivery and preserves the result. The main Agent takes over the failed merge in
+the same conversation, using the host's recovery context to locate both workspaces and branches.
+Your delivery authorization covers this repair. It may resolve conflicts in the result branch,
+isolate and restore your pending changes, or fix a Git/environment blocker. It must preserve your
+work and cannot push, deploy, or implement extra features. Pause or cancel stops the repair.
+If the accepted snapshot is unchanged, finishing repair retries delivery. Changed source goes
+through implementation verification, review and your acceptance again before it reaches the
+target branch. The repair owns both checkouts until it finishes or is canceled; other
+collaboration tasks cannot claim them while it is repairing or paused.
+
 ## Conversation timeline
 
 Operation prompts and background notices reach the main Agent as user-role messages. The app
@@ -161,5 +179,7 @@ native-tool handoff. Inspect the task before resuming; uncertain sends require r
 loopback Director MCP configuration is removed when the corresponding idle session is resumed.
 No separate Director listener or file bridge is started.
 
-Instructions changes apply to future conversations. Existing conversations and tasks retain their
-saved configuration so editing instructions cannot change an operation midway through execution.
+Role-instruction changes apply to future conversations. Existing conversations and tasks retain
+their saved configuration so editing instructions cannot change an operation midway through execution.
+The host refreshes its built-in workflow rules when a saved main chat resumes, preserving your
+added instructions. It does not reload an active chat to replace those rules.

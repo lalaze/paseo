@@ -419,6 +419,24 @@ describe("pickAndPersistImages", () => {
 });
 
 describe("dispatchComposerAgentMessage", () => {
+  it("keeps the caller's message id in the wire request and optimistic row for a follow-up confirmation", async () => {
+    const client = createFakeSendClient();
+    const stream = createFakeStream();
+    await dispatchComposerAgentMessage({
+      client,
+      agentId: "agent",
+      text: "验收并合并",
+      messageId: "accept-and-merge",
+      attachments: [],
+      encodeImages: async () => [],
+      submission: stream,
+    });
+    expect(client.calls[0]?.options.messageId).toBe("accept-and-merge");
+    expect(stream.tail.get("agent")?.[0]).toMatchObject({
+      clientMessageId: "accept-and-merge",
+      text: "验收并合并",
+    });
+  });
   it("forwards the configured active-turn intent without provider capability checks", async () => {
     const client = createFakeSendClient();
     const stream = createFakeStream();

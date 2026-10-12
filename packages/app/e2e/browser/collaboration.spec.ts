@@ -1,5 +1,9 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { writeFile, readFile } from "node:fs/promises";
 import { expect, test } from "../support/fixtures";
 import type { Page } from "@playwright/test";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
@@ -13,7 +17,266 @@ import { clickNewChat, gotoWorkspace } from "../support/helpers/launcher";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { installDaemonWebSocketGate } from "../support/helpers/daemon-websocket-gate";
 
+const gitExec = promisify(execFile);
+
 test.use({ e2eInjectPaseoTools: true });
+
+async function seedAcceptance(local = true) {
+  const session = await seedMockAgentWorkspace({
+    repoPrefix: "collaboration-delivery-",
+    title: "Delivery",
+  });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-delivery",
+  });
+  let db: DatabaseSync | undefined;
+  try {
+    const requestId = `delivery-${session.agentId}`;
+    const opened = await client.collaborationCommand("conversation.open", {
+      requestId,
+      workspaceId: session.workspaceId,
+      agentId: session.agentId,
+      settings: {
+        profiles: [
+          { id: "mock", label: "Mock", provider: "mock/e2e-fast-stream", modeId: "load-test" },
+        ],
+        directorProfileId: "mock",
+        workerProfileId: "mock",
+      },
+    });
+    const conversation = opened.conversations.find((entry) => entry.requestId === requestId)!;
+    db = new DatabaseSync(join(process.env.E2E_PASEO_HOME!, "director", "director.sqlite"));
+    const moduleUrl = pathToFileURL(
+      resolve(__dirname, "../../../server/dist/server/server/collaboration/repository.js"),
+    ).href;
+    const { GitRepository } = (await import(
+      moduleUrl
+    )) as typeof import("../../../server/dist/server/server/collaboration/repository.js");
+    const repository = new GitRepository(join(process.env.E2E_PASEO_HOME!, "director"));
+    const workspace = await repository.prepare(session.cwd, requestId, local);
+    await writeFile(join(workspace.cwd, "accepted.md"), "Reviewed collaboration result\n");
+    const spec = {
+      id: "task-1",
+      title: "Implement",
+      description: "Add the reviewed file",
+      category: "implementation",
+      files: ["accepted.md"],
+      dependsOn: [],
+      acceptance: ["Reviewed file exists"],
+    };
+    const run: Run = {
+      ...workspace,
+      id: requestId,
+      requestId,
+      revision: 0,
+      goal: "Deliver reviewed collaboration changes",
+      settings: conversation.settings!,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      ...(local ? { workspaceId: session.workspaceId } : {}),
+      chat: { version: 1, conversationId: conversation.id, mainAgentId: conversation.agentId! },
+      directorAgentId: conversation.agentId,
+      phase: "awaiting_acceptance",
+      control: "paused",
+      message: "Review passed; awaiting acceptance",
+      planApproved: true,
+      plan: {
+        summary: "Implement",
+        architecture: "Add a file",
+        acceptance: spec.acceptance,
+        tasks: [spec],
+      },
+      tasks: [
+        { spec, profileId: conversation.settings!.workerProfileId, status: "executed", reworks: 0 },
+      ],
+      operations: [],
+      events: [],
+    };
+    run.finalEvidence = { ...(await repository.capture(run)), checks: [], passed: true };
+    run.finalReview = {
+      decision: "approved",
+      artifactId: run.finalEvidence.id,
+      summary: "Reviewed",
+      criteria: [{ criterion: spec.acceptance[0], passed: true, evidence: "Reviewed file" }],
+      findings: [],
+    };
+    // Seed an AI-reviewed checkpoint; the browser exercises the actual user acceptance,
+    // network request, daemon validation and Git delivery without relying on model reasoning.
+    db.exec("PRAGMA busy_timeout=5000");
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare("INSERT INTO runs VALUES (?,?,?,?)").run(
+      run.id,
+      run.requestId,
+      run.revision,
+      JSON.stringify(run),
+    );
+    db.prepare("UPDATE conversations SET data=json_set(data,'$.runId',?) WHERE id=?").run(
+      run.id,
+      conversation.id,
+    );
+    db.exec("COMMIT");
+    return {
+      session,
+      client,
+      db,
+      run,
+      conversation,
+      cleanup: async () => {
+        db?.close();
+        await client.close();
+        await session.cleanup();
+      },
+    };
+  } catch (error) {
+    db?.close();
+    await client.close();
+    await session.cleanup();
+    throw error;
+  }
+}
+
+test("accept and merge delivers the reviewed files without exiting collaboration", async ({
+  page,
+}, testInfo) => {
+  const fixture = await seedAcceptance();
+  try {
+    await openAgentRoute(page, fixture.session);
+    const merge = page.getByTestId("collaboration-accept-and-merge");
+    await expect(merge).toBeVisible();
+    await expect(page.getByRole("button", { name: "Accept", exact: true })).toBeVisible();
+    for (const viewport of [
+      { name: "desktop", width: 1280, height: 900 },
+      { name: "phone", width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expect(merge).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath(`accept-and-merge-${viewport.name}.png`) });
+    }
+    await merge.click();
+    await expect(merge).toHaveCount(0);
+    const saved = JSON.parse(
+      fixture.db.prepare("SELECT data FROM runs WHERE id=?").get(fixture.run.id)!.data as string,
+    ) as Run;
+    expect(saved.userAcceptance?.decision).toBe("approved");
+    expect(saved.delivery?.status).toBe("merged");
+    expect(
+      (await gitExec("git", ["show", "main:accepted.md"], { cwd: fixture.session.cwd })).stdout,
+    ).toBe("Reviewed collaboration result\n");
+    expect(
+      (await fixture.client.collaborationCommand("status")).conversations.find(
+        (entry) => entry.id === fixture.conversation.id,
+      )?.disabledAt,
+    ).toBeUndefined();
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("failed accept and merge keeps its error and retries the same accepted result", async ({
+  page,
+}, testInfo) => {
+  const fixture = await seedAcceptance(false);
+  try {
+    await writeFile(join(fixture.session.cwd, "personal.md"), "Preserve my uncommitted work\n");
+    await openAgentRoute(page, fixture.session);
+    const merge = page.getByTestId("collaboration-accept-and-merge");
+    await expect(merge).toBeVisible();
+    await merge.click();
+    const error = page.getByTestId("collaboration-confirmation-actions").getByRole("alert");
+    await expect(error).toContainText("未提交改动");
+    await expect(error).not.toContainText("requestType=");
+    await expect(merge).toHaveText("Retry merge");
+    await expect(merge).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Accept", exact: true })).toHaveCount(0);
+    await error.scrollIntoViewIfNeeded();
+    await expect(error).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("merge-failed.png") });
+    expect(await readFile(join(fixture.session.cwd, "personal.md"), "utf8")).toBe(
+      "Preserve my uncommitted work\n",
+    );
+    await gitExec("git", ["add", "personal.md"], { cwd: fixture.session.cwd });
+    await gitExec("git", ["commit", "-m", "Preserve personal work"], { cwd: fixture.session.cwd });
+    await merge.click();
+    await expect(merge).toHaveCount(0);
+    await expect(error).toHaveCount(0);
+    expect(await readFile(join(fixture.session.cwd, "accepted.md"), "utf8")).toBe(
+      "Reviewed collaboration result\n",
+    );
+    const saved = JSON.parse(
+      fixture.db.prepare("SELECT data FROM runs WHERE id=?").get(fixture.run.id)!.data as string,
+    ) as Run;
+    expect(saved.delivery?.status).toBe("merged");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("merge recovery can pause, resume, and exit to stop delivery", async ({ page }) => {
+  const fixture = await seedAcceptance(false);
+  try {
+    fixture.run.phase = "completed";
+    fixture.run.control = "running";
+    fixture.run.userAcceptance = {
+      decision: "approved",
+      artifactId: fixture.run.finalEvidence!.id,
+      decidedAt: Date.now(),
+    };
+    fixture.run.delivery = {
+      status: "failed",
+      error: "Merge conflict",
+      recovery: { sourceMessageId: "accepted-result" },
+    };
+    fixture.db
+      .prepare("UPDATE runs SET data=? WHERE id=?")
+      .run(JSON.stringify(fixture.run), fixture.run.id);
+    await page.goto(`/settings/hosts/${getServerId()}/collaboration/history`, {
+      waitUntil: "commit",
+    });
+    const row = page.getByTestId(`collaboration-history-${fixture.conversation.id}`);
+    await expect(row.getByText("Needs attention", { exact: true })).toBeVisible();
+    await row.getByTestId("collaboration-history-actions").click();
+    await expect(
+      page.getByRole("menuitem", { name: "Stop collaboration", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("menuitem", { name: "Pause dispatch", exact: true }).click();
+    await expect(row.getByText("Paused", { exact: true })).toBeVisible();
+    await row.getByTestId("collaboration-history-actions").click();
+    await page.getByRole("menuitem", { name: "Resume", exact: true }).click();
+    await expect(row.getByText("Needs attention", { exact: true })).toBeVisible();
+
+    await openAgentRoute(page, fixture.session);
+    const control = page.getByTestId("composer-collaboration").filter({ visible: true });
+    await expect(control).toContainText("Exit collaboration");
+    const dialog = page.waitForEvent("dialog");
+    const press = control.click();
+    const confirmation = await dialog;
+    expect(confirmation.message()).toContain("This stops the collaboration task.");
+    await confirmation.accept();
+    await press;
+    await expect(control).toHaveText("Collaboration");
+    const saved = JSON.parse(
+      fixture.db.prepare("SELECT data FROM runs WHERE id=?").get(fixture.run.id)!.data as string,
+    ) as Run;
+    expect(saved.control).toBe("canceled");
+    expect(saved.userAcceptance?.decision).toBe("approved");
+    expect(await readFile(join(fixture.run.cwd, "accepted.md"), "utf8")).toBe(
+      "Reviewed collaboration result\n",
+    );
+    // The same chat can enable collaboration again after exiting repair.
+    const opened = await fixture.client.collaborationCommand("conversation.open", {
+      requestId: `after-recovery-${fixture.session.agentId}`,
+      workspaceId: fixture.session.workspaceId,
+      agentId: fixture.session.agentId,
+      settings: fixture.conversation.settings,
+    });
+    expect(opened.error).toBeNull();
+    expect(
+      opened.conversations.find((entry) => entry.id === fixture.conversation.id)?.disabledAt,
+    ).toBeGreaterThan(0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
 
 async function chooseModel(page: Page, role: "director" | "worker" | "reviewer") {
   await page.getByTestId(`collaboration-${role}-provider`).click();

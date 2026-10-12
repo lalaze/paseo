@@ -131,6 +131,10 @@ export const ru: TranslationResources = {
     },
     confirmation: {
       approvePlan: "Одобрить план",
+      acceptAndMerge: "Принять и слить",
+      retryMerge: "Повторить слияние",
+      mergeHint:
+        "Создаёт коммит проверенных изменений и сливает их локально в {{branch}}. Ничего не отправляется в удалённый репозиторий.",
       accept: "Принять",
       reject: "Отклонить",
       planHint: "Чтобы изменить план, опишите изменения в поле сообщения.",

@@ -967,6 +967,7 @@ export class Engine {
     run.finalEvidence = undefined;
     run.finalReview = undefined;
     run.userAcceptance = undefined;
+    run.delivery = undefined;
     run.dispatchOrder = [];
     run.planApproved = !requiresPlanApproval(run);
     run.planApprovedAt = undefined;
@@ -1028,6 +1029,109 @@ export class Engine {
     if (receipt) (run.chatReceipts ??= {})[receipt] = action;
     this.save(run);
     return { ok: true };
+  }
+
+  async mergeAccepted(id: string, targetBranch?: string) {
+    return this.locked("create", () =>
+      this.locked(id, async () => {
+        const run = this.store.get(id);
+        if (
+          run.phase !== "completed" ||
+          run.userAcceptance?.decision !== "approved" ||
+          run.activeOperationId
+        )
+          throw new Error("请先验收当前成果，再合并");
+        if (run.control !== "running") throw new Error("交付已暂停或取消，不能继续合并");
+        if (run.delivery?.status === "merged") return run.delivery;
+        if (targetBranch && run.sourceBranch && targetBranch !== run.sourceBranch)
+          throw new Error(`此任务的原分支是 ${run.sourceBranch}，不能更换交付目标`);
+        run.sourceBranch ??= targetBranch;
+        if (!run.sourceBranch)
+          throw new Error("此任务未记录原分支，请单独回复“合并成果到 <目标分支>”后再交付");
+        if (
+          this.store
+            .unfinishedWorkspaceRuns()
+            .some(
+              (other) => other.id !== id && (other.cwd === run.cwd || other.cwd === run.repository),
+            )
+        )
+          throw new Error("成果或目标工作区已有其他未结束的协作任务，请先完成或取消该任务");
+        run.delivery = { status: "merging" };
+        this.event(run, `正在提交验收成果并合并到 ${run.sourceBranch}`);
+        this.save(run);
+        try {
+          run.delivery = await this.repository.mergeAccepted(run);
+          this.event(run, `验收成果已提交并合并到 ${run.delivery.targetBranch}；未推送远端`);
+          this.save(run);
+          return run.delivery;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          run.delivery = { status: "failed", error: message };
+          this.event(run, `成果合并失败：${message}；成果已保留，可重试合并`);
+          this.save(run);
+          throw error;
+        }
+      }),
+    );
+  }
+
+  private mergeRecoveryRun(id: string) {
+    const run = this.store.get(id);
+    if (
+      run.phase !== "completed" ||
+      run.control !== "running" ||
+      run.userAcceptance?.decision !== "approved" ||
+      run.delivery?.status !== "failed" ||
+      !run.finalEvidence ||
+      run.activeOperationId
+    )
+      throw new Error("只有已验收且合并失败的成果允许主 Agent 处理合并问题");
+    if (
+      this.store
+        .unfinishedWorkspaceRuns()
+        .some((other) => other.id !== id && (other.cwd === run.cwd || other.cwd === run.repository))
+    )
+      throw new Error("成果或目标工作区已有其他未结束的协作任务");
+    return { run, failure: run.delivery, evidence: run.finalEvidence };
+  }
+
+  async prepareMergeRecovery(id: string, sourceMessageId: string) {
+    return this.locked("create", () =>
+      this.locked(id, async () => {
+        const { run, failure } = this.mergeRecoveryRun(id);
+        const context = await this.repository.mergeRecoveryContext(run);
+        failure.recovery = { sourceMessageId };
+        this.event(run, `主 Agent 正在处理合并到 ${context.targetBranch} 的问题；成果已保留`);
+        this.save(run);
+        return context;
+      }),
+    );
+  }
+
+  async finishMergeRecovery(id: string, input: { sourceMessageId: string; summary: string }) {
+    const result = await this.locked("create", () =>
+      this.locked(id, async () => {
+        const { run, failure, evidence } = this.mergeRecoveryRun(id);
+        if (failure.recovery?.sourceMessageId !== input.sourceMessageId)
+          throw new Error("请先获取当前合并修复上下文");
+        const context = await this.repository.mergeRecoveryContext(run);
+        if (context.unmergedFiles.length)
+          throw new Error(`仍有未解决的冲突：${context.unmergedFiles.join("、")}`);
+        if (context.currentBranch !== run.branch)
+          throw new Error(`请先切回成果分支 ${run.branch} 再提交合并修复`);
+        await this.repository.assertBranch(run);
+        const unchanged = (await this.repository.fingerprint(run)) === evidence.id;
+        if (unchanged) return { status: "retry" as const };
+        await this.finalControl(run, "request_changes", {
+          artifactId: evidence.id,
+          expectedRevision: run.revision,
+          feedback: `主 Agent 已处理合并问题：${input.summary}。在当前成果上验证并审核冲突解决，不要重新实现已完成的改动。`,
+        });
+        return { status: "review_required" as const, runId: run.id };
+      }),
+    );
+    if (result.status === "review_required") return result;
+    return this.mergeAccepted(id);
   }
 
   private async recoverResult(run: Run, op: Operation) {
@@ -1158,6 +1262,16 @@ export class Engine {
     run.control = "running";
     this.event(run, "总纲已批准");
   }
+  private assertControlState(run: Run, action: ControlAction) {
+    const recoveringMerge = run.delivery?.status === "failed";
+    const recoveryControl =
+      recoveringMerge && ["pause", "resume", "cancel", "note"].includes(action);
+    if ((run.phase === "completed" && !recoveryControl) || run.control === "canceled")
+      throw new Error("任务已结束");
+    if (run.phase === "awaiting_acceptance" && action !== "cancel")
+      throw new Error("请验收成果或提交修改意见");
+    return recoveringMerge;
+  }
   async control(
     id: string,
     action: ControlAction,
@@ -1173,9 +1287,7 @@ export class Engine {
         if (receipt && run.chatReceipts?.[receipt] === action) return { ok: true };
         if (["accept_final", "reject_final", "request_changes"].includes(action))
           return this.finalControl(run, action, final, receipt);
-        if (run.phase === "completed" || run.control === "canceled") throw new Error("任务已结束");
-        if (run.phase === "awaiting_acceptance" && action !== "cancel")
-          throw new Error("请验收成果或提交修改意见");
+        const recoveringMerge = this.assertControlState(run, action);
         if (action === "pause") {
           run.control = "paused";
           this.event(run, "已暂停后续派发；当前 AI 可完成本轮");
@@ -1190,7 +1302,8 @@ export class Engine {
         }
         if (action === "resume") {
           if (!run.planApproved && run.plan) throw new Error("请先批准总纲");
-          if (!canResumeRun(run)) throw new Error("请使用检查后重试，避免重复发送未确认的指令");
+          if (!recoveringMerge && !canResumeRun(run))
+            throw new Error("请使用检查后重试，避免重复发送未确认的指令");
           run.control = "running";
           this.event(run, "继续执行");
         }

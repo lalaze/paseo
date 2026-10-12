@@ -134,6 +134,10 @@ export const fr: TranslationResources = {
     },
     confirmation: {
       approvePlan: "Approuver le plan",
+      acceptAndMerge: "Accepter et fusionner",
+      retryMerge: "Réessayer la fusion",
+      mergeHint:
+        "Enregistre les modifications vérifiées et les fusionne localement dans {{branch}}. Rien n’est envoyé au dépôt distant.",
       accept: "Accepter",
       reject: "Refuser",
       planHint: "Pour modifier le plan, décrivez-le dans la zone de message.",

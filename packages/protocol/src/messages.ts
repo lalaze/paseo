@@ -3694,6 +3694,7 @@ export const ServerInfoStatusPayloadSchema = z
         collaborationWorktree: z.boolean().optional(),
         // COMPAT(collaborationDisable): added in v0.11.1, remove gate after 2027-04-10 once daemons expose conversation.disable.
         collaborationDisable: z.boolean().optional(),
+        collaborationMerge: z.boolean().optional(),
         // COMPAT(pluginThemes): added in v0.5.0, remove gate after 2027-08-20.
         // A daemon that predates this flag keeps `addTheme` in the server bundle it compiles,
         // so a theme plugin cannot start there at all.

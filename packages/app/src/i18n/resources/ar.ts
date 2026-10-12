@@ -129,6 +129,10 @@ export const ar: TranslationResources = {
     },
     confirmation: {
       approvePlan: "الموافقة على الخطة",
+      acceptAndMerge: "قبول ودمج",
+      retryMerge: "إعادة محاولة الدمج",
+      mergeHint:
+        "تسجيل التغييرات التي تمت مراجعتها ودمجها محليًا في {{branch}}، دون دفعها إلى المستودع البعيد.",
       accept: "قبول",
       reject: "رفض",
       planHint: "لتغيير الخطة، اكتب التغيير في مربع الرسالة.",

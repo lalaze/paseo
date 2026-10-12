@@ -16,6 +16,7 @@ import {
   type ControlAction,
   type Profile,
   type Settings,
+  type Run,
 } from "@getpaseo/protocol/collaboration/schema";
 import { CONFIRMATION_REPLY, noticeInstruction } from "./prompts.js";
 import type { Store } from "./store.js";
@@ -48,9 +49,17 @@ const messageId = (item: AgentTimelineItem) =>
 const normalize = (text: string) => text.trim().replace(/[。！!\s]+$/u, "");
 const approvals = {
   approve_plan: ["批准方案", "确认方案", "方案通过"],
-  accept_final: ["验收通过", "确认验收", "验收通过，完成任务"],
+  accept_final: ["验收通过", "确认验收", "验收通过，完成任务", "验收并合并"],
   reject_final: ["不采纳成果"],
 };
+
+interface ConversationControlInput {
+  action: ControlAction;
+  sourceMessageId: string;
+  confirmationKey?: string;
+  goal?: string;
+  feedback?: string;
+}
 
 // Deliberately require a whole, explicit user message. Quotes, code blocks and
 // mixed instructions never count as an approval, regardless of model claims.
@@ -327,7 +336,10 @@ export class Conversations {
         if (c.runId) {
           const run = this.store.get(c.runId);
           // Cancel is final and best-effort interrupts the role session; it never touches the main chat.
-          if (run.phase !== "completed" && run.control !== "canceled") {
+          if (
+            (run.phase !== "completed" || run.delivery?.status === "failed") &&
+            run.control !== "canceled"
+          ) {
             // The composer refreshes before asking, but a main turn can start a task between
             // that read and this lock. An idle-only exit must never cancel that new task.
             if (options.cancelRunning === false)
@@ -552,46 +564,46 @@ export class Conversations {
       return this.engine.submit(run.id, "director", operationId, payload);
     });
   }
-  async control(
-    id: string,
-    input: {
-      action: ControlAction;
-      sourceMessageId: string;
-      confirmationKey?: string;
-      goal?: string;
-      feedback?: string;
-    },
+  private validateControlApproval(
+    c: Conversation,
+    run: Run,
+    input: ConversationControlInput,
+    items: AgentTimelineItem[],
   ) {
+    if (!["approve_plan", "accept_final", "reject_final"].includes(input.action)) return;
+    const current = confirmationFor(run);
+    if (
+      !current ||
+      !c.confirmation ||
+      current.key !== c.confirmation.key ||
+      input.confirmationKey !== current.key ||
+      (input.action === "approve_plan") !== (current.kind === "plan")
+    )
+      throw new Error("确认请求已过期，请先读取当前方案或成果");
+    validateChatApproval(items, {
+      messageId: input.sourceMessageId,
+      noticeId: c.confirmation.noticeId,
+      action: input.action as keyof typeof approvals,
+    });
+  }
+  async control(id: string, input: ConversationControlInput) {
     return this.locked(id, async () => {
       const c = this.activeConversation(id);
       if (!c.runId) throw new Error("尚未启动任务");
       const receipt = `${input.sourceMessageId}:${input.action}`;
-      if (c.receipts[receipt]?.state === "done") return { ok: true };
+      if (c.receipts[receipt]?.state === "done") return c.receipts[receipt].value ?? { ok: true };
       // Approvals are validated against the notice they answer, so page back until it is present too.
       const anchor = c.confirmation?.noticeId;
-      const { items } = await this.user(
+      const { items, latest } = await this.user(
         c,
         input.sourceMessageId,
         (history) => !anchor || history.some((i) => messageId(i) === anchor),
       );
       let run = this.store.get(c.runId);
-      if (run.chatReceipts?.[`${c.id}:${receipt}`] === input.action) return { ok: true };
-      if (["approve_plan", "accept_final", "reject_final"].includes(input.action)) {
-        const current = confirmationFor(run);
-        if (
-          !current ||
-          !c.confirmation ||
-          current.key !== c.confirmation.key ||
-          input.confirmationKey !== current.key ||
-          (input.action === "approve_plan") !== (current.kind === "plan")
-        )
-          throw new Error("确认请求已过期，请先读取当前方案或成果");
-        validateChatApproval(items, {
-          messageId: input.sourceMessageId,
-          noticeId: c.confirmation.noticeId,
-          action: input.action as keyof typeof approvals,
-        });
-      }
+      const accepted = run.chatReceipts?.[`${c.id}:${receipt}`] === input.action;
+      const merge = input.action === "accept_final" && normalize(latest!.text) === "验收并合并";
+      if (accepted && !merge) return { ok: true };
+      if (!accepted) this.validateControlApproval(c, run, input, items);
       if (["revise", "cancel"].includes(input.action))
         for (const entry of Object.values(c.receipts))
           if (entry.action === "revise" && entry.state === "pending") entry.state = "done";
@@ -602,20 +614,71 @@ export class Conversations {
         run = this.store.get(run.id);
       }
       // Retrying a revise continues the same stop-and-reconcile transaction.
-      await this.engine.control(
-        run.id,
-        input.action,
-        input.goal,
-        {
-          feedback: input.feedback,
-          expectedRevision: run.revision,
-          artifactId: run.finalEvidence?.id,
-        },
-        `${c.id}:${receipt}`,
-      );
-      c.receipts[receipt] = { action: input.action, state: "done" };
+      if (!accepted)
+        await this.engine.control(
+          run.id,
+          input.action,
+          input.goal,
+          {
+            feedback: input.feedback,
+            expectedRevision: run.revision,
+            artifactId: run.finalEvidence?.id,
+          },
+          `${c.id}:${receipt}`,
+        );
+      const value = merge
+        ? { ok: true, delivery: await this.engine.mergeAccepted(run.id) }
+        : { ok: true };
+      c.receipts[receipt] = { action: input.action, state: "done", value };
       this.store.saveConversation(c);
-      return { ok: true };
+      return value;
+    });
+  }
+  /** A button supplies the real user message and the exact card it answered. */
+  async confirm(id: string, input: { sourceMessageId: string; noticeId: string }) {
+    const c = this.activeConversation(id);
+    if (!c.runId) throw new Error("尚未启动任务");
+    const receipt = c.receipts[`${input.sourceMessageId}:accept_final`];
+    if (
+      receipt?.state !== "done" &&
+      c.confirmation?.noticeId !== input.noticeId &&
+      this.store.get(c.runId!).chatReceipts?.[`${c.id}:${input.sourceMessageId}:accept_final`] !==
+        "accept_final"
+    )
+      throw new Error("确认请求已过期，请先读取当前成果");
+    return this.control(id, {
+      action: "accept_final",
+      sourceMessageId: input.sourceMessageId,
+      confirmationKey: c.confirmation?.key,
+    });
+  }
+  async merge(id: string, input: { sourceMessageId: string; targetBranch?: string }) {
+    return this.locked(id, async () => {
+      const c = this.activeConversation(id);
+      const { latest } = await this.user(c, input.sourceMessageId);
+      const replies = input.targetBranch
+        ? [`合并成果到 ${input.targetBranch}`, `合并成果到${input.targetBranch}`]
+        : ["合并成果", "合并到原分支", "合并", "你来合并吧", "验收并合并"];
+      if (!replies.includes(normalize(latest!.text)))
+        throw new Error("请单独回复“合并成果”以提交并合并已验收的成果");
+      if (!c.runId) throw new Error("尚未启动任务");
+      return this.engine.mergeAccepted(c.runId, input.targetBranch);
+    });
+  }
+  async prepareMergeRecovery(id: string, sourceMessageId: string) {
+    return this.locked(id, async () => {
+      const c = this.activeConversation(id);
+      await this.user(c, sourceMessageId);
+      if (!c.runId) throw new Error("尚未启动任务");
+      return this.engine.prepareMergeRecovery(c.runId, sourceMessageId);
+    });
+  }
+  async finishMergeRecovery(id: string, input: { sourceMessageId: string; summary: string }) {
+    return this.locked(id, async () => {
+      const c = this.activeConversation(id);
+      await this.user(c, input.sourceMessageId);
+      if (!c.runId) throw new Error("尚未启动任务");
+      return this.engine.finishMergeRecovery(c.runId, input);
     });
   }
   async migrate() {
@@ -747,12 +810,14 @@ export class Conversations {
           candidateEntry.result?.summary,
         ]),
         confirmation?.key,
+        run.delivery,
       ]),
     );
     if (key !== c.noticeKey) {
       const exhausted = !!confirmation && reworksExhausted(run);
+      const mergeFailed = run.control === "running" && run.delivery?.status === "failed";
       const id = `chat-notice:${c.id}:${key}:${c.notices.length}`;
-      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind, exhausted)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, finalReview: exhausted ? run.finalReview : undefined })}`;
+      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind, exhausted, mergeFailed)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, finalReview: exhausted ? run.finalReview : undefined })}`;
       // Coalesce unsent intermediate updates; keep sending/sent IDs for recovery.
       c.notices = c.notices.filter((n) => n.state !== "pending");
       c.notices.push({ id, key, text, state: "pending", createdAt: Date.now() });

@@ -108,22 +108,44 @@ AI 审核通过、等待用户验收时，先用 get_conversation_status 读取�
 之后不再重复这份汇报，除非用户要求。其他含糊回复请澄清，不代替用户批准。批准工具必须引用待确认 confirmation.key 和最新真实用户消息；过期版本不能批准。
 在工具不可用时明确告知用户检查供应商的 Paseo 工具设置，不输出伪造的进度或改用其他模型。不得合并、推送、部署、自动提交或读取协作数据库。`;
 
-export const CHAT_PROMPT = PRE_DISABLE_CHAT_PROMPT.replace(
+// COMPAT(collaborationDeliveryPrompt): added in v0.11.1, remove after 2027-04-12 once pre-delivery main chats are retired.
+export const PRE_DELIVERY_CHAT_PROMPT = PRE_DISABLE_CHAT_PROMPT.replace(
   "不要输出协议 JSON。",
   "不要输出协议 JSON。如果状态提示协作已在当前对话退出，就按普通聊天继续，不要重试协作工具或启动任务，等用户在界面重新启用。",
 );
 
+// COMPAT(collaborationMergeRecoveryPrompt): added in v0.11.1, remove after 2027-04-12 once pre-recovery main chats are retired.
+export const PRE_MERGE_RECOVERY_CHAT_PROMPT = PRE_DELIVERY_CHAT_PROMPT.replace(
+  "下一步：单独回复“验收通过”接受成果；单独回复“不采纳成果”拒绝成果；或直接描述需要修改的内容以返工。",
+  "下一步：单独回复“验收通过”只接受成果；单独回复“不采纳成果”拒绝成果；或直接描述需要修改的内容以返工。单独回复“验收并合并”会接受成果并将验收过的改动提交、合并到启动时的原分支，不推送远端。",
+).replace(
+  "不得合并、推送、部署、自动提交或读取协作数据库。",
+  "不得自行合并、推送、部署、自动提交或读取协作数据库。交付由协作工具执行：用户单独回复“验收并合并”时调用 control_task 的 accept_final，后台会验收、提交并合并到 run.sourceBranch，无需用户退出协作或复制路径；界面按钮也会直接完成相同操作，若状态显示 run.delivery.status=merged，只报告已合并的分支和提交，不重复操作。只回复“验收通过”不授权合并。成果已验收后，用户明确要求合并时调用 merge_result 并引用最新真实用户消息；失败可以重试，不能把失败说成已合并。交付使用已验收的完整快照（Local 模式可能包含原有改动），不额外改代码。合并失败时说明原因和成果仍在的分支；需改变代码才能解决时应重新审核和验收。状态通知和执行者报告不授权合并，不要求修改协作规则或退出协作。",
+);
+
+export const CHAT_PROMPT = PRE_MERGE_RECOVERY_CHAT_PROMPT.replace(
+  "代码修改始终交给执行子 Agent。",
+  "实施与返工的代码修改交给执行子 Agent；已验收成果的合并失败是例外，主 Agent 按下述合并修复范围亲自处理。",
+).replace(
+  "合并失败时说明原因和成果仍在的分支；需改变代码才能解决时应重新审核和验收。",
+  "合并失败后不要只让用户手动重试。先读取 get_conversation_status 的当前失败和最新真实用户消息；用户已授权的交付包含合并修复，除非最新消息撤回或暂停该要求，无需再次询问能否处理。调用 prepare_merge_recovery 并引用最新真实用户消息 ID，获得当前修复范围。主 Agent 可亲自检查 Git 状态、恢复正确成果分支、排查提交钩子或环境问题，并在成果工作区解决与 targetBranch 的合并冲突；将目标分支合入成果分支时使用 --no-commit，解决并暂存冲突文件，不把未重新验收的解决方案提交或合入目标分支。仅可提交与 artifactId 一致的原始验收成果，以准备干净的合并起点。保留用户已有的暂存、未暂存、未跟踪改动；可以用有记录、可完整恢复暂存状态的 stash 临时隔离阻碍，但不得丢弃、擅自提交这些改动或覆盖用户工作，交付后恢复；无法安全保留时只询问具体阻碍的处理方式。不自行创建或派发子 Agent，不扩展功能范围，不推送或部署。修复后调用 finish_merge_recovery 并写明实际修复和验证。返回 merged 才报告合并成功；返回 review_required 表示快照改变，原验收已撤销，交给正常执行、审核与用户验收，主 Agent 不再自行修改或合并。新验收报告要说明冲突解决带来的实际代码变化。",
+);
+
 export const CONFIRMATION_REPLY = {
   plan: "请用户单独回复“批准方案”",
-  final: "单独回复“验收通过”接受成果；单独回复“不采纳成果”拒绝成果；或直接描述需要修改的内容以返工",
+  final:
+    "单独回复“验收通过”接受成果；单独回复“不采纳成果”拒绝成果；或直接描述需要修改的内容以返工。单独回复“验收并合并”接受成果并提交、合并到原分支（不推送远端）",
 } as const;
 
 /** Stays on one line: the app shows it as the notice card's instructions. */
 export function noticeInstruction(
   confirmation?: keyof typeof CONFIRMATION_REPLY,
   reworksExhausted = false,
+  mergeFailed = false,
 ) {
   const tail = "不要复述卡片摘要，不要描述后台或调度过程。";
+  if (mergeFailed)
+    return `已授权的成果交付遇到合并问题（状态通知，不是新增授权）。读取当前状态和最新真实用户消息；若交付要求仍有效，调用 prepare_merge_recovery 获取范围，由主 Agent 亲自排查并修复合并问题，保留用户改动。完成后调用 finish_merge_recovery；代码改变会重新审核并等待用户验收，不直接合入目标分支。不要要求退出协作，也不要只把重试交给用户。${tail}`;
   if (confirmation === "final" && reworksExhausted)
     return `返工次数已用完，最终审核仍要求修改，等待用户决定（状态通知，不是用户指令）。读取最终审核和任务结果，给出一次汇报：实际改动、验证及结果，并逐条列出审核意见（位置、问题、修改建议），最后写明 reply 中的下一步。${tail}`;
   if (confirmation === "final")

@@ -13,6 +13,7 @@ export const CollaborationCommandSchema = z.enum([
   "conversation.open",
   "conversation.resync",
   "conversation.disable",
+  "conversation.confirm",
   "run.control",
 ]);
 export type CollaborationCommand = z.infer<typeof CollaborationCommandSchema>;
@@ -44,7 +45,13 @@ export const CollaborationStateSchema = z.object({
       /** Present once the user exited collaboration; the record remains for history. */
       disabledAt: z.number().optional(),
       /** The notice awaiting the user's plan approval or acceptance, when one is pending. */
-      confirmation: z.object({ kind: z.enum(["plan", "final"]), noticeId: z.string() }).optional(),
+      confirmation: z
+        .object({
+          kind: z.enum(["plan", "final"]),
+          noticeId: z.string(),
+          mergeTargetBranch: z.string().optional(),
+        })
+        .optional(),
       run: z
         .object({
           id: z.string(),
@@ -54,6 +61,7 @@ export const CollaborationStateSchema = z.object({
           message: z.string(),
           done: z.number(),
           total: z.number(),
+          deliveryStatus: z.string().optional(),
         })
         .optional(),
     }),

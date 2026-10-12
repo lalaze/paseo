@@ -128,6 +128,9 @@ export const zhCN: TranslationResources = {
     confirmation: {
       approvePlan: "批准方案",
       accept: "验收通过",
+      acceptAndMerge: "验收并合并",
+      retryMerge: "重试合并",
+      mergeHint: "提交验收过的改动并在本地合并到 {{branch}}，不推送远端。",
       reject: "不采纳",
       planHint: "如需调整方案，在输入框中说明。",
       changesHint: "如需修改，在输入框中描述要改的内容。",

@@ -171,6 +171,7 @@ export class CollaborationService {
                   confirmation: {
                     kind: summary.confirmation.kind,
                     noticeId: summary.confirmation.noticeId,
+                    mergeTargetBranch: summary.confirmation.mergeTargetBranch,
                   },
                 }
               : {},
@@ -218,6 +219,13 @@ export class CollaborationService {
           .object({ id: z.string(), cancelRunning: z.boolean().optional() })
           .parse(input);
         await conversations.disable(request.id, request);
+        break;
+      }
+      case "conversation.confirm": {
+        const request = z
+          .object({ id: z.string(), sourceMessageId: z.string(), noticeId: z.string() })
+          .parse(input);
+        await conversations.confirm(request.id, request);
         break;
       }
       case "run.control": {
@@ -331,11 +339,57 @@ export class CollaborationService {
       ),
       define(
         "control_task",
-        "按最新用户要求控制协作；批准需要真实用户消息与当前确认版本。note 记录用户在执行中补充的要求（写在 feedback），不重新设计；目标本身改变才用 revise。",
+        "按最新用户要求控制协作；批准需要真实用户消息与当前确认版本。accept_final 接受“验收通过”；“验收并合并”还会由后台提交成果并合并到原分支，无需退出协作。note 记录用户在执行中补充的要求（写在 feedback），不重新设计；目标本身改变才用 revise。",
         controlSchema,
         async (input) => {
           const c = chat();
           return c.conversations.control(c.id, controlSchema.parse(input));
+        },
+      ),
+      define(
+        "merge_result",
+        "在成果验收后，按用户单独回复“合并成果”提交并合并到原分支。旧任务未记录原分支时，用户回复“合并成果到 <目标分支>”，传入 targetBranch，不能更换已记录的原分支。失败后可重试；不推送或部署。",
+        z.object({
+          sourceMessageId: z.string(),
+          targetBranch: z.string().trim().min(1).optional(),
+        }),
+        async (input) => {
+          const c = chat();
+          return c.conversations.merge(
+            c.id,
+            z
+              .object({
+                sourceMessageId: z.string(),
+                targetBranch: z.string().trim().min(1).optional(),
+              })
+              .parse(input),
+          );
+        },
+      ),
+      define(
+        "prepare_merge_recovery",
+        "已验收成果合并失败时，主 Agent 获取修复范围、成果和目标工作区、分支、错误及验证命令。只修复合并问题；不能丢弃或提交用户的其他改动，修复后调用 finish_merge_recovery。",
+        z.object({ sourceMessageId: z.string() }),
+        async (input) => {
+          const c = chat();
+          return c.conversations.prepareMergeRecovery(
+            c.id,
+            z.object({ sourceMessageId: z.string() }).parse(input).sourceMessageId,
+          );
+        },
+      ),
+      define(
+        "finish_merge_recovery",
+        "主 Agent 完成合并修复后提交修复说明和当前真实用户消息 ID。成果快照没变时重试原合并；代码变了则送回执行验证、审核和用户验收，不能自行跳过。",
+        z.object({ sourceMessageId: z.string(), summary: z.string().trim().min(1).max(16000) }),
+        async (input) => {
+          const c = chat();
+          return c.conversations.finishMergeRecovery(
+            c.id,
+            z
+              .object({ sourceMessageId: z.string(), summary: z.string().trim().min(1).max(16000) })
+              .parse(input),
+          );
         },
       ),
       define(

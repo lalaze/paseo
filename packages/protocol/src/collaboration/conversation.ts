@@ -11,6 +11,7 @@ export interface Confirmation {
   kind: "plan" | "final";
   noticeId: string;
   artifactId?: string;
+  mergeTargetBranch?: string;
   planVersion?: number;
 }
 export interface Conversation {
@@ -86,6 +87,7 @@ export function confirmationFor(run: Run): Omit<Confirmation, "noticeId"> | unde
       kind: "final",
       key: `final:${run.finalEvidence!.id}`,
       artifactId: run.finalEvidence!.id,
+      mergeTargetBranch: run.sourceBranch,
     };
 }
 

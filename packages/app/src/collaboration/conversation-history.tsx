@@ -175,21 +175,32 @@ function conversationStatus({ run, error, disabledAt }: Conversation): {
   variant: StatusBadgeVariant;
 } {
   if (disabledAt) return { label: "disabled", variant: "muted" };
-  if (run?.control === "canceled") return { label: "canceled", variant: "muted" };
-  if (run?.control === "canceling") return { label: "canceling", variant: "muted" };
-  if (run?.phase === "completed") return { label: "completed", variant: "success" };
-  if (error || run?.control === "needs_attention")
+  if (!run)
+    return error
+      ? { label: "needsAttention", variant: "error" }
+      : { label: "ready", variant: "muted" };
+  if (run.control === "canceled") return { label: "canceled", variant: "muted" };
+  if (run.control === "canceling") return { label: "canceling", variant: "muted" };
+  if (run.phase === "completed" && run.deliveryStatus !== "failed")
+    return { label: "completed", variant: "success" };
+  if (error || run.control === "needs_attention")
     return { label: "needsAttention", variant: "error" };
-  if (run?.control === "paused") return { label: "paused", variant: "warning" };
-  if (run?.control === "waiting_permission")
+  if (run.control === "paused") return { label: "paused", variant: "warning" };
+  if (run.deliveryStatus === "failed") return { label: "needsAttention", variant: "error" };
+  if (run.control === "waiting_permission")
     return { label: "waitingPermission", variant: "warning" };
-  if (run?.phase === "awaiting_acceptance")
+  if (run.phase === "awaiting_acceptance")
     return { label: "awaitingAcceptance", variant: "warning" };
-  return { label: run ? "running" : "ready", variant: "muted" };
+  return { label: "running", variant: "muted" };
 }
 
 function availableControls(run: Conversation["run"]): Control[] {
-  if (!run || run.phase === "completed" || run.control === "canceled") return [];
+  if (
+    !run ||
+    (run.phase === "completed" && run.deliveryStatus !== "failed") ||
+    run.control === "canceled"
+  )
+    return [];
   if (run.phase === "awaiting_acceptance") return ["cancel"];
   if (run.control === "paused") return ["resume", "cancel"];
   if (run.control === "needs_attention") return ["retry", "cancel"];
