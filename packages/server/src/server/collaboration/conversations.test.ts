@@ -927,6 +927,10 @@ test("workers receive the persisted approval made in an adopted main conversatio
   await h.engine.tick();
   await h.chats.tick();
   const approval = h.chats.summary(c.id).confirmation!;
+  const notice = h.gateway.sent.find((entry) => entry.opId === approval.noticeId)!;
+  assert.deepEqual(JSON.parse(notice.prompt.slice(notice.prompt.indexOf("\n{") + 1)).plan, plan);
+  const card = readCollaborationNotice(approval.noticeId, notice.prompt);
+  assert.deepEqual(card?.plan, plan);
   h.gateway.user("existing", "approval", "批准方案");
   await h.chats.control(c.id, {
     action: "approve_plan",

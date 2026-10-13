@@ -97,6 +97,10 @@ result. When a task has used every rework and the final review still requests ch
 goes to acceptance with that review instead of stopping: the main Agent lists the findings and you
 accept, reject, or request changes, which starts a new round with a fresh rework budget. Approval tools verify the latest real user message and the version of the confirmation
 shown in that conversation. Background notices and worker output cannot approve a plan or result.
+The plan approval card shows the saved plan expanded above its approval button: summary,
+architecture, acceptance criteria and each implementation task's description, files, criteria
+and dependencies. You can collapse and reopen it; it remains in the conversation after approval.
+Read this snapshot before approving, rather than relying on the main Agent's brief reply.
 The buttons on the pending approval or acceptance card send the same exact reply as a user
 message, so they pass the same check; the host reports which notice is pending
 (`confirmation.noticeId` in collaboration status) so only that card shows them.

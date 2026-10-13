@@ -124,6 +124,10 @@ export const en = {
       approval: "Collaboration · awaiting plan approval",
       acceptance: "Collaboration · awaiting acceptance",
       enabled: "Collaboration · enabled",
+      architecture: "Architecture",
+      tasks: "Implementation tasks",
+      files: "Files",
+      dependsOn: "Depends on",
       acceptanceCriteria: "Acceptance criteria",
     },
     confirmation: {

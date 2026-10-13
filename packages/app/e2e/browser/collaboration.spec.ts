@@ -21,6 +21,125 @@ const gitExec = promisify(execFile);
 
 test.use({ e2eInjectPaseoTools: true });
 
+test("plan approval shows the saved plan before approval on desktop and phone", async ({
+  page,
+}, testInfo) => {
+  const session = await seedMockAgentWorkspace({
+    repoPrefix: "collaboration-plan-",
+    title: "Plan approval",
+  });
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "collaboration-plan" });
+  let db: DatabaseSync | undefined;
+  try {
+    const requestId = `plan-${session.agentId}`;
+    const opened = await client.collaborationCommand("conversation.open", {
+      requestId,
+      workspaceId: session.workspaceId,
+      agentId: session.agentId,
+      settings: {
+        profiles: [
+          { id: "mock", label: "Mock", provider: "mock/e2e-fast-stream", modeId: "load-test" },
+        ],
+        directorProfileId: "mock",
+        workerProfileId: "mock",
+        requirePlanApproval: true,
+      },
+    });
+    const conversation = opened.conversations.find((entry) => entry.requestId === requestId)!;
+    const task = {
+      id: "input-validation",
+      title: "Validate incoming messages",
+      description: "Reject empty input before sending messages to the worker.",
+      category: "backend",
+      files: ["src/input-validation.ts"],
+      dependsOn: [],
+      acceptance: ["Empty input returns a readable validation error."],
+    };
+    const run: Run = {
+      id: requestId,
+      requestId,
+      revision: 0,
+      goal: "Show the collaboration plan before asking for approval",
+      repository: session.cwd,
+      cwd: session.cwd,
+      baseCommit: "unused-before-approval",
+      branch: "main",
+      workspaceId: session.workspaceId,
+      settings: conversation.settings!,
+      chat: { version: 1, conversationId: conversation.id, mainAgentId: conversation.agentId! },
+      directorAgentId: conversation.agentId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      phase: "planning",
+      control: "paused",
+      message: "Plan ready; awaiting approval",
+      planApproved: false,
+      planVersion: 1,
+      plan: {
+        summary: "Validate messages while preserving valid requests.",
+        architecture: "Validate at the API boundary and keep the existing message format.",
+        acceptance: ["Valid messages still reach the worker."],
+        tasks: [task],
+      },
+      tasks: [{ spec: task, profileId: "mock", status: "pending", reworks: 0 }],
+      operations: [],
+      events: [],
+    };
+    db = new DatabaseSync(join(process.env.E2E_PASEO_HOME!, "director", "director.sqlite"));
+    db.exec("PRAGMA busy_timeout=5000");
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare("INSERT INTO runs VALUES (?,?,?,?)").run(
+      run.id,
+      run.requestId,
+      run.revision,
+      JSON.stringify(run),
+    );
+    db.prepare("UPDATE conversations SET data=json_set(data,'$.runId',?) WHERE id=?").run(
+      run.id,
+      conversation.id,
+    );
+    db.exec("COMMIT");
+    await openAgentRoute(page, session);
+    const card = page.getByTestId("collaboration-plan");
+    const approve = page.getByRole("button", { name: "Approve plan", exact: true });
+    await expect(approve).toBeVisible();
+    for (const viewport of [
+      { name: "desktop", width: 1280, height: 1000 },
+      { name: "phone", width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await card.scrollIntoViewIfNeeded();
+      await expect(card).toContainText(run.plan!.summary);
+      await expect(card).toContainText(run.plan!.architecture);
+      await expect(card).toContainText(run.plan!.acceptance[0]);
+      await expect(card).toContainText(task.title);
+      await expect(card).toContainText(task.description);
+      await expect(card).toContainText(task.files[0]);
+      await expect(card).toContainText(task.acceptance[0]);
+      const bounds = await card.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+      const cardHeader = card.getByRole("button", { name: "Plan", exact: true });
+      await cardHeader.click();
+      await expect(card).not.toContainText(task.description);
+      await expect(approve).toBeVisible();
+      await cardHeader.click();
+      await expect(card.getByText(task.description, { exact: true })).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath(`plan-${viewport.name}.png`) });
+    }
+    // Leaving the pending stage must retain this notice's original plan in the timeline.
+    await client.collaborationCommand("run.control", { id: run.id, action: "cancel" });
+    await expect(approve).toHaveCount(0);
+    await page.reload({ waitUntil: "commit" });
+    await expect(card).toContainText(run.plan!.architecture);
+    await expect(card).toContainText(task.description);
+  } finally {
+    db?.close();
+    await client.close();
+    await session.cleanup();
+  }
+});
+
 async function seedAcceptance(local = true) {
   const session = await seedMockAgentWorkspace({
     repoPrefix: "collaboration-delivery-",

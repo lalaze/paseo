@@ -51,8 +51,13 @@ export function readCollaborationPrompt(raw: string) {
 
 const NoticeSchema = z.object({
   message: z.string(),
+  plan: PlanSchema.optional(),
   confirmation: z
-    .object({ kind: z.enum(["plan", "final"]), reply: z.string().optional() })
+    .object({
+      kind: z.enum(["plan", "final"]),
+      key: z.string().optional(),
+      reply: z.string().optional(),
+    })
     .optional(),
 });
 /** Decode a background notice sent to the main Agent: marker line, one prose line, then JSON. */
@@ -68,7 +73,20 @@ export function readCollaborationNotice(id: string, raw: string) {
       message: data.message,
       confirmation: data.confirmation?.kind,
       reply: data.confirmation?.reply,
+      plan: data.plan ?? persistedNoticePlan(data.confirmation),
     };
+  } catch {
+    return;
+  }
+}
+
+// COMPAT(collaborationPlanNotice): added in v0.11.1, remove after 2027-04-13 once saved notices carry plan.
+function persistedNoticePlan(confirmation: z.infer<typeof NoticeSchema>["confirmation"]) {
+  if (confirmation?.kind !== "plan" || !confirmation.key) return;
+  const prefix = /^plan:\d+:/u.exec(confirmation.key);
+  if (!prefix) return;
+  try {
+    return PlanSchema.parse(JSON.parse(confirmation.key.slice(prefix[0].length)));
   } catch {
     return;
   }

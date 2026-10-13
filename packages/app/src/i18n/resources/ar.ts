@@ -125,6 +125,10 @@ export const ar: TranslationResources = {
       approval: "التعاون · بانتظار اعتماد الخطة",
       acceptance: "التعاون · بانتظار القبول",
       enabled: "التعاون · مُفعّل",
+      architecture: "البنية",
+      tasks: "مهام التنفيذ",
+      files: "الملفات",
+      dependsOn: "يعتمد على",
       acceptanceCriteria: "معايير القبول",
     },
     confirmation: {

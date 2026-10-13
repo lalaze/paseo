@@ -123,6 +123,10 @@ export const zhCN: TranslationResources = {
       approval: "协作 · 待批准方案",
       acceptance: "协作 · 待验收",
       enabled: "协作 · 已启用",
+      architecture: "实现方案",
+      tasks: "实施任务",
+      files: "涉及文件",
+      dependsOn: "前置任务",
       acceptanceCriteria: "验收标准",
     },
     confirmation: {

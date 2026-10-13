@@ -128,6 +128,10 @@ export const ptBR: TranslationResources = {
       approval: "Colaboração · aguardando aprovação do plano",
       acceptance: "Colaboração · aguardando aceite",
       enabled: "Colaboração · ativada",
+      architecture: "Arquitetura",
+      tasks: "Tarefas de implementação",
+      files: "Arquivos",
+      dependsOn: "Depende de",
       acceptanceCriteria: "Critérios de aceite",
     },
     confirmation: {

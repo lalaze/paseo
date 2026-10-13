@@ -4,6 +4,7 @@ import {
   readCollaborationPrompt,
 } from "@getpaseo/protocol/collaboration/presentation";
 import type { UserMessageItem } from "@/types/stream";
+import type { Plan } from "@getpaseo/protocol/collaboration/schema";
 
 export type CollaborationMessageStage =
   | "plan"
@@ -22,6 +23,7 @@ export interface CollaborationMessageSummary {
   /** What the main Agent was told, without the scheduler marker or JSON context. */
   instructions: string;
   acceptance: string[];
+  plan?: Plan;
 }
 
 const TAKEOVER_MARKER = "\n\n[paseo-director-takeover]\n";
@@ -51,6 +53,7 @@ export function collaborationMessageSummary(
       text: notice.message,
       instructions: joinParagraphs(notice.instruction, notice.reply),
       acceptance: [],
+      ...(notice.plan ? { plan: notice.plan } : {}),
     };
   }
   const boundary = item.text.indexOf(TAKEOVER_MARKER);

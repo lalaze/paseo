@@ -129,6 +129,10 @@ export const es: TranslationResources = {
       approval: "Colaboración · pendiente de aprobar el plan",
       acceptance: "Colaboración · pendiente de aceptación",
       enabled: "Colaboración · activada",
+      architecture: "Arquitectura",
+      tasks: "Tareas de implementación",
+      files: "Archivos",
+      dependsOn: "Depende de",
       acceptanceCriteria: "Criterios de aceptación",
     },
     confirmation: {

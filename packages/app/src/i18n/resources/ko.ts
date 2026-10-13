@@ -125,6 +125,10 @@ export const ko: TranslationResources = {
       approval: "협업 · 계획 승인 대기",
       acceptance: "협업 · 인수 확인 대기",
       enabled: "협업 · 활성화됨",
+      architecture: "설계",
+      tasks: "구현 작업",
+      files: "파일",
+      dependsOn: "선행 작업",
       acceptanceCriteria: "인수 기준",
     },
     confirmation: {

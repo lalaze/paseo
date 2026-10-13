@@ -126,6 +126,10 @@ export const ja: TranslationResources = {
       approval: "共同作業 · 計画の承認待ち",
       acceptance: "共同作業 · 受け入れ待ち",
       enabled: "共同作業 · 有効",
+      architecture: "設計",
+      tasks: "実装タスク",
+      files: "対象ファイル",
+      dependsOn: "前提タスク",
       acceptanceCriteria: "受け入れ基準",
     },
     confirmation: {

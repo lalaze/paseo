@@ -5,8 +5,10 @@ import { useTranslation } from "react-i18next";
 import { Users } from "lucide-react-native";
 import type { UserMessageItem } from "@/types/stream";
 import { ExpandableBadge } from "@/components/message";
+import { PlanCard } from "@/components/plan-card";
 import { collaborationMessageSummary } from "./message-summary";
 import { CollaborationConfirmationActions } from "./confirmation-actions";
+import { collaborationPlanMarkdown } from "./plan-markdown";
 
 /** A stage row in the main conversation; the row itself discloses the Agent's instructions. */
 export function CollaborationMessage({
@@ -21,6 +23,16 @@ export function CollaborationMessage({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(() => collaborationMessageSummary(item), [item]);
+  const planText = useMemo(() => {
+    if (!summary?.plan) return;
+    return collaborationPlanMarkdown(summary.plan, {
+      architecture: t("collaboration.message.architecture"),
+      acceptanceCriteria: t("collaboration.message.acceptanceCriteria"),
+      tasks: t("collaboration.message.tasks"),
+      files: t("collaboration.message.files"),
+      dependsOn: t("collaboration.message.dependsOn"),
+    });
+  }, [summary, t]);
   const toggle = useCallback(() => setExpanded((previous) => !previous), []);
   const renderDetails = useCallback(() => {
     if (!summary) return null;
@@ -68,6 +80,7 @@ export function CollaborationMessage({
   return (
     <View>
       {badge}
+      {planText ? <PlanCard text={planText} testID="collaboration-plan" /> : null}
       <CollaborationConfirmationActions serverId={serverId} agentId={agentId} noticeId={noticeId} />
     </View>
   );

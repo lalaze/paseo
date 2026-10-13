@@ -1,6 +1,7 @@
 import { test, expect } from "vitest";
 import { ENABLE_COLLABORATION_MESSAGE } from "@getpaseo/protocol/collaboration/conversation";
 import { collaborationMessageSummary } from "./message-summary";
+import { collaborationPlanMarkdown } from "./plan-markdown";
 
 const operationId = "0f8b3c1e-2a4d-4b6f-8c9e-1d2f3a4b5c6d";
 
@@ -21,6 +22,62 @@ const task = {
   dependsOn: [],
   acceptance: ["空输入报错"],
 };
+
+const plan = {
+  summary: "修复输入校验",
+  architecture: "在接口边界校验，保留已有请求格式。",
+  acceptance: ["空输入报错且有效请求正常处理"],
+  tasks: [task, { ...task, id: "task-2", title: "验证接口", dependsOn: [task.id] }],
+};
+
+test.each(["snapshot", "persisted key"])(
+  "plan approval exposes the full plan from its %s",
+  (source) => {
+    const id = "chat-notice:chat-1:plan:0";
+    const summary = collaborationMessageSummary({
+      clientMessageId: id,
+      text: notice(id, "方案等待用户批准。", {
+        message: "总纲已生成，等待查看并批准",
+        ...(source === "snapshot" ? { plan } : {}),
+        confirmation: { kind: "plan", key: `plan:2:${JSON.stringify(plan)}` },
+      }),
+    });
+    expect(summary?.stage).toBe("approval");
+    expect(summary?.plan).toEqual(plan);
+    expect(
+      collaborationPlanMarkdown(summary!.plan!, {
+        architecture: "实现方案",
+        acceptanceCriteria: "验收标准",
+        tasks: "实施任务",
+        files: "涉及文件",
+        dependsOn: "前置任务",
+      }),
+    ).toBe(
+      "修复输入校验\n\n## 实现方案\n\n在接口边界校验，保留已有请求格式。\n\n" +
+        "## 验收标准\n\n- 空输入报错且有效请求正常处理\n\n## 实施任务\n\n" +
+        "### 校验输入\n\n拒绝空输入\n\n**涉及文件**\n\n- src/input.ts\n\n**验收标准**\n\n- 空输入报错\n\n" +
+        "### 验证接口\n\n拒绝空输入\n\n**涉及文件**\n\n- src/input.ts\n\n**验收标准**\n\n- 空输入报错\n\n" +
+        "**前置任务**\n\n- 校验输入",
+    );
+  },
+);
+
+test("malformed persisted plan keys keep the approval notice readable", () => {
+  const id = "chat-notice:chat-1:plan:0";
+  const summary = collaborationMessageSummary({
+    clientMessageId: id,
+    text: notice(id, "方案等待用户批准。", {
+      message: "等待批准方案",
+      confirmation: { kind: "plan", key: "plan:1:{" },
+    }),
+  });
+  expect(summary).toEqual({
+    stage: "approval",
+    text: "等待批准方案",
+    instructions: "方案等待用户批准。",
+    acceptance: [],
+  });
+});
 
 test("operation prompts show the task and readable instructions without the JSON context", () => {
   const summary = collaborationMessageSummary({

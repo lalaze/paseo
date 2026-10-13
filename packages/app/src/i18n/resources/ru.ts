@@ -127,6 +127,10 @@ export const ru: TranslationResources = {
       approval: "Совместная работа · ожидает утверждения плана",
       acceptance: "Совместная работа · ожидает приёмки",
       enabled: "Совместная работа · включена",
+      architecture: "Архитектура",
+      tasks: "Задачи реализации",
+      files: "Файлы",
+      dependsOn: "Предшествующие задачи",
       acceptanceCriteria: "Критерии приёмки",
     },
     confirmation: {
