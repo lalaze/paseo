@@ -14,7 +14,6 @@ import { useCollaboration } from "./use-collaboration";
 // the buttons send the phrase itself; the main Agent then confirms it like a typed reply.
 const REPLIES = {
   approvePlan: "批准方案",
-  accept: "验收通过",
   acceptAndMerge: "验收并合并",
   reject: "不采纳成果",
 } as const;
@@ -155,7 +154,6 @@ export function CollaborationConfirmationActions(props: ConfirmationActionsProps
   } = useConfirmationActions(props);
   const { noticeId } = props;
   const approvePlan = useCallback(() => void send("approvePlan"), [send]);
-  const accept = useCallback(() => void send("accept"), [send]);
   const acceptAndMerge = useCallback(() => void send("acceptAndMerge"), [send]);
   const reject = useCallback(() => void send("reject"), [send]);
   const activeCard = confirmation?.noticeId === noticeId;
@@ -179,7 +177,6 @@ export function CollaborationConfirmationActions(props: ConfirmationActionsProps
             busy={busy}
             merging={sent === "acceptAndMerge"}
             onMerge={acceptAndMerge}
-            onAccept={accept}
             onReject={reject}
           />
         )}
@@ -210,7 +207,6 @@ function FinalConfirmationButtons({
   busy,
   merging,
   onMerge,
-  onAccept,
   onReject,
 }: {
   canMerge: boolean;
@@ -219,42 +215,29 @@ function FinalConfirmationButtons({
   busy: boolean;
   merging: boolean;
   onMerge(): void;
-  onAccept(): void;
   onReject(): void;
 }) {
   const { t } = useTranslation();
   return (
     <>
-      {canMerge ? (
-        <Button
-          size="sm"
-          variant="default"
-          disabled={busy}
-          onPress={onMerge}
-          loading={merging}
-          testID="collaboration-accept-and-merge"
-        >
-          {t(
-            retry
-              ? "collaboration.confirmation.retryMerge"
-              : "collaboration.confirmation.acceptAndMerge",
-          )}
-        </Button>
-      ) : null}
+      <Button
+        size="sm"
+        variant="default"
+        disabled={busy || !canMerge}
+        onPress={onMerge}
+        loading={merging}
+        testID="collaboration-accept-and-merge"
+      >
+        {t(
+          retry
+            ? "collaboration.confirmation.retryMerge"
+            : "collaboration.confirmation.acceptAndMerge",
+        )}
+      </Button>
       {activeCard ? (
-        <>
-          <Button
-            size="sm"
-            variant={canMerge ? "outline" : "default"}
-            disabled={busy}
-            onPress={onAccept}
-          >
-            {t("collaboration.confirmation.accept")}
-          </Button>
-          <Button size="sm" variant="outline" disabled={busy} onPress={onReject}>
-            {t("collaboration.confirmation.reject")}
-          </Button>
-        </>
+        <Button size="sm" variant="outline" disabled={busy} onPress={onReject}>
+          {t("collaboration.confirmation.reject")}
+        </Button>
       ) : null}
     </>
   );

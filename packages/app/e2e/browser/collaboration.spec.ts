@@ -8,7 +8,7 @@ import { expect, test } from "../support/fixtures";
 import type { Page } from "@playwright/test";
 import { seedMockAgentWorkspace, openAgentRoute } from "../support/helpers/mock-agent";
 import { getServerId } from "../support/helpers/server-id";
-import { composerLocator } from "../support/helpers/composer";
+import { composerLocator, submitMessageWithButton } from "../support/helpers/composer";
 import { openCommandCenter } from "../support/helpers/command-center";
 import { connectDaemonClient } from "../support/helpers/daemon-client-loader";
 import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
@@ -262,7 +262,7 @@ test("accept and merge delivers the reviewed files without exiting collaboration
     await openAgentRoute(page, fixture.session);
     const merge = page.getByTestId("collaboration-accept-and-merge");
     await expect(merge).toBeVisible();
-    await expect(page.getByRole("button", { name: "Accept", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Accept", exact: true })).toHaveCount(0);
     for (const viewport of [
       { name: "desktop", width: 1280, height: 900 },
       { name: "phone", width: 390, height: 844 },
@@ -286,6 +286,34 @@ test("accept and merge delivers the reviewed files without exiting collaboration
         (entry) => entry.id === fixture.conversation.id,
       )?.disabledAt,
     ).toBeUndefined();
+    for (const viewport of [
+      { name: "desktop", width: 1280, height: 900 },
+      { name: "phone", width: 390, height: 844 },
+    ]) {
+      await fixture.session.client.waitForAgentUpsert(
+        fixture.session.agentId,
+        (agent) => agent.status === "idle",
+      );
+      await page.setViewportSize(viewport);
+      await page.reload({ waitUntil: "commit" });
+      const question = `验收合并后继续对话：刚才改了哪些文件？（${viewport.name}）`;
+      await submitMessageWithButton(page, question);
+      const prompt = page.getByTestId("user-message").filter({ hasText: question });
+      const response = prompt.locator('xpath=following::*[@data-testid="assistant-message"]');
+      await expect(prompt).toBeVisible();
+      await expect(response.first()).toContainText("Cycle 1");
+      await expect(response.filter({ hasText: "end of synthetic stream" }).first()).toBeVisible();
+      const current = (await fixture.client.collaborationCommand("status")).conversations.find(
+        (entry) => entry.id === fixture.conversation.id,
+      )!;
+      expect(current.agentId).toBe(fixture.session.agentId);
+      expect(current.disabledAt).toBeUndefined();
+      expect(current.run?.id).toBe(fixture.run.id);
+      expect(current.run?.phase).toBe("completed");
+      expect(current.run?.deliveryStatus).toBe("merged");
+      await prompt.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`chat-after-merge-${viewport.name}.png`) });
+    }
   } finally {
     await fixture.cleanup();
   }

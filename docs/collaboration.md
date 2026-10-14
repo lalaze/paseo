@@ -108,7 +108,8 @@ message, so they pass the same check; the host reports which notice is pending
 Choose **Accept and merge** on the final card, or reply `验收并合并`, to accept the result,
 commit the reviewed changes and merge into the exact local branch you started from. The host
 performs delivery, so you stay in the same conversation and do not copy worktree paths or branch
-names. It never pushes or deploys. **Accept** / `验收通过` only accepts the result; afterward you
+names. It never pushes or deploys. The final card offers **Accept and merge** and **Reject**;
+merging requires a host supporting delivery and a recorded target branch. Replying `验收通过` only accepts the result; afterward you
 can reply `合并成果` in the same conversation to deliver it. Delivery includes the whole reviewed
 snapshot, including pre-existing changes reviewed in Local mode. Inspect that diff before accepting.
 For older tasks or detached HEAD without a recorded launch branch, reply `合并成果到 <branch>` once
@@ -122,6 +123,12 @@ If the accepted snapshot is unchanged, finishing repair retries delivery. Change
 through implementation verification, review and your acceptance again before it reaches the
 target branch. The repair owns both checkouts until it finishes or is canceled; other
 collaboration tasks cannot claim them while it is repairing or paused.
+
+Acceptance and merging keep the main conversation open. You can ask questions about the result
+without starting another round. To fix an omission or change the result, describe it in that same
+conversation. The main Agent requests changes on the existing task, retaining its goal, workspace,
+branch and role sessions. The next round goes through execution, review and your acceptance again;
+the previous acceptance does not authorize merging the new changes.
 
 ## Conversation timeline
 

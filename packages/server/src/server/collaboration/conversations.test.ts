@@ -466,14 +466,70 @@ for (const { reply, retry } of [
       assert.equal(delivered.targetBranch, "feature/original");
       assert.equal(h.chats.summary(c.id).run?.sourceBranch, "feature/original");
     }
+    const deliveredRun = h.chats.summary(c.id).run!;
+    const mainAgentId = c.agentId!;
+    const workerAgentId = deliveredRun.tasks[0].agentId;
+    h.gateway.user(mainAgentId, "after-acceptance-question", "刚才改了哪些文件？");
+    h.gateway.idle(mainAgentId);
+    const afterQuestion = await h.chats.status(c.id);
+    await h.chats.tick();
+    await h.engine.tick();
+    assert.equal(afterQuestion.latestUserMessage!.id, "after-acceptance-question");
+    const questionRun = h.chats.summary(c.id).run!;
+    assert.equal(questionRun.phase, "completed");
+    assert.equal(questionRun.activeOperationId, undefined);
+    assert.equal(h.store.conversation(c.id).agentId, mainAgentId);
+    h.gateway.idle(mainAgentId);
     h.gateway.user(c.agentId!, "change", "请补充输入校验");
     await h.chats.control(c.id, {
       action: "request_changes",
       sourceMessageId: "change",
       feedback: "补充输入校验",
     });
-    assert.equal(h.chats.summary(c.id).run?.phase, "planning");
-    assert.equal(h.chats.summary(c.id).run?.delivery, undefined);
+    const reopenedRun = h.chats.summary(c.id).run!;
+    assert.equal(reopenedRun.phase, "planning");
+    assert.equal(reopenedRun.delivery, undefined);
+    assert.equal(reopenedRun.userAcceptance, undefined);
+    const revisedDesign = await until("plan");
+    assert.equal(revisedDesign.agentId, mainAgentId);
+    await h.chats.submit(c.id, revisedDesign.id, plan);
+    h.gateway.idle(mainAgentId);
+    await h.engine.tick();
+    const revisedWorker = await until("execute");
+    assert.equal(revisedWorker.agentId, workerAgentId);
+    assert.match(revisedWorker.prompt, /补充输入校验/);
+    h.repo.version = "artifact-v2";
+    h.gateway.states.set(revisedWorker.agentId!, {
+      status: "idle",
+      seen: true,
+      output: JSON.stringify(result),
+    });
+    await h.engine.tick();
+    const revisedAudit = await until("final");
+    await h.chats.submit(c.id, revisedAudit.id, { ...review(true), artifactId: "artifact-v2" });
+    h.gateway.idle(mainAgentId);
+    await h.engine.tick();
+    assert.equal(h.chats.summary(c.id).run!.phase, "awaiting_acceptance");
+    assert.equal(h.repo.merges, mergeAttempts);
+    await h.chats.tick();
+    h.gateway.idle(mainAgentId);
+    const revisedConfirmation = h.chats.summary(c.id).confirmation!;
+    assert.notEqual(revisedConfirmation.key, pending.key);
+    h.gateway.user(mainAgentId, "accept-revision", "验收并合并");
+    await h.chats.confirm(c.id, {
+      sourceMessageId: "accept-revision",
+      noticeId: revisedConfirmation.noticeId,
+    });
+    const revisedRun = h.chats.summary(c.id).run!;
+    assert.equal(revisedRun.id, deliveredRun.id);
+    assert.equal(revisedRun.cwd, deliveredRun.cwd);
+    assert.equal(revisedRun.sourceBranch, deliveredRun.sourceBranch);
+    assert.equal(revisedRun.phase, "completed");
+    assert.equal(revisedRun.userAcceptance!.decision, "approved");
+    assert.equal(revisedRun.delivery!.status, "merged");
+    assert.equal(h.repo.merges, mergeAttempts + 1);
+    assert.equal(h.store.conversation(c.id).agentId, mainAgentId);
+    assert.equal(h.store.conversation(c.id).disabledAt, undefined);
   });
 
 test("approval rejects quotes, model text, stale anchors and approvals before the question", () => {
