@@ -55,6 +55,8 @@ export interface AgentSnapshot {
   /** Real run ownership. `lifecycle === "error"` alone does not mean the turn has stopped. */
   ownership?: { inFlight: boolean; pendingPermissions: number; lifecycle: string };
   failure?: { code?: string; diagnostic?: string };
+  /** When the session last showed activity (epoch ms). */
+  activeAt?: number;
 }
 export interface AgentGateway {
   workspaceDirectory(workspaceId: string): Promise<string>;
@@ -249,6 +251,14 @@ export class Engine {
   private budgetExhausted(run: Run): boolean {
     const running = run.runningSince === undefined ? 0 : this.now() - run.runningSince;
     return (run.budgetUsedMs ?? 0) + running >= run.settings.runTimeoutMs;
+  }
+  /**
+   * The budget bounds running without the user, so it starts over whenever the user sets the run
+   * going again. Otherwise a run continued near the limit stops again within minutes.
+   */
+  private renewBudget(run: Run) {
+    run.budgetUsedMs = 0;
+    run.runningSince = undefined;
   }
   private hold(run: Run, message: string) {
     run.control = "needs_attention";
@@ -613,6 +623,14 @@ export class Engine {
     this.current(run)!.prompt += `\n${correction}`;
     this.save(run);
   }
+  /**
+   * The step limit catches a stuck turn, so it counts from the session's last activity. A step that
+   * keeps working runs on until it finishes or the time budget runs out.
+   */
+  private stepStalled(run: Run, op: Operation, state: AgentSnapshot) {
+    const lastActive = Math.max(op.sentAt ?? op.createdAt, state.activeAt ?? 0);
+    return this.now() - lastActive >= run.settings.turnTimeoutMs;
+  }
   private async observeOperation(run: Run, op: Operation) {
     const state = await this.agents.inspect(op.agentId!, op.id, op.createdAt);
     if (state.status === "missing") throw new Error(state.error ?? "AI 会话不可用");
@@ -657,10 +675,10 @@ export class Engine {
       this.event(run, `权限或提问已处理，继续跟进${this.describe(run, op).actor}本轮结果`);
       this.save(run);
     }
-    if (this.now() - (op.sentAt ?? op.createdAt) >= run.settings.turnTimeoutMs) {
+    if (this.stepStalled(run, op, state)) {
       run.control = "canceling";
       run.stopTarget = "needs_attention";
-      this.event(run, "当前步骤超时，正在停止 AI");
+      this.event(run, "当前步骤长时间没有进展，正在停止 AI");
       this.save(run);
       return true;
     }
@@ -716,7 +734,7 @@ export class Engine {
         run.executionRelay = this.failRelay(run.executionRelay, "时间预算已耗尽");
       run.control = "canceling";
       run.stopTarget = "needs_attention";
-      this.event(run, "已达到任务总时间上限，正在停止");
+      this.event(run, "已用完时间预算，正在停止 AI；继续后会重新计时");
       this.save(run);
       return true;
     }
@@ -1104,8 +1122,7 @@ export class Engine {
       },
     ];
     run.roundStartedAt = this.now();
-    run.budgetUsedMs = 0;
-    run.runningSince = undefined;
+    this.renewBudget(run);
     run.roundOperationOffset = run.operations.length;
     this.release(run.finalEvidence, ...run.tasks.map((candidateEntry) => candidateEntry.evidence));
     const executionAgentId = run.tasks[0]?.agentId;
@@ -1674,6 +1691,7 @@ export class Engine {
       throw new Error("当前步骤不能换模型继续");
     const sourceId = op.id;
     run.control = "running";
+    this.renewBudget(run);
     run.executionRelay = {
       ...relay,
       status: "stopping",
@@ -1718,13 +1736,13 @@ export class Engine {
       throw new Error("只有额度耗尽的执行步骤可以换模型");
     if (relay.operationId !== input.expectedOperationId || relay.token !== input.token)
       throw new Error("切换请求已过期，请刷新后重试");
-    if (this.budgetExhausted(run)) throw new Error("本轮任务总时间预算已耗尽，请创建新任务");
     await this.agents.validateExecutionModel(input.model);
     run.relayReceipts = {
       ...run.relayReceipts,
       [input.requestId]: { provider: input.model.provider, fingerprint },
     };
     run.control = "running";
+    this.renewBudget(run);
     run.executionRelay = {
       ...relay,
       status: "stopping",
@@ -1763,6 +1781,7 @@ export class Engine {
     // A manual retry starts a fresh automatic retry budget and keeps the current model.
     run.autoRetry = undefined;
     run.executionRelay = undefined;
+    this.renewBudget(run);
     return this.retryCurrent(run, "用户检查后重试当前步骤");
   }
   private async retryCurrent(run: Run, message: string) {
@@ -1779,8 +1798,6 @@ export class Engine {
       if (result.recovered) return true;
       outputError = result.outputError;
     }
-    // Recovering a result that already arrived spends no time; only another AI turn needs budget.
-    if (this.budgetExhausted(run)) throw new Error("本轮任务总时间预算已耗尽，请创建新任务");
     run.control = "running";
     if (op) {
       op.state = "abandoned";
@@ -1829,6 +1846,7 @@ export class Engine {
     run.planApprovedAt = undefined;
     run.phase = "planning";
     run.control = "running";
+    this.renewBudget(run);
     if (collaborationMode(run) === "execute_review") {
       this.initializeDirectExecution(run, executionAgentId);
       return;
@@ -1845,6 +1863,7 @@ export class Engine {
     run.planApproved = true;
     run.planApprovedAt = this.now();
     run.control = "running";
+    this.renewBudget(run);
     this.event(run, "总纲已批准");
   }
   private assertControlState(run: Run, action: ControlAction) {
@@ -1890,6 +1909,7 @@ export class Engine {
           if (!recoveringMerge && !canResumeRun(run))
             throw new Error("请使用检查后重试，避免重复发送未确认的指令");
           run.control = "running";
+          this.renewBudget(run);
           this.event(run, "继续执行");
         }
         if (action === "retry") {

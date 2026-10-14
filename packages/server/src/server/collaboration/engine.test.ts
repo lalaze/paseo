@@ -493,7 +493,7 @@ test("retry recovers a submitted final review left behind by the old rework-limi
   assert.ok(awaitingAcceptance(h.run()));
   assert.equal(h.agents.sent.length, sent);
 });
-test("the time budget counts running time only", async (t) => {
+test("the time budget counts running time only and starts over when the user continues", async (t) => {
   // A short budget keeps the pause below the separate per-turn timeout.
   const h = await harness({ runTimeoutMs: 60000, turnTimeoutMs: 7200000 });
   t.onTestFinished(() => h.cleanup());
@@ -501,24 +501,30 @@ test("the time budget counts running time only", async (t) => {
   await h.complete(plan);
   const op = await h.until("execute");
   const budget = h.run().settings.runTimeoutMs;
+  h.elapse(budget - 1000);
   await h.engine.control(h.id, "pause");
   // Paused, blocked or waiting time is free.
   h.elapse(budget * 3);
+  // Resuming sets the run going with the whole budget, not the second left before the pause.
   await h.engine.control(h.id, "resume");
+  h.elapse(budget - 1000);
   await h.engine.tick();
   assert.equal(h.run().control, "running");
-  assert.ok(h.run().budgetUsedMs! < budget);
   // Running time counts, including a long turn that saves nothing in between.
-  h.elapse(budget);
+  h.elapse(1000);
   await h.engine.tick();
   assert.equal(h.run().control, "canceling");
-  assert.match(h.run().message, /总时间上限/);
-  // A retry that would dispatch another AI turn is refused once the budget is spent.
-  const stopped = h.run();
-  stopped.control = "needs_attention";
-  h.store.save(stopped);
-  h.agents.states.set(op.agentId!, { status: "idle", seen: true, output: "" });
-  await assert.rejects(h.engine.control(h.id, "retry"), /时间预算已耗尽/);
+  assert.match(h.run().message, /时间预算/);
+  await h.engine.tick();
+  assert.equal(h.run().control, "needs_attention");
+  assert.deepEqual(h.agents.stopped, [op.agentId]);
+  // Continuing after the budget ran out dispatches again on a fresh budget instead of stopping.
+  await h.engine.control(h.id, "retry");
+  const retried = await h.until("execute");
+  assert.notEqual(retried.id, op.id);
+  h.elapse(budget - 1000);
+  await h.engine.tick();
+  assert.equal(h.run().control, "running");
 });
 test("failed automatic verification cannot be overridden by director approval", async (t) => {
   const h = await harness();
@@ -753,6 +759,25 @@ test("timeout first stops the AI before offering retry", async (t) => {
   assert.equal(h.run().control, "needs_attention");
   assert.deepEqual(h.agents.stopped, [op.agentId]);
 });
+test("the step limit stops a silent turn, not one that keeps working", async (t) => {
+  const h = await harness({ turnTimeoutMs: 1000 });
+  t.onTestFinished(() => h.cleanup());
+  const op = await h.until("plan");
+  h.elapse(800);
+  h.agents.states.set(op.agentId!, {
+    status: "running",
+    seen: true,
+    output: "",
+    activeAt: h.now(),
+  });
+  h.elapse(800);
+  await h.engine.tick();
+  assert.equal(h.run().control, "running");
+  h.elapse(200);
+  await h.engine.tick();
+  assert.equal(h.run().control, "canceling");
+  assert.match(h.run().message, /没有进展/);
+});
 test("manual steering invalidates automatic consumption of the old turn", async (t) => {
   const h = await harness();
   t.onTestFinished(() => h.cleanup());
@@ -954,6 +979,20 @@ test("stopping skips sessions that are not loaded and reports a refused interrup
   await gateway.stop("live");
   await assert.rejects(gateway.stop("stuck"), /拒绝停止/);
   assert.deepEqual(canceled, ["live", "stuck"]);
+});
+test("inspecting a session reports when it last showed activity", async () => {
+  const updatedAt = new Date("2026-10-14T15:42:00Z");
+  const host = {
+    agentStorage: { get: async () => ({ id: "worker", labels: {} }) },
+    agentManager: {
+      getAgent: () => ({ lifecycle: "running", pendingPermissions: new Map(), updatedAt }),
+      hasInFlightRun: () => true,
+      getTimelineRows: async () => [],
+    },
+  } as unknown as CollaborationHost;
+  const state = await new CollaborationGateway(host).inspect("worker", "operation");
+  assert.equal(state.status, "running");
+  assert.equal(state.activeAt, updatedAt.getTime());
 });
 
 describe("worker session continuity", () => {

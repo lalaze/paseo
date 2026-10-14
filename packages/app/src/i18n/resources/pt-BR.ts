@@ -45,7 +45,7 @@ export const ptBR: TranslationResources = {
       runHours_one: "{{count}} hora",
       runHours_other: "{{count}} horas",
       runTimeoutHint:
-        "Conta só o tempo em que a tarefa está em execução; pausas, bloqueios e esperas não contam. Um pedido de alterações inicia uma nova rodada com orçamento renovado.",
+        "Conta só o tempo em que a tarefa está em execução; pausas, bloqueios e esperas não contam. Cada vez que você a continua ou pede alterações, o orçamento recomeça.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

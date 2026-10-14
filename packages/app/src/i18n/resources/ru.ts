@@ -45,7 +45,7 @@ export const ru: TranslationResources = {
       runHours_one: "{{count}} ч",
       runHours_other: "{{count}} ч",
       runTimeoutHint:
-        "Учитывается только время, пока задача выполняется; паузы, блокировки и ожидание вас не считаются. Запрос изменений начинает новый цикл с новым бюджетом.",
+        "Учитывается только время, пока задача выполняется; паузы, блокировки и ожидание вас не считаются. Каждый раз, когда вы продолжаете задачу или запрашиваете изменения, бюджет начинается заново.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

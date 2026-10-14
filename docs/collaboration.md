@@ -152,12 +152,17 @@ The rows are parsed from message text (`packages/app/src/collaboration/message-s
 messages persisted by older hosts must keep parsing. Keep a notice's instruction on the single line
 between its marker and its JSON, and keep new JSON fields optional.
 
-The time budget counts only time the run is running. Paused, blocked (needs attention), waiting
-for permission and awaiting acceptance time is free; the engine meters this at each control change
-(`runningSince`, `budgetUsedMs`). A round stops once its budget is used up. Retry still picks up a
-result that arrived in time, since that needs no new AI turn; anything that would dispatch again is
-refused. Requesting changes starts a new round with a fresh budget. Runs saved before metering
-start with an empty budget.
+The time budget bounds how long a run keeps going without you. It counts only running time:
+paused, blocked (needs attention), waiting for permission and awaiting acceptance time is free; the
+engine meters this at each control change (`runningSince`, `budgetUsedMs`). When the budget is used
+up the run stops and waits for you. Approving the plan, resuming, retrying, **Switch model and
+continue**, revising and requesting changes each start it over, because a run continued near the
+limit would otherwise stop again within minutes. Automatic backup-model handoffs do not. Runs saved
+before metering start with an empty budget.
+
+The step limit (30 minutes) catches a stuck step, so it counts from the session's last activity. A
+step that keeps working runs until it finishes or the time budget runs out; a silent one is stopped
+and waits for retry.
 
 To add a detail without changing the goal ("don't commit the measurements"), tell the main Agent.
 It records a note with `control_task` `note`; every later execution and review step receives the

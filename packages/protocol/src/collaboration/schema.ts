@@ -337,7 +337,7 @@ export interface Run {
   notes?: { text: string; at: number }[];
   /** Explicit user-requested rounds get their own bounded execution budget. */
   roundStartedAt?: number;
-  /** Running time already spent this round. Paused, blocked and waiting time is not counted. */
+  /** Running time since the user last set the run going; paused and waiting time is free. */
   budgetUsedMs?: number;
   /** When the run last started running; absent while it is not running. */
   runningSince?: number;

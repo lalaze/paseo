@@ -45,7 +45,7 @@ export const fr: TranslationResources = {
       runHours_one: "{{count}} heure",
       runHours_other: "{{count}} heures",
       runTimeoutHint:
-        "Seul le temps d’exécution de la tâche est compté ; les pauses, blocages et attentes ne le sont pas. Une demande de modifications démarre un nouveau cycle avec un budget neuf.",
+        "Seul le temps d’exécution de la tâche est compté ; les pauses, blocages et attentes ne le sont pas. Chaque fois que vous la relancez ou demandez des modifications, le budget repart à zéro.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

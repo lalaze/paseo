@@ -349,6 +349,26 @@ test("a manual switch is idempotent and rejects stale, canceled or non-quota req
   );
 });
 
+test("a manual switch after the time budget ran out continues on a fresh budget", async (t) => {
+  const { h, worker } = await executing();
+  t.onTestFinished(() => h.cleanup());
+  fail(h.agents, worker.agentId!, QUOTA);
+  await h.engine.tick();
+  const blocked = h.run();
+  blocked.budgetUsedMs = blocked.settings.runTimeoutMs;
+  h.store.save(blocked);
+  const { operationId } = await h.engine.switchExecutor(h.id, {
+    expectedOperationId: worker.id,
+    token: blocked.executionRelay!.token,
+    requestId: "switch-after-budget",
+    model: { provider: "vendor-c/model-c", thinkingOptionId: "low" },
+  });
+  const switched = await h.until("execute");
+  assert.equal(switched.id, operationId);
+  await h.engine.tick();
+  assert.equal(h.run().control, "running");
+});
+
 test("stop failure does not start a replacement, and the same request can retry", async (t) => {
   const { h, worker } = await executing();
   t.onTestFinished(() => h.cleanup());

@@ -42,7 +42,7 @@ export const en = {
       runHours_one: "{{count}} hour",
       runHours_other: "{{count}} hours",
       runTimeoutHint:
-        "Counts only time the task is running; paused, blocked and waiting time is free. Requesting changes starts a new round with a fresh budget.",
+        "Counts only time the task is running; paused, blocked and waiting time is free. Each time you continue it or request changes, the budget starts over.",
       provider: "Provider",
       model: "Model",
       noProviders: "No providers available",

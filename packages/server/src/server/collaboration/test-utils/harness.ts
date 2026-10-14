@@ -329,6 +329,7 @@ export async function harness(overrides = {}, mode?: CollaborationMode) {
       const run = store.get(id);
       return run.operations.find((o) => o.id === run.activeOperationId);
     },
+    now: () => now,
     elapse(ms: number) {
       now += ms;
     },

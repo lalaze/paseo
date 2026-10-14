@@ -44,7 +44,7 @@ export const ja: TranslationResources = {
       runHours_one: "{{count}} 時間",
       runHours_other: "{{count}} 時間",
       runTimeoutHint:
-        "タスクが実際に動いている時間だけを数えます。一時停止・停止中・あなたの対応待ちの時間は含みません。修正依頼を出すと新しいラウンドとして再計時されます。",
+        "タスクが実際に動いている時間だけを数えます。一時停止・停止中・あなたの対応待ちの時間は含みません。続行や修正依頼のたびに再計時されます。",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,

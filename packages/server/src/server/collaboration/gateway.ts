@@ -346,6 +346,8 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
         lifecycle: agent.lifecycle,
       },
       ...(code ? { failure: { code } } : {}),
+      // The agent manager stamps every live stream event here.
+      activeAt: agent.updatedAt.getTime(),
     };
   }
   async validateExecutionModel(model: ExecutionModel) {

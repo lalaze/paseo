@@ -43,7 +43,7 @@ export const zhCN: TranslationResources = {
       runHours_one: "{{count}} 小时",
       runHours_other: "{{count}} 小时",
       runTimeoutHint:
-        "只计算任务实际运行的时间，暂停、受阻和等待你的时间不计入；提出修改意见会开始新一轮并重新计时。",
+        "只计算任务实际运行的时间，暂停、受阻和等待你的时间不计入；每次你让任务继续或提出修改意见，都会重新计时。",
       provider: "提供商",
       model: "模型",
       noProviders: "暂无可用提供商",

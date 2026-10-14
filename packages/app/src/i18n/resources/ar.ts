@@ -44,7 +44,7 @@ export const ar: TranslationResources = {
       runHours_one: "{{count}} ساعة",
       runHours_other: "{{count}} ساعة",
       runTimeoutHint:
-        "يُحتسب وقت تشغيل المهمة فقط؛ ولا تُحتسب أوقات الإيقاف المؤقت أو التعطل أو انتظارك. وطلب التعديلات يبدأ جولة جديدة بميزانية جديدة.",
+        "يُحتسب وقت تشغيل المهمة فقط؛ ولا تُحتسب أوقات الإيقاف المؤقت أو التعطل أو انتظارك. وفي كل مرة تتابع فيها المهمة أو تطلب تعديلات تبدأ الميزانية من جديد.",
       provider: en.collaboration.launch.provider,
       model: en.collaboration.launch.model,
       noProviders: en.collaboration.launch.noProviders,
