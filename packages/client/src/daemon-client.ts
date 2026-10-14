@@ -1,6 +1,7 @@
 import {
   CollaborationStateSchema,
   type CollaborationCommand,
+  type SwitchExecutorInput,
 } from "@getpaseo/protocol/collaboration/rpc";
 import { legacyUsageIcon } from "./legacy-usage-icons.js";
 import { subscribeTimeline, type TimelineMessage } from "./timeline-subscription/index.js";
@@ -6090,9 +6091,15 @@ export class DaemonClient {
     });
   }
 
+  async switchCollaborationExecutor(input: SwitchExecutorInput) {
+    return this.collaborationCommand("run.switch_executor", input);
+  }
+
   async collaborationCommand(command: CollaborationCommand, input: unknown = {}) {
-    if (!this.getLastServerInfoMessage()?.features?.collaboration)
-      throw new Error("请更新主机以使用内置协作");
+    const features = this.getLastServerInfoMessage()?.features;
+    if (!features?.collaboration) throw new Error("请更新主机以使用内置协作");
+    if (command === "run.switch_executor" && !features.collaborationExecutionHandoff)
+      throw new Error("请更新主机以使用执行模型接力");
     const response = await this.sendCorrelatedSessionRequest({
       message: { type: "collaboration.command.request", command, input },
       responseType: "collaboration.command.response",

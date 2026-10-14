@@ -24,7 +24,9 @@ import { useWorkspaceFields } from "@/stores/session-store-hooks";
 import { LaunchIsolationOptions, LaunchModeOptions } from "./launch-mode-options";
 import { LaunchGoal } from "./launch-goal";
 import { LaunchSummary } from "./launch-summary";
+import { FallbackEditor } from "./fallback-editor";
 import { enableCollaboration, type CollaborationTarget } from "./launch";
+import { canStartCollaboration } from "./launch-quick";
 import {
   MAX_REWORKS_LIMIT,
   RUN_TIMEOUT_HOURS,
@@ -33,6 +35,7 @@ import {
   type LaunchSnapshot,
   type LaunchSelections,
   type LaunchRole,
+  type ModelSelection,
 } from "./launch-model";
 import { closeCollaborationLaunch, useCollaborationLaunchStore } from "./launch-store";
 import { rememberLaunch, rememberedLaunch } from "./launch-preferences";
@@ -70,10 +73,10 @@ function LaunchDialog({ target }: { target: CollaborationTarget }) {
     else if (pathname !== configPath) setClosing(true);
   }, [pathname, origin, configPath]);
   const configure = useCallback(
-    (selections: LaunchSelections, limits: LaunchLimits) => {
+    (selections: LaunchSelections, limits: LaunchLimits, fallbacks: ModelSelection[]) => {
       useCollaborationLaunchStore.setState((state) => ({
         configuring: true,
-        request: state.request ? { ...state.request, selections, limits } : null,
+        request: state.request ? { ...state.request, selections, limits, fallbacks } : null,
       }));
       router.push(configPath);
     },
@@ -117,21 +120,28 @@ interface ModePickerProps {
   target: CollaborationTarget;
   snapshot: LaunchSnapshot;
   visible: boolean;
-  onConfigure: (selections: LaunchSelections, limits: LaunchLimits) => void;
+  onConfigure: (
+    selections: LaunchSelections,
+    limits: LaunchLimits,
+    fallbacks: ModelSelection[],
+  ) => void;
   onClose: () => void;
   onDismiss: () => void;
   onRetry: () => void;
   error: string | null;
   supported: boolean;
 }
-function canStartLaunch(
-  ready: boolean | undefined,
-  state: { canContinue: boolean; isolation: CollaborationIsolation },
-  supportsWorktree: boolean | null,
-): boolean {
-  if (!ready || !state.canContinue) return false;
-  return state.isolation !== "worktree" || supportsWorktree === true;
+
+function HandoffUnsupported({ count, supported }: { count: number; supported: boolean | null }) {
+  const { t } = useTranslation();
+  if (count === 0 || supported !== false) return null;
+  return (
+    <Text style={styles.error} accessibilityRole="alert" testID="collaboration-handoff-unsupported">
+      {t("collaboration.launchErrors.updateHostHandoff")}
+    </Text>
+  );
 }
+
 function ModePicker({
   target,
   snapshot,
@@ -149,6 +159,10 @@ function ModePicker({
     useHostFeatureAvailabilityMap([target.serverId], "collaborationWorktree").get(
       target.serverId,
     ) ?? null;
+  const supportsHandoff =
+    useHostFeatureAvailabilityMap([target.serverId], "collaborationExecutionHandoff").get(
+      target.serverId,
+    ) ?? null;
   const [model] = useState(() =>
     openCollaborationLaunch(
       snapshot,
@@ -156,6 +170,7 @@ function ModePicker({
       target.selections,
       target.limits,
       rememberedLaunch(target.serverId),
+      target.fallbacks,
     ),
   );
   useEffect(() => () => model.close(), [model]);
@@ -252,7 +267,17 @@ function ModePicker({
           </Button>
           <Button
             onPress={start}
-            disabled={!canStartLaunch(ready, state, supportsWorktree)}
+            disabled={
+              !canStartCollaboration({
+                ready,
+                canContinue: state.canContinue,
+                isolation: state.isolation,
+                supportsWorktree,
+                agentsLocked: state.agentsLocked,
+                fallbackCount: state.fallbacks.length,
+                supportsHandoff,
+              })
+            }
             loading={state.pending}
             testID="collaboration-continue"
           >
@@ -284,6 +309,7 @@ function ModePicker({
               <Button onPress={retryCatalog}>{t("collaboration.retry")}</Button>
             </View>
           )}
+          <HandoffUnsupported count={state.fallbacks.length} supported={supportsHandoff} />
           {state.locked && <Text style={styles.secondary}>{t("collaboration.modeLocked")}</Text>}
           {state.error && (
             <Text style={styles.error} accessibilityRole="alert">
@@ -311,7 +337,11 @@ function LaunchForm({
   state: ReturnType<LaunchModel["getState"]>;
   supportsWorktree: boolean | null;
   catalogLoaded: boolean;
-  onConfigure: (selections: LaunchSelections, limits: LaunchLimits) => void;
+  onConfigure: (
+    selections: LaunchSelections,
+    limits: LaunchLimits,
+    fallbacks: ModelSelection[],
+  ) => void;
 }) {
   const { t } = useTranslation();
   const size = useIsCompactFormFactor() ? "md" : "sm";
@@ -332,11 +362,15 @@ function LaunchForm({
   );
   const configure = useCallback(() => {
     const current = model.getState();
-    onConfigure(current.selections, {
-      maxReworks: current.maxReworks,
-      runTimeoutMs: current.runTimeoutMs,
-      requirePlanApproval: current.requirePlanApproval,
-    });
+    onConfigure(
+      current.selections,
+      {
+        maxReworks: current.maxReworks,
+        runTimeoutMs: current.runTimeoutMs,
+        requirePlanApproval: current.requirePlanApproval,
+      },
+      current.fallbacks,
+    );
   }, [model, onConfigure]);
   const advancedSummaryNode = useMemo(
     () => (
@@ -551,6 +585,7 @@ function RoleModels({ role, model, state }: RoleModelsProps) {
           </View>
         )}
       </View>
+      {role === "worker" && <FallbackEditor model={model} state={state} />}
     </View>
   );
 }

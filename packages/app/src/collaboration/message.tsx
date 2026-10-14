@@ -9,6 +9,7 @@ import { PlanCard } from "@/components/plan-card";
 import { collaborationMessageSummary } from "./message-summary";
 import { CollaborationConfirmationActions } from "./confirmation-actions";
 import { collaborationPlanMarkdown } from "./plan-markdown";
+import { CollaborationHandoffAction } from "./execution-switch-sheet";
 
 /** A stage row in the main conversation; the row itself discloses the Agent's instructions. */
 export function CollaborationMessage({
@@ -63,6 +64,8 @@ export function CollaborationMessage({
   }, [summary, t]);
   if (!summary) return null;
   const noticeId = item.clientMessageId ?? item.messageId;
+  const confirmation =
+    (summary.stage === "approval" || summary.stage === "acceptance") && Boolean(noticeId);
   const badge = (
     <ExpandableBadge
       testID="collaboration-stage"
@@ -76,12 +79,23 @@ export function CollaborationMessage({
       style={styles.row}
     />
   );
-  if ((summary.stage !== "approval" && summary.stage !== "acceptance") || !noticeId) return badge;
+  if (!confirmation && !summary.execution?.relay) return badge;
   return (
     <View>
       {badge}
-      {planText ? <PlanCard text={planText} testID="collaboration-plan" /> : null}
-      <CollaborationConfirmationActions serverId={serverId} agentId={agentId} noticeId={noticeId} />
+      {confirmation && planText ? <PlanCard text={planText} testID="collaboration-plan" /> : null}
+      {confirmation && noticeId ? (
+        <CollaborationConfirmationActions
+          serverId={serverId}
+          agentId={agentId}
+          noticeId={noticeId}
+        />
+      ) : null}
+      <CollaborationHandoffAction
+        serverId={serverId}
+        agentId={agentId}
+        execution={summary.execution}
+      />
     </View>
   );
 }

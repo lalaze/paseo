@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { GitRepository, executeCheck } from "./repository.js";
+import { HANDOFF_DIFF_LIMIT, renderHandoffPackage } from "./handoff.js";
 import { settings } from "./test-utils/harness.js";
 import type { Run } from "@getpaseo/protocol/collaboration/schema";
 const exec = promisify(execFile);
@@ -57,6 +58,72 @@ async function acceptedRepositoryFixture(
   };
   return { repo, repository, workspace, run };
 }
+
+test("working changes lists the baseline diff without writing an artifact", async (t) => {
+  const { repository, run } = await acceptedRepositoryFixture(t);
+  const changes = await repository.workingChanges(run);
+  assert.ok(changes.paths.includes("app.txt"));
+  assert.ok(changes.paths.includes("new.txt"));
+  assert.match(changes.diff, /app\.txt/);
+  assert.equal(changes.diff.includes("\0"), false);
+  assert.equal(changes.missing, false);
+  assert.equal(changes.truncated, false);
+  assert.equal(changes.pathCount, changes.paths.length);
+  const pack = renderHandoffPackage({
+    activity: "npm test reported",
+    paths: changes.paths,
+    pathCount: changes.pathCount,
+    diff: changes.diff,
+    changesMissing: changes.missing,
+    changesTruncated: changes.truncated,
+  });
+  assert.match(pack, /缺失：无/);
+  assert.match(pack, /截断：无/);
+  assert.match(pack, /npm test reported/);
+});
+
+test("working changes report clipped diffs and failed reads", async (t) => {
+  const { repository, workspace, run } = await acceptedRepositoryFixture(t);
+  await writeFile(
+    join(workspace.cwd, "app.txt"),
+    `${"y".repeat(HANDOFF_DIFF_LIMIT + 1000)}\n{"api_key":"DEMO_SECRET_VALUE"}\n`,
+  );
+  for (let index = 0; index < 81; index++)
+    await writeFile(join(workspace.cwd, `extra-${index}.txt`), "z\n");
+  const changes = await repository.workingChanges(run);
+  assert.equal(changes.missing, false);
+  assert.equal(changes.truncated, true);
+  assert.ok((changes.pathCount ?? 0) > 80);
+  assert.equal(changes.paths.length, 80);
+  assert.ok(changes.diff.length <= HANDOFF_DIFF_LIMIT + 20);
+  assert.equal(changes.diff.includes("DEMO_SECRET_VALUE"), false);
+  const clipped = renderHandoffPackage({
+    activity: "npm test reported",
+    paths: changes.paths,
+    pathCount: changes.pathCount,
+    diff: changes.diff,
+    changesTruncated: changes.truncated,
+  });
+  assert.match(clipped, /截断：有/);
+  assert.match(clipped, /缺失：无/);
+  assert.match(clipped, /npm test reported/);
+  assert.equal(clipped.includes("DEMO_SECRET_VALUE"), false);
+
+  run.baseCommit = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+  const failed = await repository.workingChanges(run);
+  assert.equal(failed.missing, true);
+  assert.deepEqual(failed.paths, []);
+  const missing = renderHandoffPackage({
+    activity: "npm test reported",
+    paths: failed.paths,
+    pathCount: failed.pathCount,
+    diff: failed.diff,
+    changesMissing: true,
+  });
+  assert.match(missing, /缺失：工作区改动/);
+  assert.doesNotMatch(missing, /缺失：无/);
+  assert.match(missing, /npm test reported/);
+});
 
 test("accepted collaboration changes commit and merge locally into the launch branch", async (t) => {
   const { repo, repository, workspace, run } = await acceptedRepositoryFixture(t);

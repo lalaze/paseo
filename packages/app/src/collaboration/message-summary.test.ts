@@ -164,6 +164,54 @@ test("notices persisted by older hosts still render as progress and plan approva
   ).toBeUndefined();
 });
 
+test("a quota notice exposes execution, and a malformed one stays readable", () => {
+  const id = "chat-notice:chat-1:quota:4";
+  const execution = {
+    profileId: "worker",
+    model: { provider: "mock/ten-second-stream" },
+    relay: {
+      status: "blocked",
+      source: "none",
+      operationId: "op-1",
+      token: 3,
+      manual: true,
+      message: "usage limit reached",
+    },
+  };
+  const summary = collaborationMessageSummary({
+    clientMessageId: id,
+    text: notice(id, "额度已用尽。", {
+      message: "额度已用尽",
+      phase: "executing",
+      control: "needs_attention",
+      execution,
+    }),
+  });
+  expect(summary?.stage).toBe("progress");
+  expect(summary?.execution).toEqual(execution);
+  expect(summary?.text).toBe("额度已用尽");
+  const plain = collaborationMessageSummary({
+    clientMessageId: id,
+    text: notice(id, "继续执行。", { message: "执行任务 task-1", phase: "executing" }),
+  });
+  expect(plain).toEqual({
+    stage: "progress",
+    text: "执行任务 task-1",
+    instructions: "继续执行。",
+    acceptance: [],
+  });
+  expect(plain).not.toHaveProperty("execution");
+  const broken = collaborationMessageSummary({
+    clientMessageId: id,
+    text: notice(id, "额度已用尽。", {
+      message: "额度已用尽",
+      execution: { relay: { status: "nope" } },
+    }),
+  });
+  expect(broken?.text).toBe("额度已用尽");
+  expect(broken).not.toHaveProperty("execution");
+});
+
 test("enable commands show the user's goal; automatic ones show only the stage", () => {
   const takeover = "\n\n[paseo-director-takeover]\n你是用户的主 Agent。";
   expect(

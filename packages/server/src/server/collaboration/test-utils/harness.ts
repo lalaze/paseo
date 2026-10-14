@@ -9,6 +9,7 @@ import {
   type Evidence,
   type Plan,
   type CollaborationMode,
+  type ExecutionModel,
 } from "@getpaseo/protocol/collaboration/schema";
 import { Engine, type AgentGateway, type AgentSnapshot } from "../engine.js";
 import { Store } from "../store.js";
@@ -95,25 +96,107 @@ export class FakeAgents implements AgentGateway {
   sent: { agentId: string; opId: string; prompt: string }[] = [];
   states = new Map<string, AgentSnapshot>();
   stopped: string[] = [];
+  invalidModels = new Set<string>();
+  holdInFlight = new Set<string>();
+  stopError: string | undefined;
+  activities = new Map<string, { text: string; truncated?: boolean; missing?: boolean }>();
+  pendingSendErrors: { message: string; inFlight?: boolean }[] = [];
+  pendingCreateErrors: { message: string; inFlight?: boolean }[] = [];
+  /** The next find calls return two ids, so creation stays ambiguous. */
+  ambiguousFinds = 0;
+  /** Throw on the inspect that follows this many successful reads. 0 disables it. */
+  inspectThrowsAfter = 0;
+  successfulInspects = 0;
   async create(run: Run, op: Operation, profile: Profile) {
+    const pending = this.pendingCreateErrors.shift();
+    if (pending) {
+      if (pending.inFlight) this.recordBusy(run, op, profile, pending.message);
+      throw new Error(pending.message);
+    }
     const id = `agent-${this.created.length + 1}`;
     this.created.push({ id, runId: run.id, opId: op.id, profile });
     this.states.set(id, { status: "idle", seen: false, output: "" });
     return id;
   }
+  private recordBusy(run: Run, op: Operation, profile: Profile, message: string) {
+    const id = `agent-${this.created.length + 1}`;
+    this.created.push({ id, runId: run.id, opId: op.id, profile });
+    this.states.set(id, {
+      status: "error",
+      seen: true,
+      output: "",
+      error: message,
+      ownership: { inFlight: true, pendingPermissions: 0, lifecycle: "error" },
+    });
+    this.holdInFlight.add(id);
+  }
   async find(runId: string, operationId: string) {
+    if (this.ambiguousFinds > 0) {
+      this.ambiguousFinds -= 1;
+      return ["ghost-a", "ghost-b"];
+    }
     return this.created.filter((a) => a.runId === runId && a.opId === operationId).map((a) => a.id);
   }
   async inspect(agentId: string) {
+    if (this.inspectThrowsAfter > 0 && this.successfulInspects >= this.inspectThrowsAfter) {
+      this.inspectThrowsAfter = 0;
+      throw new Error("无法读取会话状态");
+    }
+    this.successfulInspects += 1;
     return this.states.get(agentId) ?? { status: "missing" as const, seen: false, output: "" };
   }
   async send(agentId: string, opId: string, prompt: string) {
+    const pending = this.pendingSendErrors.shift();
+    if (pending) {
+      if (pending.inFlight) {
+        this.sent.push({ agentId, opId, prompt });
+        this.states.set(agentId, {
+          status: "error",
+          seen: true,
+          output: "",
+          error: pending.message,
+          ownership: { inFlight: true, pendingPermissions: 0, lifecycle: "error" },
+        });
+        this.holdInFlight.add(agentId);
+      }
+      throw new Error(pending.message);
+    }
     this.sent.push({ agentId, opId, prompt });
     this.states.set(agentId, { status: "running", seen: true, output: "" });
   }
   async stop(agentId: string) {
     this.stopped.push(agentId);
-    this.states.set(agentId, { status: "idle", seen: true, output: "" });
+    if (this.stopError) throw new Error(this.stopError);
+    const previous = this.states.get(agentId);
+    if (this.holdInFlight.has(agentId)) {
+      this.states.set(agentId, {
+        status: "error",
+        seen: true,
+        output: previous?.output ?? "",
+        error: previous?.error,
+        ownership: { inFlight: true, pendingPermissions: 0, lifecycle: "error" },
+      });
+      return;
+    }
+    this.states.set(agentId, {
+      status: "idle",
+      seen: previous?.seen ?? true,
+      output: previous?.output ?? "",
+      error: previous?.error,
+      ownership: { inFlight: false, pendingPermissions: 0, lifecycle: "idle" },
+    });
+  }
+  async validateExecutionModel(model: ExecutionModel) {
+    if (this.invalidModels.has(model.provider)) throw new Error(`模型不可用：${model.provider}`);
+  }
+  async handoffActivity(agentId: string) {
+    return (
+      this.activities.get(agentId) ?? {
+        text: "[Assistant] 已修改 src/api.ts，npm test 已报告但未在交接中复跑",
+        truncated: false,
+        missing: false,
+      }
+    );
   }
 }
 export class FakeRepository implements Repository {
@@ -125,6 +208,17 @@ export class FakeRepository implements Repository {
   merges = 0;
   mergeError: Error | null = null;
   unmergedFiles: string[] = [];
+  prepares = 0;
+  changes: {
+    paths: string[];
+    diff: string;
+    missing?: boolean;
+    truncated?: boolean;
+    pathCount?: number;
+  } = {
+    paths: ["src/api.ts"],
+    diff: "diff --git a/src/api.ts\n+export const api = 1;\n",
+  };
   async mergeRecoveryContext(run: Run) {
     if (run.delivery?.status !== "failed") throw new Error("No failed merge");
     return {
@@ -160,6 +254,7 @@ export class FakeRepository implements Repository {
     this.discarded.push(evidence);
   }
   async prepare(repository: string, runId: string, currentWorkspace = false) {
+    this.prepares++;
     return {
       repository,
       cwd: currentWorkspace ? repository : `/worktrees/${runId}`,
@@ -167,6 +262,9 @@ export class FakeRepository implements Repository {
       branch: `director/${runId}`,
       sourceBranch: "main",
     };
+  }
+  async workingChanges() {
+    return this.changes;
   }
   async capture() {
     return {

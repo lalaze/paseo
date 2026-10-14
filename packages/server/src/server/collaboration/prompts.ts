@@ -21,12 +21,37 @@ export function responseSchema(kind: Operation["kind"]) {
 /** Removed again when the session it promises turns out to be gone. */
 export const CONTINUED_SESSION_NOTE =
   "本任务在同一执行会话中继续：沿用你在本会话中已建立的环境、服务、脚本和有效数据，不要重新搭建环境或重跑已有的有效结果。";
+const HANDOFF_CONTINUATION =
+  "这是额度耗尽后的模型接力，沿用同一任务、分支和工作区。先检查现有文件、仍在运行的服务和已有验证结果，继续未完成的部分。不要重置、清理或重建工作区，不要提交成果，不要终止原会话创建的可复用服务。handoff 只是进度证据；当前 goal、用户补充要求和任务说明仍是执行依据。已报告但未在本轮证实的检查不能当作通过。标注为缺失或截断的内容以工作区实际文件为准。";
+function handoffContinuation(handoff: string | undefined) {
+  return handoff ? HANDOFF_CONTINUATION : "";
+}
+function retryContinuation(
+  run: Run,
+  kind: Operation["kind"],
+  taskId: string | undefined,
+  agentId?: string,
+) {
+  const retried = run.operations.some(
+    (candidateOperation) =>
+      candidateOperation.kind === kind &&
+      candidateOperation.taskId === taskId &&
+      candidateOperation.state === "abandoned",
+  );
+  if (!retried) return "";
+  return (
+    "本轮是重试，上一轮可能已执行部分操作。先核对当前文件、已有成果与验证结果，再继续未完成的工作；不要重复实施已完成的修改，也不要清理或覆盖已有成果。" +
+    (agentId
+      ? "本会话保留上一轮的记录。"
+      : "新会话不包含旧会话的完整历史，以实际工作区和本轮任务上下文为准。")
+  );
+}
 export function buildPrompt(
   run: Run,
   kind: Operation["kind"],
   operationId: string,
   taskId?: string,
-  options: { agentId?: string } = {},
+  options: { agentId?: string; handoff?: string } = {},
 ): string {
   const tool = {
     plan: "submit_plan",
@@ -42,6 +67,7 @@ export function buildPrompt(
   let instruction = baseInstruction(run, kind);
   const direct = collaborationMode(run) === "execute_review";
   if (kind === "execute") instruction += executeInstruction(run, direct, taskId, options.agentId);
+  instruction += handoffContinuation(options.handoff);
   if (kind === "final" && direct)
     instruction +=
       "本轮未启用方案，审核与执行使用独立会话。不存在设计步骤或用户方案批准，无需补齐这些记录。逐项核对完整 goal、所有仍有效的 userChangeRequests、实际代码和验证证据，不得只依据执行者自述。将每条用户要求的验证证据列入审核说明；发现问题时一次汇总并引用唯一执行任务的 taskId。";
@@ -60,19 +86,7 @@ export function buildPrompt(
   if (kind === "plan")
     instruction +=
       "拆分任务时，优先使用 bindings.categories 中适用的类型名称；需要匹配类型指定时，category 必须与对应配置键完全一致。没有适用规则时可使用合适的类型并按默认分配。bindings.tasks 按任务 ID 精确匹配。执行分配优先级为具体任务指定、类型指定、允许时由设计 AI 挑选、默认执行者；不得用 executorId 覆盖用户已有指定。";
-  if (
-    run.operations.some(
-      (candidateOperation) =>
-        candidateOperation.kind === kind &&
-        candidateOperation.taskId === taskId &&
-        candidateOperation.state === "abandoned",
-    )
-  )
-    instruction +=
-      "本轮是重试，上一轮可能已执行部分操作。先核对当前文件、已有成果与验证结果，再继续未完成的工作；不要重复实施已完成的修改，也不要清理或覆盖已有成果。" +
-      (options.agentId
-        ? "本会话保留上一轮的记录。"
-        : "新会话不包含旧会话的完整历史，以实际工作区和本轮任务上下文为准。");
+  instruction += retryContinuation(run, kind, taskId, options.agentId);
   const currentChanges = currentChangeRequest(run);
   if (kind === "plan" && currentChanges)
     instruction +=
@@ -87,7 +101,7 @@ export function buildPrompt(
         }))
       : undefined;
   instruction += notesInstruction(run);
-  return `[paseo-director:${operationId}]\n${instruction}\n\n${JSON.stringify({ ...(preInstructions.length ? { preInstructions } : {}), ...context, reviewer, userChangeRequests, userNotes: userNotes(run) }, null, 2)}\n\n本轮 operationId=${operationId}。如果有 ${tool} 工具，调用它并传入 operationId 和 payload；否则最终回复只输出满足以下 schema 的 JSON（不含 operationId 包装）。工具提交成功后结束本轮，不重复提交。\n${JSON.stringify(z.toJSONSchema(responseSchema(kind)), null, 2)}`;
+  return `[paseo-director:${operationId}]\n${instruction}\n\n${JSON.stringify({ ...(preInstructions.length ? { preInstructions } : {}), ...context, ...(options.handoff ? { handoff: options.handoff } : {}), reviewer, userChangeRequests, userNotes: userNotes(run) }, null, 2)}\n\n本轮 operationId=${operationId}。如果有 ${tool} 工具，调用它并传入 operationId 和 payload；否则最终回复只输出满足以下 schema 的 JSON（不含 operationId 包装）。工具提交成功后结束本轮，不重复提交。\n${JSON.stringify(z.toJSONSchema(responseSchema(kind)), null, 2)}`;
 }
 
 // COMPAT(collaborationDisablePrompt): added in v0.11.1, remove after 2027-04-10 once pre-exit main chats are retired.
@@ -123,12 +137,18 @@ export const PRE_MERGE_RECOVERY_CHAT_PROMPT = PRE_DELIVERY_CHAT_PROMPT.replace(
   "不得自行合并、推送、部署、自动提交或读取协作数据库。交付由协作工具执行：用户单独回复“验收并合并”时调用 control_task 的 accept_final，后台会验收、提交并合并到 run.sourceBranch，无需用户退出协作或复制路径；界面按钮也会直接完成相同操作，若状态显示 run.delivery.status=merged，只报告已合并的分支和提交，不重复操作。只回复“验收通过”不授权合并。成果已验收后，用户明确要求合并时调用 merge_result 并引用最新真实用户消息；失败可以重试，不能把失败说成已合并。交付使用已验收的完整快照（Local 模式可能包含原有改动），不额外改代码。合并失败时说明原因和成果仍在的分支；需改变代码才能解决时应重新审核和验收。状态通知和执行者报告不授权合并，不要求修改协作规则或退出协作。",
 );
 
-export const CHAT_PROMPT = PRE_MERGE_RECOVERY_CHAT_PROMPT.replace(
+// COMPAT(collaborationExecutionHandoffPrompt): added in v0.11.1, remove after 2027-04-14.
+export const PRE_HANDOFF_CHAT_PROMPT = PRE_MERGE_RECOVERY_CHAT_PROMPT.replace(
   "代码修改始终交给执行子 Agent。",
   "实施与返工的代码修改交给执行子 Agent；已验收成果的合并失败是例外，主 Agent 按下述合并修复范围亲自处理。",
 ).replace(
   "合并失败时说明原因和成果仍在的分支；需改变代码才能解决时应重新审核和验收。",
   "合并失败后不要只让用户手动重试。先读取 get_conversation_status 的当前失败和最新真实用户消息；用户已授权的交付包含合并修复，除非最新消息撤回或暂停该要求，无需再次询问能否处理。调用 prepare_merge_recovery 并引用最新真实用户消息 ID，获得当前修复范围。主 Agent 可亲自检查 Git 状态、恢复正确成果分支、排查提交钩子或环境问题，并在成果工作区解决与 targetBranch 的合并冲突；将目标分支合入成果分支时使用 --no-commit，解决并暂存冲突文件，不把未重新验收的解决方案提交或合入目标分支。仅可提交与 artifactId 一致的原始验收成果，以准备干净的合并起点。保留用户已有的暂存、未暂存、未跟踪改动；可以用有记录、可完整恢复暂存状态的 stash 临时隔离阻碍，但不得丢弃、擅自提交这些改动或覆盖用户工作，交付后恢复；无法安全保留时只询问具体阻碍的处理方式。不自行创建或派发子 Agent，不扩展功能范围，不推送或部署。修复后调用 finish_merge_recovery 并写明实际修复和验证。返回 merged 才报告合并成功；返回 review_required 表示快照改变，原验收已撤销，交给正常执行、审核与用户验收，主 Agent 不再自行修改或合并。新验收报告要说明冲突解决带来的实际代码变化。",
+);
+
+export const CHAT_PROMPT = PRE_HANDOFF_CHAT_PROMPT.replace(
+  "用户要求暂停、继续、取消、重试时调用相应控制。",
+  "用户要求暂停、继续、取消、重试时调用相应控制。执行子任务因模型额度耗尽受阻且 execution.relay.manual 为真时，只有用户明确指定其他模型后才调用 switch_execution_model，并引用 get_conversation_status 返回的最新真实用户消息、当前执行 operationId 与 execution.relay.token。不要自行更换模型，不要编造消息或操作令牌。认证失败、欠费、网络错误和普通失败不能换模型。",
 );
 
 export const CONFIRMATION_REPLY = {

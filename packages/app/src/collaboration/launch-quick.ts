@@ -1,5 +1,9 @@
 import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
-import type { CollaborationMode } from "@getpaseo/protocol/collaboration/schema";
+import type {
+  CollaborationIsolation,
+  CollaborationMode,
+  Settings,
+} from "@getpaseo/protocol/collaboration/schema";
 import {
   openCollaborationLaunch,
   type LaunchLimits,
@@ -15,6 +19,29 @@ export type QuickLaunch = { kind: "start"; resolution: LaunchResolution } | { ki
 export interface QuickLaunchCapabilities {
   unified: boolean;
   worktree: boolean;
+  /** False when the host does not advertise collaborationExecutionHandoff, including while unknown. */
+  executionHandoff: boolean;
+}
+
+export function settingsUseExecutionHandoff(settings: Settings | undefined): boolean {
+  return Object.values(settings?.executionFallbacks ?? {}).some((list) => list.length > 0);
+}
+
+/** Shared by the dialog button and quick launch. Unknown host support stays inactive. */
+export function canStartCollaboration(input: {
+  ready: boolean | undefined;
+  canContinue: boolean;
+  isolation: CollaborationIsolation;
+  supportsWorktree: boolean | null;
+  agentsLocked: boolean;
+  fallbackCount: number;
+  supportsHandoff: boolean | null;
+}): boolean {
+  if (!input.ready || !input.canContinue) return false;
+  if (input.isolation === "worktree" && input.supportsWorktree !== true) return false;
+  if (!input.agentsLocked && input.fallbackCount > 0 && input.supportsHandoff !== true)
+    return false;
+  return true;
 }
 
 /**
@@ -48,6 +75,9 @@ export function resolveQuickLaunch(input: {
   model.close();
   if (!resolution) return { kind: "configure" };
   if (resolution.isolation === "worktree" && !input.capabilities.worktree) {
+    return { kind: "configure" };
+  }
+  if (settingsUseExecutionHandoff(resolution.settings) && !input.capabilities.executionHandoff) {
     return { kind: "configure" };
   }
   return { kind: "start", resolution };

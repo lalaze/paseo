@@ -1,6 +1,7 @@
 import {
   ReviewSchema,
   collaborationMode,
+  executionView,
   requiresPlanApproval,
   type Run,
 } from "@getpaseo/protocol/collaboration/schema";
@@ -37,6 +38,7 @@ export function workflowEvidence(run: Run) {
       userApprovedAt: timestamp(userApprovedAt),
       timestampSource,
     },
+    execution: executionView(run) ?? null,
     operations: operations.map((candidateOperation) => {
       const review =
         ["review", "final"].includes(candidateOperation.kind) && candidateOperation.state === "done"
@@ -55,6 +57,15 @@ export function workflowEvidence(run: Run) {
         resultAcceptedAt: timestamp(candidateOperation.completedAt),
         reviewDecision: review?.success ? review.data.decision : null,
         artifactId: review?.success ? review.data.artifactId : null,
+        executionModel: candidateOperation.executionModel ?? null,
+        handoff: candidateOperation.handoff
+          ? {
+              source: candidateOperation.handoff.source,
+              target: candidateOperation.handoff.target,
+              at: timestamp(candidateOperation.handoff.at),
+              fromModel: candidateOperation.handoff.fromModel ?? null,
+            }
+          : null,
       };
     }),
     // Old versions retained milestone times in the event log. Keep those facts

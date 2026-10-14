@@ -1851,6 +1851,8 @@ export class VoiceAssistantWebSocketServer {
         // COMPAT(collaborationDisable): added in v0.11.1, remove gate after 2027-04-10.
         collaborationDisable: Boolean(this.collaborationService),
         collaborationMerge: Boolean(this.collaborationService),
+        // COMPAT(collaborationExecutionHandoff): added in v0.11.1, remove gate after 2027-04-14.
+        collaborationExecutionHandoff: Boolean(this.collaborationService),
         delegation: true,
         pluginLogs: true,
         // COMPAT(pluginThemes): added in v0.5.0, remove gate after 2027-08-20.

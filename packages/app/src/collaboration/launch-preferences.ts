@@ -5,16 +5,16 @@ import { z } from "zod";
 import { createValidatedPersistStorage } from "@/storage/validated-persist-storage";
 import { DEFAULT_RUN_TIMEOUT_MS, type LaunchPreferences } from "./launch-model";
 
-const Selection = z
-  .object({
-    provider: z.string(),
-    model: z.string(),
-    providerLabel: z.string(),
-    modelLabel: z.string(),
-    thinkingOptionId: z.string().optional(),
-    thinkingOptionLabel: z.string().optional(),
-  })
-  .nullable();
+const SelectionObject = z.object({
+  provider: z.string(),
+  model: z.string(),
+  providerLabel: z.string(),
+  modelLabel: z.string(),
+  thinkingOptionId: z.string().optional(),
+  thinkingOptionLabel: z.string().optional(),
+  rowKey: z.string().max(80).optional(),
+});
+const Selection = SelectionObject.nullable();
 const PreferencesSchema = z.object({
   mode: z.enum(["full", "execute_review"]),
   isolation: z.enum(["local", "worktree"]),
@@ -23,6 +23,8 @@ const PreferencesSchema = z.object({
   // Absent in preferences saved before the time budget became selectable.
   runTimeoutMs: z.number().int().min(3600000).max(86400000).optional(),
   requirePlanApproval: z.boolean().optional(),
+  // Absent in preferences saved before execution fallbacks existed.
+  fallbacks: z.array(SelectionObject).max(8).optional(),
 });
 const PersistedSchema = z.object({ byServer: z.record(z.string(), PreferencesSchema) });
 type StoredPreferences = z.infer<typeof PreferencesSchema>;

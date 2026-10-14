@@ -8,6 +8,7 @@ import type {
 } from "@getpaseo/protocol/collaboration/schema";
 import type { CollaborationState } from "@getpaseo/protocol/collaboration/rpc";
 import type { LaunchLimits, LaunchSelections, ModelSelection } from "./launch-model";
+import { settingsUseExecutionHandoff } from "./launch-quick";
 import { useCollaborationLaunchStore } from "./launch-store";
 
 export interface CollaborationTarget {
@@ -25,6 +26,8 @@ export interface CollaborationTarget {
   isolation?: CollaborationIsolation;
   selections?: LaunchSelections;
   limits?: LaunchLimits;
+  /** In-progress backup list, including an explicit empty list after the user clears it. */
+  fallbacks?: ModelSelection[];
   settings?: Settings;
   /** Opens the mode dialog on the full form instead of the last-setup summary. */
   edit?: boolean;
@@ -78,6 +81,9 @@ export async function enableCollaboration(
     throw new Error("Update the host to use reviewer-led collaboration.");
   if (target.isolation === "worktree" && !features?.collaborationWorktree)
     throw new Error("Update the host to run collaboration in a separate worktree.");
+  // COMPAT(collaborationExecutionHandoff): added in v0.11.1, remove gate after 2027-04-14.
+  if (settingsUseExecutionHandoff(target.settings) && !features?.collaborationExecutionHandoff)
+    throw new Error("Update the host to use execution model handoff.");
   const state = await client.collaborationCommand("status");
   if (state.error) throw new Error(state.error);
   const opened = await client.collaborationCommand("conversation.open", {

@@ -59,6 +59,21 @@ export const fr: TranslationResources = {
       reviewerHint: "Choisissez l’agent qui mène la conversation et vérifie le travail réalisé.",
       configureReviewer: "Configurer la révision",
       goal: "Objectif de la tâche",
+      fallbacks: "Modèles de secours",
+      fallbacksHint:
+        "Utilisés dans l’ordre lorsque l’exécution n’a plus de quota. Laissez la liste vide pour choisir un autre modèle vous-même.",
+      addFallback: "Ajouter un modèle de secours",
+      removeFallback: "Retirer",
+      moveFallbackUp: "Monter",
+      moveFallbackDown: "Descendre",
+      fallbackIssues: {
+        incomplete: "Choisissez un fournisseur et un modèle pour chaque secours.",
+        duplicate: "Chaque modèle de secours ne peut figurer qu’une fois.",
+        same: "Un modèle de secours doit être différent du modèle d’exécution.",
+        unavailable: "Ce modèle de secours n’est pas disponible sur cet hôte.",
+        thinking: "Ce niveau de réflexion n’est pas disponible pour ce modèle de secours.",
+        limit: "Une tâche peut avoir au plus 8 modèles de secours.",
+      },
     },
     modes: {
       full: "Planifier d’abord",
@@ -86,6 +101,25 @@ export const fr: TranslationResources = {
       updateHostWorktree:
         "Mettez à jour l’hôte pour exécuter la collaboration dans un worktree séparé.",
       updateHostDisable: "Mettez à jour l’hôte pour quitter la collaboration.",
+      updateHostHandoff:
+        "Mettez à jour l’hôte pour continuer avec un autre modèle lorsque le quota est épuisé.",
+    },
+    handoff: {
+      continue: "Changer de modèle et continuer",
+      title: "Continuer avec un autre modèle",
+      current: "Modèle actuel",
+      pending: "Changement de modèle...",
+      success: "Poursuite avec {{model}}",
+      updateHost: "Mettez à jour l’hôte pour continuer avec un autre modèle.",
+      progressKept: "Cette tâche, ses fichiers et le travail déjà fait sont conservés.",
+      submit: "Continuer",
+      attempted: "Déjà essayés",
+      status: {
+        blocked: "Quota atteint",
+        stopping: "Arrêt du modèle précédent",
+        preparing: "Préparation du modèle suivant",
+        failed: "Échec du changement",
+      },
     },
     categoryOverrides: "Affectations par catégorie",
     taskOverrides: "Affectations par identifiant de tâche",

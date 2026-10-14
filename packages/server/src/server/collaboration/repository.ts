@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 import { join, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { Run, Evidence, Command } from "@getpaseo/protocol/collaboration/schema";
+import { HANDOFF_DIFF_LIMIT, redactHandoffText } from "./handoff.js";
 import {
   commitChanges,
   getCheckoutSnapshotFacts,
@@ -69,6 +70,17 @@ export interface Repository {
   assertBranch(run: Run): Promise<void>;
   /** The artifact id of the working tree right now, without writing any artifact. */
   fingerprint(run: Run): Promise<string>;
+  /**
+   * Read-only paths and a diff against the run baseline. Does not write refs or artifacts.
+   * `missing` means a read failed. `truncated` means paths or diff were clipped after counting.
+   */
+  workingChanges(run: Run): Promise<{
+    paths: string[];
+    diff: string;
+    missing?: boolean;
+    truncated?: boolean;
+    pathCount?: number;
+  }>;
   capture(run: Run): Promise<Omit<Evidence, "checks" | "passed">>;
   verify(run: Run, signal: AbortSignal): Promise<Evidence>;
   mergeAccepted(run: Run): Promise<MergedResult>;
@@ -353,6 +365,45 @@ export class GitRepository implements Repository {
       },
     );
     return { status: "merged", targetBranch: run.sourceBranch, cwd, commit };
+  }
+  async workingChanges(run: Run): Promise<{
+    paths: string[];
+    diff: string;
+    missing?: boolean;
+    truncated?: boolean;
+    pathCount?: number;
+  }> {
+    const listed = async (args: string[]) => {
+      try {
+        return { ok: true as const, text: await this.gitOutput(run.cwd, args) };
+      } catch {
+        return { ok: false as const, text: "" };
+      }
+    };
+    const tracked = await listed(["diff", "--name-only", "-z", run.baseCommit]);
+    const untracked = await listed(["ls-files", "--others", "--exclude-standard", "-z"]);
+    const diffResult = await listed(["diff", "--unified=1", "--stat", run.baseCommit]);
+    if (!tracked.ok || !untracked.ok || !diffResult.ok) {
+      return { paths: [], diff: "", missing: true, truncated: false, pathCount: 0 };
+    }
+    const allPaths = [
+      ...new Set(
+        [...tracked.text.split("\0"), ...untracked.text.split("\0")]
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+      ),
+    ];
+    // Redact before clipping so a cut cannot leave a credential value without its field.
+    const redacted = redactHandoffText(diffResult.text);
+    const paths = allPaths.slice(0, 80);
+    const diff = redacted.slice(0, HANDOFF_DIFF_LIMIT);
+    return {
+      paths,
+      diff,
+      missing: false,
+      truncated: allPaths.length > paths.length || redacted.length > diff.length,
+      pathCount: allPaths.length,
+    };
   }
   async capture(run: Run) {
     const directory = join(this.root, "artifacts", run.id);

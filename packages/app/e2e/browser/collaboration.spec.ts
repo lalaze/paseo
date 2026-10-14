@@ -1239,3 +1239,657 @@ test("surfaces a failed exit, keeps the draft, and closes the same conversation 
     await workspace.cleanup();
   }
 });
+
+const handoffViewports = [
+  { name: "desktop", width: 1280, height: 1000 },
+  { name: "phone", width: 390, height: 844 },
+] as const;
+
+async function chooseFallback(page: Page, index: number, modelId: string, thinkingId?: string) {
+  await page.getByTestId(`collaboration-fallback-${index}-provider`).click();
+  await page.getByTestId("collaboration-provider-option-mock").filter({ visible: true }).click();
+  await page.getByTestId(`collaboration-fallback-${index}-model`).click();
+  await page.getByTestId(`collaboration-model-option-${modelId}`).filter({ visible: true }).click();
+  if (!thinkingId) return;
+  await page.getByTestId(`collaboration-fallback-${index}-thinking`).click();
+  await page
+    .getByTestId(`collaboration-thinking-option-${thinkingId}`)
+    .filter({ visible: true })
+    .click();
+}
+
+async function expectInsideViewport(page: Page, testId: string, width: number) {
+  const box = await page.getByTestId(testId).boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
+}
+
+test("backup models keep their order, per-host memory, and quick reuse", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-backups-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-backups",
+  });
+  try {
+    const before = await client.collaborationCommand("status");
+    await gotoWorkspace(page, workspace.workspaceId);
+    await clickNewChat(page);
+    await page.setViewportSize(handoffViewports[0]);
+    await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+    await chooseModel(page, "reviewer");
+    await chooseModel(page, "worker");
+    await page.getByTestId("collaboration-fallback-add").click();
+    await chooseFallback(page, 0, "ten-second-stream");
+    await expect(page.getByTestId("collaboration-fallback-issue-same")).toBeVisible();
+    await expect(page.getByTestId("collaboration-continue")).toBeDisabled();
+    await page.getByTestId("collaboration-fallback-0-model").click();
+    await page
+      .getByTestId("collaboration-model-option-thirty-minute-stream")
+      .filter({ visible: true })
+      .click();
+    await expect(page.getByTestId("collaboration-fallback-issue-same")).toHaveCount(0);
+    await page.getByTestId("collaboration-fallback-add").click();
+    await chooseFallback(page, 1, "five-minute-stream", "high");
+    await page.getByTestId("collaboration-fallback-1-up").click();
+    await expect(page.getByTestId("collaboration-fallback-0-model")).toContainText(
+      "Five minute stream",
+    );
+    await expect(page.getByTestId("collaboration-fallback-1-model")).toContainText(
+      "Thirty minute stream",
+    );
+    // The launch sheet remounts when the viewport crosses the compact breakpoint, so each
+    // width opens its own form. Desktop proves editing; phone proves the saved order.
+    await page.getByTestId("collaboration-fallbacks").scrollIntoViewIfNeeded();
+    await expectInsideViewport(page, "collaboration-fallbacks", handoffViewports[0].width);
+    await page.screenshot({ path: testInfo.outputPath("backups-desktop.png") });
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    const created = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => !before.conversations.some((old) => old.id === entry.id),
+    )!;
+    expect(created.settings?.executionFallbacks).toEqual({
+      worker: [
+        { provider: "mock/five-minute-stream", thinkingOptionId: "high" },
+        { provider: "mock/thirty-minute-stream" },
+      ],
+    });
+    expect(created.settings?.workerProfileId).toBe("worker");
+    expect(created.settings?.profiles.find((profile) => profile.id === "worker")?.provider).toBe(
+      "mock/ten-second-stream",
+    );
+
+    await clickNewChat(page);
+    await page.getByTestId("composer-collaboration-config").filter({ visible: true }).click();
+    await expect(page.getByTestId("collaboration-fallback-0-model")).toContainText(
+      "Five minute stream",
+    );
+    await expect(page.getByTestId("collaboration-fallback-1-model")).toContainText(
+      "Thirty minute stream",
+    );
+    await page.getByTestId("collaboration-launch-cancel").click();
+    await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    await expect
+      .poll(async () => (await client.collaborationCommand("status")).conversations.length)
+      .toBe(before.conversations.length + 2);
+    const reused = (await client.collaborationCommand("status")).conversations.filter(
+      (entry) => !before.conversations.some((old) => old.id === entry.id),
+    );
+    expect(reused).toHaveLength(2);
+    expect(reused.every((entry) => entry.run === undefined)).toBe(true);
+    expect(reused.map((entry) => entry.settings?.executionFallbacks)).toEqual([
+      created.settings?.executionFallbacks,
+      created.settings?.executionFallbacks,
+    ]);
+
+    // Phone width hides the new-tab control, so reopen the saved form on this chat.
+    await page.setViewportSize(handoffViewports[1]);
+    await page.getByTestId("composer-collaboration-config").filter({ visible: true }).click();
+    await expect(page.getByTestId("collaboration-fallback-0-model")).toContainText(
+      "Five minute stream",
+    );
+    await expect(page.getByTestId("collaboration-fallback-1-model")).toContainText(
+      "Thirty minute stream",
+    );
+    await page.getByTestId("collaboration-fallbacks").scrollIntoViewIfNeeded();
+    await expectInsideViewport(page, "collaboration-fallbacks", handoffViewports[1].width);
+    await page.screenshot({ path: testInfo.outputPath("backups-phone.png") });
+    await page.getByTestId("collaboration-launch-cancel").click();
+  } finally {
+    await client.close();
+    await workspace.cleanup();
+  }
+});
+
+test("an old host keeps backup rows visible and will not start until they are removed", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const gate = await installDaemonWebSocketGate(page);
+  gate.setServerFeatureStripped("collaborationExecutionHandoff", true);
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-handoff-gate-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-handoff-gate",
+  });
+  try {
+    const before = await client.collaborationCommand("status");
+    await gotoWorkspace(page, workspace.workspaceId);
+    await clickNewChat(page);
+    const banner = page.getByTestId("collaboration-handoff-unsupported");
+    // Open the form at each width. Resizing an open sheet remounts it and drops the rows.
+    for (const viewport of [...handoffViewports].toReversed()) {
+      await page.setViewportSize(viewport);
+      await page.getByTestId("composer-collaboration").filter({ visible: true }).click();
+      await chooseModel(page, "reviewer");
+      await chooseModel(page, "worker");
+      await page.getByTestId("collaboration-fallback-add").click();
+      await chooseFallback(page, 0, "thirty-minute-stream");
+      await expect(banner).toHaveText(
+        "Update the host to continue on another model when quota runs out.",
+      );
+      await expect(page.getByTestId("collaboration-continue")).toBeDisabled();
+      await expect(page.getByTestId("collaboration-fallback-0")).toBeVisible();
+      await banner.scrollIntoViewIfNeeded();
+      await expectInsideViewport(page, "collaboration-handoff-unsupported", viewport.width);
+      await page.screenshot({ path: testInfo.outputPath(`handoff-gate-${viewport.name}.png`) });
+      if (viewport.name === "phone") {
+        await page.getByTestId("collaboration-launch-cancel").click();
+        await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+        // Leaving the compact sheet can keep a dismiss overlay over the composer.
+        await page.setViewportSize(handoffViewports[0]);
+        await gotoWorkspace(page, workspace.workspaceId);
+      }
+    }
+    expect((await client.collaborationCommand("status")).conversations).toHaveLength(
+      before.conversations.length,
+    );
+    await page.getByTestId("collaboration-fallback-0-remove").click();
+    await expect(banner).toHaveCount(0);
+    await expect(page.getByTestId("collaboration-continue")).toBeEnabled();
+    await page.getByTestId("collaboration-continue").click();
+    await expect(page.getByTestId("collaboration-mode-dialog")).toHaveCount(0);
+    const created = (await client.collaborationCommand("status")).conversations.find(
+      (entry) => !before.conversations.some((old) => old.id === entry.id),
+    )!;
+    expect(created.settings).not.toHaveProperty("executionFallbacks");
+  } finally {
+    gate.restore();
+    await client.close();
+    await workspace.cleanup();
+  }
+});
+
+async function seedQuotaRun(
+  session: Awaited<ReturnType<typeof seedMockAgentWorkspace>>,
+  options?: { attemptCeiling?: boolean },
+) {
+  const client = await connectDaemonClient<DaemonClient>({ clientIdPrefix: "collaboration-quota" });
+  const requestId = `quota-${session.agentId}`;
+  const opened = await client.collaborationCommand("conversation.open", {
+    requestId,
+    workspaceId: session.workspaceId,
+    agentId: session.agentId,
+    mode: "execute_review",
+    settings: {
+      profiles: [
+        {
+          id: "worker",
+          label: "Worker",
+          provider: "mock/ten-second-stream",
+          thinkingOptionId: "high",
+        },
+        { id: "reviewer", label: "Reviewer", provider: "mock/ten-second-stream" },
+      ],
+      directorProfileId: "reviewer",
+      workerProfileId: "worker",
+      reviewerProfileId: "reviewer",
+      reviewerAsLead: true,
+    },
+  });
+  const conversation = opened.conversations.find((entry) => entry.requestId === requestId)!;
+  const marker = "keep-the-draft\n";
+  await writeFile(join(session.cwd, "draft.txt"), marker);
+  const operationId = `op-${session.agentId}`;
+  const task = {
+    id: "draft-file",
+    title: "Keep the draft",
+    description: "Leave draft.txt in place.",
+    category: "frontend",
+    files: ["draft.txt"],
+    dependsOn: [],
+    acceptance: ["draft.txt still contains the original text."],
+  };
+  const run: Run = {
+    id: requestId,
+    requestId,
+    revision: 0,
+    mode: "execute_review",
+    goal: "Keep the existing draft while switching models",
+    repository: session.cwd,
+    cwd: session.cwd,
+    baseCommit: "unused",
+    branch: "main",
+    workspaceId: session.workspaceId,
+    settings: {
+      ...conversation.settings!,
+      ...(options?.attemptCeiling ? { maxAttempts: 3 } : {}),
+    },
+    chat: { version: 1, conversationId: conversation.id, mainAgentId: conversation.agentId! },
+    directorAgentId: conversation.agentId,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    phase: "executing",
+    control: "needs_attention",
+    message: "Quota reached",
+    planApproved: true,
+    tasks: [{ spec: task, profileId: "worker", status: "executing", reworks: 0 }],
+    operations: [
+      ...(options?.attemptCeiling
+        ? [1, 2].map((index) => ({
+            id: `prior-${index}-${session.agentId}`,
+            kind: "execute" as const,
+            taskId: task.id,
+            profileId: "worker",
+            state: "abandoned" as const,
+            superseded: true,
+            prompt: "earlier",
+            createdAt: Date.now(),
+            formatRetries: 0,
+            executionModel: { provider: "mock/ten-second-stream" },
+          }))
+        : []),
+      {
+        id: operationId,
+        kind: "execute" as const,
+        taskId: task.id,
+        profileId: "worker",
+        state: "sent" as const,
+        prompt: "continue",
+        createdAt: Date.now(),
+        formatRetries: 0,
+        executionModel: { provider: "mock/ten-second-stream", thinkingOptionId: "high" },
+      },
+    ],
+    activeOperationId: operationId,
+    executionRelay: {
+      status: "blocked",
+      source: "none",
+      operationId,
+      taskId: task.id,
+      profileId: "worker",
+      errorClass: "quota",
+      message: "usage limit reached",
+      attempted: [{ provider: "mock/ten-second-stream" }],
+      manual: true,
+      token: 3,
+      at: Date.now(),
+    },
+    relayToken: 3,
+    events: [],
+  };
+  const db = new DatabaseSync(join(process.env.E2E_PASEO_HOME!, "director", "director.sqlite"));
+  db.exec("PRAGMA busy_timeout=5000");
+  db.exec("BEGIN IMMEDIATE");
+  db.prepare("INSERT INTO runs VALUES (?,?,?,?)").run(
+    run.id,
+    run.requestId,
+    run.revision,
+    JSON.stringify(run),
+  );
+  db.prepare("UPDATE conversations SET data=json_set(data,'$.runId',?) WHERE id=?").run(
+    run.id,
+    conversation.id,
+  );
+  db.exec("COMMIT");
+  db.close();
+  return { client, conversation, run, operationId, marker };
+}
+
+function readRun(id: string): Run {
+  const db = new DatabaseSync(join(process.env.E2E_PASEO_HOME!, "director", "director.sqlite"));
+  db.exec("PRAGMA busy_timeout=5000");
+  try {
+    const row = db.prepare("SELECT data FROM runs WHERE id=?").get(id) as { data: string };
+    return JSON.parse(row.data) as Run;
+  } finally {
+    db.close();
+  }
+}
+
+function updateRun(id: string, change: (run: Run) => void) {
+  const db = new DatabaseSync(join(process.env.E2E_PASEO_HOME!, "director", "director.sqlite"));
+  db.exec("PRAGMA busy_timeout=5000");
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const row = db.prepare("SELECT revision, data FROM runs WHERE id=?").get(id) as {
+      revision: number;
+      data: string;
+    };
+    const run = JSON.parse(row.data) as Run;
+    change(run);
+    const revision = row.revision + 1;
+    run.revision = revision;
+    run.updatedAt = Date.now();
+    const result = db
+      .prepare("UPDATE runs SET revision=?, data=? WHERE id=? AND revision=?")
+      .run(revision, JSON.stringify(run), id, row.revision);
+    if (result.changes !== 1) throw new Error("run changed before the test could update it");
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  } finally {
+    db.close();
+  }
+}
+
+function receiptIds(run: Run): string[] {
+  return Object.keys(run.relayReceipts ?? {});
+}
+
+/** The quota notice is delivered to the collaboration chat, which may be a new lead agent. */
+async function openQuotaChat(
+  page: Page,
+  workspaceId: string,
+  conversationId: string,
+  client: DaemonClient,
+) {
+  let agentId = "";
+  await expect
+    .poll(async () => {
+      const status = await client.collaborationCommand("status");
+      const conversation = status.conversations.find((entry) => entry.id === conversationId);
+      agentId = conversation?.agentId ?? "";
+      return conversation?.run?.execution?.relay;
+    })
+    .toMatchObject({ manual: true, status: "blocked" });
+  expect(agentId).not.toBe("");
+  // Compact width collapses the tab strip, so open the chat at desktop first.
+  await page.setViewportSize(handoffViewports[0]);
+  await gotoWorkspace(page, workspaceId);
+  const tab = page.getByTestId(`workspace-tab-agent_${agentId}`).filter({ visible: true }).first();
+  await expect(tab).toBeVisible();
+  await tab.click();
+}
+
+async function chooseSwitchModel(page: Page, modelId: string, thinkingId?: string) {
+  await page.getByTestId("collaboration-switch-provider").click();
+  await page
+    .getByTestId("collaboration-switch-provider-option-mock")
+    .filter({ visible: true })
+    .click();
+  await page.getByTestId("collaboration-switch-target").click();
+  await page
+    .getByTestId(`collaboration-switch-model-option-${modelId}`)
+    .filter({ visible: true })
+    .click();
+  if (!thinkingId) return;
+  await page.getByTestId("collaboration-switch-thinking").click();
+  await page
+    .getByTestId(`collaboration-switch-thinking-option-${thinkingId}`)
+    .filter({ visible: true })
+    .click();
+}
+
+test("quota handoff keeps the task and continues on the chosen model", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const session = await seedMockAgentWorkspace({
+    repoPrefix: "collaboration-switch-",
+    title: "Quota switch",
+  });
+  const fixture = await seedQuotaRun(session);
+  try {
+    await page.setViewportSize(handoffViewports[0]);
+    await openQuotaChat(page, session.workspaceId, fixture.conversation.id, fixture.client);
+    const button = page.getByTestId("collaboration-switch-model");
+    await expect(button).toHaveCount(1, { timeout: 45_000 });
+    await expect(page.getByTestId("collaboration-handoff-status")).toContainText(
+      "mock/ten-second-stream",
+    );
+    for (const viewport of handoffViewports) {
+      await page.setViewportSize(viewport);
+      await expect(button).toBeVisible();
+      await button.scrollIntoViewIfNeeded();
+      await expectInsideViewport(page, "collaboration-switch-model", viewport.width);
+      await page.screenshot({ path: testInfo.outputPath(`switch-chat-${viewport.name}.png`) });
+    }
+    const historyUrl = `/settings/hosts/${getServerId()}/collaboration/history`;
+    for (const viewport of handoffViewports) {
+      // Resize before navigation. The history list remounts across the compact breakpoint.
+      await page.setViewportSize(viewport);
+      await page.goto(historyUrl, { waitUntil: "commit" });
+      const row = page.getByTestId(`collaboration-history-${fixture.conversation.id}`);
+      await expect(row).toBeVisible();
+      await row.scrollIntoViewIfNeeded();
+      await row.getByTestId("collaboration-history-actions").click();
+      await expect(page.getByTestId("collaboration-history-switch")).toBeVisible();
+      await expectInsideViewport(page, "collaboration-history-switch", viewport.width);
+      await page.screenshot({ path: testInfo.outputPath(`switch-history-${viewport.name}.png`) });
+      await page.keyboard.press("Escape");
+    }
+    await openQuotaChat(page, session.workspaceId, fixture.conversation.id, fixture.client);
+    await page.setViewportSize(handoffViewports[1]);
+    await expect(button).toBeVisible();
+    await button.click();
+    await expect(page.getByTestId("collaboration-switch-sheet")).toBeVisible();
+    await expect(page.getByTestId("collaboration-switch-current")).toContainText(
+      "mock/ten-second-stream",
+    );
+    await expect(page.getByTestId("collaboration-switch-status")).toContainText(
+      "This task, its files, and completed work stay as they are.",
+    );
+    await chooseSwitchModel(page, "five-minute-stream", "high");
+    await expectInsideViewport(page, "collaboration-switch-sheet", handoffViewports[1].width);
+    await page.screenshot({ path: testInfo.outputPath("switch-sheet-phone.png") });
+    await page.getByTestId("collaboration-switch-cancel").click();
+    await expect(page.getByTestId("collaboration-switch-sheet")).toHaveCount(0);
+    // Closing the phone sheet can leave a dismiss overlay. Reopen the chat at desktop.
+    await openQuotaChat(page, session.workspaceId, fixture.conversation.id, fixture.client);
+    await expect(button).toBeVisible({ timeout: 45_000 });
+    await button.click();
+    await expect(page.getByTestId("collaboration-switch-sheet")).toBeVisible();
+    await chooseSwitchModel(page, "five-minute-stream", "high");
+    await expectInsideViewport(page, "collaboration-switch-sheet", handoffViewports[0].width);
+    await page.screenshot({ path: testInfo.outputPath("switch-sheet-desktop.png") });
+    const submit = page.getByTestId("collaboration-switch-submit");
+    await submit.dispatchEvent("click");
+    await submit.dispatchEvent("click");
+    await expect(page.getByTestId("collaboration-switch-status")).toContainText(
+      "Continuing on mock/five-minute-stream",
+      { timeout: 30_000 },
+    );
+    await expect(button).toHaveCount(0);
+    const saved = readRun(fixture.run.id);
+    expect(saved.id).toBe(fixture.run.id);
+    expect(saved.cwd).toBe(fixture.run.cwd);
+    expect(saved.branch).toBe(fixture.run.branch);
+    expect(saved.tasks.map((task) => task.spec.id)).toEqual(["draft-file"]);
+    expect(saved.tasks[0]?.profileId).toBe("worker");
+    const execute = saved.operations.filter((operation) => operation.kind === "execute");
+    expect(execute).toHaveLength(2);
+    expect(execute.find((operation) => operation.id === fixture.operationId)?.superseded).toBe(
+      true,
+    );
+    expect(saved.executionModels?.worker).toEqual({
+      provider: "mock/five-minute-stream",
+      thinkingOptionId: "high",
+    });
+    expect(await readFile(join(session.cwd, "draft.txt"), "utf8")).toBe(fixture.marker);
+    await page.setViewportSize(handoffViewports[0]);
+    await page.goto(historyUrl, { waitUntil: "commit" });
+    const doneRow = page.getByTestId(`collaboration-history-${fixture.conversation.id}`);
+    await expect(doneRow).toBeVisible();
+    await doneRow.getByTestId("collaboration-history-actions").click();
+    await expect(page.getByTestId("collaboration-history-switch")).toHaveCount(0);
+  } finally {
+    await fixture.client.close();
+    await session.cleanup();
+  }
+});
+
+test("a failed model switch keeps the draft and does not start another execution", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(360_000);
+  // Cancel consumes the blocked run, so each width gets its own task and shows the error itself.
+  for (const viewport of handoffViewports) {
+    const session = await seedMockAgentWorkspace({
+      repoPrefix: `collaboration-switch-fail-${viewport.name}-`,
+      title: "Quota switch failure",
+    });
+    const fixture = await seedQuotaRun(session);
+    try {
+      await openQuotaChat(page, session.workspaceId, fixture.conversation.id, fixture.client);
+      await page.setViewportSize(viewport);
+      const button = page.getByTestId("collaboration-switch-model");
+      await expect(button).toBeVisible({ timeout: 45_000 });
+      await button.scrollIntoViewIfNeeded();
+      await button.click();
+      await chooseSwitchModel(page, "thirty-minute-stream");
+      await fixture.client.collaborationCommand("run.control", {
+        id: fixture.run.id,
+        action: "cancel",
+      });
+      await page.getByTestId("collaboration-switch-submit").click();
+      const alert = page.getByTestId("collaboration-switch-status");
+      await expect(alert).toContainText("任务已结束");
+      await expectInsideViewport(page, "collaboration-switch-sheet", viewport.width);
+      await page.screenshot({ path: testInfo.outputPath(`switch-error-${viewport.name}.png`) });
+      await page.getByTestId("collaboration-switch-cancel").click();
+      await expect(button).toHaveCount(0);
+      const saved = readRun(fixture.run.id);
+      expect(saved.control).toBe("canceled");
+      expect(saved.operations.filter((operation) => operation.kind === "execute")).toHaveLength(1);
+      expect(saved.cwd).toBe(fixture.run.cwd);
+      expect(await readFile(join(session.cwd, "draft.txt"), "utf8")).toBe(fixture.marker);
+      await page.goto(`/settings/hosts/${getServerId()}/collaboration/history`, {
+        waitUntil: "commit",
+      });
+      const row = page.getByTestId(`collaboration-history-${fixture.conversation.id}`);
+      await row.getByTestId("collaboration-history-actions").click();
+      await expect(page.getByTestId("collaboration-history-switch")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+    } finally {
+      await fixture.client.close();
+      await session.cleanup();
+    }
+  }
+});
+
+test("a recoverable switch failure keeps the same request and continues on another model", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(420_000);
+  for (const viewport of handoffViewports) {
+    const session = await seedMockAgentWorkspace({
+      repoPrefix: `collaboration-switch-retarget-${viewport.name}-`,
+      title: "Quota switch retarget",
+    });
+    // Three stored attempts hit the ceiling after the receipt is saved, which leaves the same
+    // failed manual relay a stop failure leaves. Raising the ceiling lets the next model continue.
+    const fixture = await seedQuotaRun(session, { attemptCeiling: true });
+    try {
+      await openQuotaChat(page, session.workspaceId, fixture.conversation.id, fixture.client);
+      await page.setViewportSize(viewport);
+      const button = page.getByTestId("collaboration-switch-model");
+      await expect(button).toBeVisible({ timeout: 45_000 });
+      await button.scrollIntoViewIfNeeded();
+      await button.click();
+      await chooseSwitchModel(page, "five-minute-stream", "high");
+      const submit = page.getByTestId("collaboration-switch-submit");
+      const alert = page.getByTestId("collaboration-switch-status");
+      await submit.click();
+      await expect(alert).toContainText("调用次数上限", { timeout: 30_000 });
+      await expect(submit).toBeEnabled();
+      await expectInsideViewport(page, "collaboration-switch-sheet", viewport.width);
+      await page.screenshot({
+        path: testInfo.outputPath(`switch-retarget-error-${viewport.name}.png`),
+      });
+      const failed = readRun(fixture.run.id);
+      const firstId = receiptIds(failed)[0];
+      if (!firstId) throw new Error("missing switch request");
+      expect(failed.executionRelay?.status).toBe("failed");
+      expect(failed.operations.filter((operation) => operation.kind === "execute")).toHaveLength(3);
+      expect(JSON.parse(failed.relayReceipts?.[firstId]?.fingerprint ?? "{}")).toMatchObject({
+        provider: "mock/five-minute-stream",
+        thinkingOptionId: "high",
+      });
+      await submit.click();
+      await expect(alert).toContainText("调用次数上限");
+      const retried = readRun(fixture.run.id);
+      expect(receiptIds(retried)).toEqual([firstId]);
+      expect(retried.operations.filter((operation) => operation.kind === "execute")).toHaveLength(
+        3,
+      );
+      await expect(
+        fixture.client.collaborationCommand("run.switch_executor", {
+          id: fixture.run.id,
+          expectedOperationId: fixture.operationId,
+          token: 2,
+          requestId: firstId,
+          model: { provider: "mock/five-minute-stream", thinkingOptionId: "high" },
+        }),
+      ).rejects.toThrow(/过期/);
+      expect(receiptIds(readRun(fixture.run.id))).toEqual([firstId]);
+      expect(await readFile(join(session.cwd, "draft.txt"), "utf8")).toBe(fixture.marker);
+      await page.getByTestId("collaboration-switch-target").scrollIntoViewIfNeeded();
+      await page.getByTestId("collaboration-switch-target").click();
+      await page
+        .getByTestId("collaboration-switch-model-option-thirty-minute-stream")
+        .filter({ visible: true })
+        .click();
+      updateRun(fixture.run.id, (run) => {
+        run.settings.maxAttempts = 40;
+      });
+      await submit.dispatchEvent("click");
+      await submit.dispatchEvent("click");
+      await expect(alert).toContainText("Continuing on mock/thirty-minute-stream", {
+        timeout: 30_000,
+      });
+      await expectInsideViewport(page, "collaboration-switch-sheet", viewport.width);
+      await page.screenshot({
+        path: testInfo.outputPath(`switch-retarget-success-${viewport.name}.png`),
+      });
+      const saved = readRun(fixture.run.id);
+      const ids = receiptIds(saved);
+      const secondId = ids.find((id) => id !== firstId);
+      if (!secondId) throw new Error("missing retarget request");
+      expect(ids).toHaveLength(2);
+      expect(ids).toContain(firstId);
+      expect(JSON.parse(saved.relayReceipts?.[secondId]?.fingerprint ?? "{}")).toMatchObject({
+        provider: "mock/thirty-minute-stream",
+        thinkingOptionId: null,
+      });
+      const execute = saved.operations.filter((operation) => operation.kind === "execute");
+      expect(execute).toHaveLength(4);
+      expect(execute.filter((operation) => !operation.superseded)).toHaveLength(1);
+      expect(execute.find((operation) => operation.id === fixture.operationId)?.superseded).toBe(
+        true,
+      );
+      expect(saved.executionModels?.worker).toEqual({ provider: "mock/thirty-minute-stream" });
+      expect(saved.id).toBe(fixture.run.id);
+      expect(saved.cwd).toBe(fixture.run.cwd);
+      expect(saved.branch).toBe(fixture.run.branch);
+      expect(saved.tasks.map((task) => task.spec.id)).toEqual(["draft-file"]);
+      expect(saved.tasks[0]?.profileId).toBe("worker");
+      expect(await readFile(join(session.cwd, "draft.txt"), "utf8")).toBe(fixture.marker);
+      await page.getByTestId("collaboration-switch-cancel").click();
+      await expect(button).toHaveCount(0);
+      await page.goto(`/settings/hosts/${getServerId()}/collaboration/history`, {
+        waitUntil: "commit",
+      });
+      const row = page.getByTestId(`collaboration-history-${fixture.conversation.id}`);
+      await row.getByTestId("collaboration-history-actions").click();
+      await expect(page.getByTestId("collaboration-history-switch")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+    } finally {
+      await fixture.client.close();
+      await session.cleanup();
+    }
+  }
+});

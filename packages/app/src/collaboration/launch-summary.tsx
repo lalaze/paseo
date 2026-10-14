@@ -60,6 +60,14 @@ export function LaunchSummary({
               {`${t(`collaboration.${role}ProfileId`)}: ${selectionLabel(state.selections[role]) ?? t("collaboration.sameReviewer")}`}
             </Text>
           ))}
+          {state.fallbacks.map((fallback, index) => (
+            <Text
+              key={fallback.rowKey ?? `${fallback.provider}/${fallback.model}`}
+              style={styles.secondary}
+            >
+              {`${t("collaboration.launch.fallbacks")} ${index + 1}: ${selectionLabel(fallback) ?? t("collaboration.launch.unconfigured")}`}
+            </Text>
+          ))}
           <Text style={styles.secondary}>
             {`${t("collaboration.maxReworks")}: ${state.maxReworks} · ${t("collaboration.launch.runHours", { count: Math.round(state.runTimeoutMs / 3600000) })}`}
           </Text>

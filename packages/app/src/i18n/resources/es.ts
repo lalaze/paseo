@@ -59,6 +59,21 @@ export const es: TranslationResources = {
       reviewerHint: "Elige el agente que dirige la conversación y revisa el trabajo realizado.",
       configureReviewer: "Configurar revisor",
       goal: "Objetivo de la tarea",
+      fallbacks: "Modelos de reserva",
+      fallbacksHint:
+        "Se usan en orden cuando la ejecución se queda sin cuota. Déjalo vacío para elegir otro modelo tú mismo.",
+      addFallback: "Añadir modelo de reserva",
+      removeFallback: "Quitar",
+      moveFallbackUp: "Subir",
+      moveFallbackDown: "Bajar",
+      fallbackIssues: {
+        incomplete: "Elige un proveedor y un modelo para cada reserva.",
+        duplicate: "Cada modelo de reserva solo puede aparecer una vez.",
+        same: "Un modelo de reserva debe ser distinto del modelo de ejecución.",
+        unavailable: "Este modelo de reserva no está disponible en este host.",
+        thinking: "Este nivel de razonamiento no está disponible para el modelo de reserva.",
+        limit: "Una tarea puede tener como máximo 8 modelos de reserva.",
+      },
     },
     modes: {
       full: "Planificar primero",
@@ -85,6 +100,25 @@ export const es: TranslationResources = {
       updateHostWorktree:
         "Actualiza el host para ejecutar la colaboración en un worktree separado.",
       updateHostDisable: "Actualiza el host para salir de la colaboración.",
+      updateHostHandoff:
+        "Actualiza el host para continuar con otro modelo cuando se agote la cuota.",
+    },
+    handoff: {
+      continue: "Cambiar de modelo y continuar",
+      title: "Continuar con otro modelo",
+      current: "Modelo actual",
+      pending: "Cambiando de modelo...",
+      success: "Continuando con {{model}}",
+      updateHost: "Actualiza el host para continuar con otro modelo.",
+      progressKept: "Esta tarea, sus archivos y el trabajo ya hecho se conservan.",
+      submit: "Continuar",
+      attempted: "Ya probados",
+      status: {
+        blocked: "Cuota agotada",
+        stopping: "Deteniendo el modelo anterior",
+        preparing: "Preparando el siguiente modelo",
+        failed: "El cambio falló",
+      },
     },
     categoryOverrides: "Asignaciones por categoría",
     taskOverrides: "Asignaciones por ID de tarea",

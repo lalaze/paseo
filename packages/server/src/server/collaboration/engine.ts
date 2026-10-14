@@ -30,10 +30,21 @@ import {
   type FinalControl,
   type Evidence,
   type CollaborationMode,
+  type ExecutionModel,
+  type ExecutionRelay,
 } from "@getpaseo/protocol/collaboration/schema";
 import type { Repository } from "./repository.js";
 import { Store } from "./store.js";
 import { buildPrompt, CONTINUED_SESSION_NOTE, responseSchema } from "./prompts.js";
+import {
+  classifyProviderFailure,
+  isProviderTerminalOutput,
+  isTransientProviderError,
+  providerFailureEvidence,
+} from "./provider-failure.js";
+import { rememberAttempt, renderHandoffPackage, sameExecutionModel } from "./handoff.js";
+
+export { isTransientProviderError } from "./provider-failure.js";
 
 export interface AgentSnapshot {
   status: "idle" | "running" | "permission" | "error" | "missing";
@@ -41,6 +52,9 @@ export interface AgentSnapshot {
   output: string;
   interrupted?: boolean;
   error?: string;
+  /** Real run ownership. `lifecycle === "error"` alone does not mean the turn has stopped. */
+  ownership?: { inFlight: boolean; pendingPermissions: number; lifecycle: string };
+  failure?: { code?: string; diagnostic?: string };
 }
 export interface AgentGateway {
   workspaceDirectory(workspaceId: string): Promise<string>;
@@ -51,16 +65,26 @@ export interface AgentGateway {
   inspect(agentId: string, operationId: string, since?: number): Promise<AgentSnapshot>;
   send(agentId: string, operationId: string, prompt: string): Promise<void>;
   stop(agentId: string): Promise<void>;
+  /** Catalog and tool check only. Must not send an authentication request. */
+  validateExecutionModel(model: ExecutionModel): Promise<void>;
+  /** Bounded assistant and tool evidence. Thoughts and credentials stay out. */
+  handoffActivity(
+    agentId: string,
+    operationId: string,
+  ): Promise<{ text: string; truncated: boolean; missing: boolean }>;
 }
 
 const AUTO_RETRY_DELAYS_MS = [30_000, 120_000, 300_000];
-// Quota, billing and auth failures do not clear by retrying soon; they still wait for the user.
-const LASTING_PROVIDER_ERROR =
-  /quota|usage limit|RESOURCE_EXHAUSTED|\b429\b|rate.?limit|billing|credit|insufficient|unauthori[sz]ed|\b40[13]\b|forbidden|api key|invalid.?(request|argument)/i;
-const TRANSIENT_PROVIDER_ERROR =
-  /\bEOF\b|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|socket hang up|fetch failed|network|connection (reset|closed|lost|error)|stream (closed|disconnected|ended)|\b50[0234]\b|internal server error|bad gateway|service unavailable|gateway timeout|overloaded|temporarily unavailable/i;
-export function isTransientProviderError(message: string) {
-  return !LASTING_PROVIDER_ERROR.test(message) && TRANSIENT_PROVIDER_ERROR.test(message);
+
+function sessionSettled(state: AgentSnapshot): boolean {
+  if (state.ownership)
+    return (
+      !state.ownership.inFlight &&
+      state.ownership.pendingPermissions === 0 &&
+      state.ownership.lifecycle !== "initializing" &&
+      state.ownership.lifecycle !== "running"
+    );
+  return state.status !== "running" && state.status !== "permission";
 }
 
 export class Engine {
@@ -259,7 +283,13 @@ export class Engine {
       .title;
     return { actor, action, detail: title ? `：${title}` : "" };
   }
-  private enqueue(run: Run, kind: Operation["kind"], taskId?: string, formatRetries = 0) {
+  private enqueue(
+    run: Run,
+    kind: Operation["kind"],
+    taskId?: string,
+    formatRetries = 0,
+    handoff?: string,
+  ) {
     if (run.operations.length - (run.roundOperationOffset ?? 0) >= run.settings.maxAttempts)
       throw new Error("已达到本轮任务的调用次数上限");
     const task = run.tasks.find((candidateEntry) => candidateEntry.spec.id === taskId);
@@ -272,11 +302,15 @@ export class Engine {
       reviewer: run.settings.reviewerProfileId,
       director: run.settings.directorProfileId,
     }[role]!;
-    const agentId = {
+    const replaced = this.replacedAgentIds(run);
+    let agentId = {
       worker: task?.agentId ?? this.workerSession(run, profileId),
       reviewer: run.reviewerAgentId,
       director: run.directorAgentId,
     }[role];
+    if (role === "worker" && agentId && replaced.has(agentId))
+      agentId = this.workerSession(run, profileId);
+    if (role === "worker" && agentId && replaced.has(agentId)) agentId = undefined;
     const op: Operation = {
       id,
       kind,
@@ -286,8 +320,9 @@ export class Engine {
       agentId,
       createdAt: this.now(),
       formatRetries,
-      prompt: buildPrompt(run, kind, id, taskId, { agentId }),
+      prompt: buildPrompt(run, kind, id, taskId, { agentId, handoff }),
     };
+    if (kind === "execute") op.executionModel = this.executionModelFor(run, profileId);
     if (kind === "final") op.reviewScope = "all_tasks";
     run.operations.push(op);
     run.activeOperationId = id;
@@ -300,14 +335,52 @@ export class Engine {
    * Tasks run serially in one workspace, so a profile's worker session carries over to its next
    * task and across revised requirements, keeping the environment, scripts and data it built.
    */
+  private replacedAgentIds(run: Run) {
+    return new Set(
+      run.operations.flatMap((candidate) =>
+        candidate.superseded && candidate.agentId ? [candidate.agentId] : [],
+      ),
+    );
+  }
+  private profileExecutionModel(run: Run, profileId: string): ExecutionModel {
+    const profile = run.settings.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) throw new Error(`不存在的 AI 配置：${profileId}`);
+    return {
+      provider: profile.provider,
+      ...(profile.thinkingOptionId ? { thinkingOptionId: profile.thinkingOptionId } : {}),
+      ...(profile.featureValues ? { featureValues: profile.featureValues } : {}),
+    };
+  }
+  private executionModelFor(run: Run, profileId: string): ExecutionModel {
+    return run.executionModels?.[profileId] ?? this.profileExecutionModel(run, profileId);
+  }
+  private operationProfile(run: Run, op: Operation): Profile {
+    const profile = run.settings.profiles.find((candidate) => candidate.id === op.profileId);
+    if (!profile) throw new Error("AI 配置不存在");
+    if (!op.executionModel || op.kind !== "execute") return profile;
+    const sameProvider = op.executionModel.provider === profile.provider;
+    const next: Profile = {
+      ...profile,
+      provider: op.executionModel.provider,
+      modeId: sameProvider ? profile.modeId : undefined,
+    };
+    if (op.executionModel.thinkingOptionId)
+      next.thinkingOptionId = op.executionModel.thinkingOptionId;
+    else delete next.thinkingOptionId;
+    if (op.executionModel.featureValues) next.featureValues = op.executionModel.featureValues;
+    else if (!sameProvider) delete next.featureValues;
+    return next;
+  }
   private workerSession(run: Run, profileId: string) {
-    return run.operations.findLast(
-      (candidate) =>
-        candidate.kind === "execute" &&
-        candidate.profileId === profileId &&
-        candidate.agentId !== undefined &&
-        candidate.agentId !== run.chat?.mainAgentId,
-    )?.agentId;
+    const replaced = this.replacedAgentIds(run);
+    const wanted = this.executionModelFor(run, profileId);
+    return run.operations.findLast((candidate) => {
+      if (candidate.kind !== "execute" || candidate.profileId !== profileId) return false;
+      if (!candidate.agentId || candidate.agentId === run.chat?.mainAgentId) return false;
+      if (replaced.has(candidate.agentId)) return false;
+      const actual = candidate.executionModel ?? this.profileExecutionModel(run, profileId);
+      return sameExecutionModel(actual, wanted);
+    })?.agentId;
   }
 
   /** Sessions a stop interrupts: the active role session, or children a crash left unbound. */
@@ -325,7 +398,7 @@ export class Engine {
       for (const agentId of await this.sessionsToStop(run, op)) {
         await this.agents.stop(agentId);
         const state = await this.agents.inspect(agentId, op.id, op.createdAt);
-        if (state.status === "running" || state.status === "permission") return;
+        if (!sessionSettled(state)) return;
       }
     run.control = run.stopTarget ?? "canceled";
     this.event(
@@ -427,8 +500,10 @@ export class Engine {
     await this.repository.assertBranch(run);
     if (op.agentId && op.agentId !== run.chat?.mainAgentId) {
       // A carried-over session can be archived or failed by now; start this step in a fresh one.
-      const { status } = await this.agents.inspect(op.agentId, op.id, op.createdAt);
-      if (status === "missing" || status === "error") {
+      const state = await this.agents.inspect(op.agentId, op.id, op.createdAt);
+      if (state.status === "missing" || state.status === "error") {
+        if (!sessionSettled(state))
+          throw new Error("原 AI 仍在执行或等待权限，请先在 Paseo 中处理");
         op.agentId = undefined;
         op.prompt = op.prompt.replace(CONTINUED_SESSION_NOTE, "");
         this.setSession(run, op);
@@ -442,7 +517,7 @@ export class Engine {
     }
     op.state = "creating";
     this.save(run);
-    const profile = run.settings.profiles.find((p) => p.id === op!.profileId)!;
+    const profile = this.operationProfile(run, op);
     const agentId = await this.agents.create(run, op, profile);
     this.bindAgent(run, op, agentId);
     this.save(run);
@@ -516,8 +591,9 @@ export class Engine {
     } catch (error) {
       // Some providers finish a turn by emitting their API failure as assistant text.
       // Sending a format correction to that session only makes another API call.
-      if (/^API error \(attempt \d+\):/im.test(state.output))
-        throw new Error(state.output.trim().slice(0, 2000), { cause: error });
+      if (isProviderTerminalOutput(state.output)) {
+        if (await this.handleTerminalFailure(run, op, state)) return;
+      }
       if (op.formatRetries >= 2)
         throw new Error(`结果格式连续无效：${String(error).slice(0, 1200)}`, { cause: error });
       this.retryInSession(
@@ -539,8 +615,10 @@ export class Engine {
   }
   private async observeOperation(run: Run, op: Operation) {
     const state = await this.agents.inspect(op.agentId!, op.id, op.createdAt);
-    if (state.status === "missing" || state.status === "error")
-      throw new Error(state.error ?? "AI 会话不可用");
+    if (state.status === "missing") throw new Error(state.error ?? "AI 会话不可用");
+    if (state.status === "error") {
+      if (await this.handleTerminalFailure(run, op, state)) return;
+    }
     const conversational = !!run.chat && op.agentId === run.chat.mainAgentId;
     if (state.interrupted && !conversational)
       throw new Error("此会话收到其他消息，已暂停自动处理；请检查后重试当前步骤");
@@ -552,6 +630,16 @@ export class Engine {
       op.state = "sent";
       this.save(run);
     }
+    if (await this.observeOpenTurn(run, op, state, conversational)) return;
+    await this.collectResult(run, op, state, conversational);
+  }
+  /** Permission, timeout, and an in-flight turn stay on this operation. */
+  private async observeOpenTurn(
+    run: Run,
+    op: Operation,
+    state: AgentSnapshot,
+    conversational: boolean,
+  ) {
     if (state.status === "permission") {
       if (run.control !== "waiting_permission") {
         run.control = "waiting_permission";
@@ -561,7 +649,7 @@ export class Engine {
         );
         this.save(run);
       }
-      return;
+      return true;
     }
     const resumed = run.control === "waiting_permission";
     if (resumed) {
@@ -574,7 +662,7 @@ export class Engine {
       run.stopTarget = "needs_attention";
       this.event(run, "当前步骤超时，正在停止 AI");
       this.save(run);
-      return;
+      return true;
     }
     if (state.status === "running" && !(conversational && op.response !== undefined)) {
       if (!op.observedBusy) {
@@ -584,9 +672,9 @@ export class Engine {
           this.event(run, `${actor} 正在${action}${detail}`);
         this.save(run);
       }
-      return;
+      return true;
     }
-    await this.collectResult(run, op, state, conversational);
+    return false;
   }
   private async upgradeReview(run: Run, op: Operation | undefined) {
     // Upgrade queued legacy task reviews without discarding a review already
@@ -616,6 +704,33 @@ export class Engine {
     if (op.state === "ready") return await this.sendOperation(run, op);
     await this.observeOperation(run, op);
   }
+  /** Cancellation, budget, handoff, review upgrade, and network retry own the tick when set. */
+  private async claimAdvance(run: Run, op: Operation | undefined) {
+    if (run.control === "canceling") {
+      await this.reconcileCancellation(run, op);
+      return true;
+    }
+    if (run.phase === "awaiting_acceptance") return true;
+    if (this.budgetExhausted(run)) {
+      if (run.executionRelay && ["stopping", "preparing"].includes(run.executionRelay.status))
+        run.executionRelay = this.failRelay(run.executionRelay, "时间预算已耗尽");
+      run.control = "canceling";
+      run.stopTarget = "needs_attention";
+      this.event(run, "已达到任务总时间上限，正在停止");
+      this.save(run);
+      return true;
+    }
+    if (run.executionRelay && ["stopping", "preparing"].includes(run.executionRelay.status)) {
+      await this.continueRelay(run);
+      return true;
+    }
+    if (await this.upgradeReview(run, op)) return true;
+    if (run.autoRetry?.at !== undefined) {
+      await this.autoRetry(run);
+      return true;
+    }
+    return false;
+  }
   private async advance(id: string) {
     let run = this.store.get(id);
     if ((run.migrationConversationId && !run.chat) || run.chat?.recovering) return;
@@ -626,24 +741,14 @@ export class Engine {
     )
       return;
     try {
-      let op = this.current(run);
-      if (run.control === "canceling") return await this.reconcileCancellation(run, op);
-      if (run.phase === "awaiting_acceptance") return;
-      if (this.budgetExhausted(run)) {
-        run.control = "canceling";
-        run.stopTarget = "needs_attention";
-        this.event(run, "已达到任务总时间上限，正在停止");
-        this.save(run);
-        return;
-      }
-      if (await this.upgradeReview(run, op)) return;
-      if (run.autoRetry?.at !== undefined) return await this.autoRetry(run);
-      await this.advanceOperation(run, op);
+      const op = this.current(run);
+      if (!(await this.claimAdvance(run, op))) await this.advanceOperation(run, op);
     } catch (error) {
       // Re-read after a failed compare-and-swap rather than overwriting another control action.
       run = this.store.get(id);
       const message = String(error instanceof Error ? error.message : error).slice(0, 3000);
       if (this.stopped || run.control === "canceled" || run.phase === "completed") return;
+      if (await this.recoverProviderException(run, message)) return;
       if (!this.scheduleAutoRetry(run, message)) this.hold(run, message);
     }
   }
@@ -672,6 +777,46 @@ export class Engine {
     run.autoRetry = { attempts: run.autoRetry!.attempts };
     await this.retryCurrent(run, "自动重试当前步骤");
     this.save(run);
+  }
+  /** Confirmed execute quota from create/send enters handoff. Anything uncertain stays blocked. */
+  private async recoverProviderException(run: Run, message: string) {
+    const op = this.current(run);
+    if (!this.canHandoffException(run, op, message) || !op) return false;
+    if (!(await this.reconcileFailedDelivery(run, op))) return true;
+    await this.beginHandoff(run, op, message);
+    return true;
+  }
+  private canHandoffException(run: Run, op: Operation | undefined, message: string) {
+    return (
+      !!op &&
+      op.kind === "execute" &&
+      !!op.taskId &&
+      !["paused", "canceled", "canceling"].includes(run.control) &&
+      classifyProviderFailure({ message, source: "provider" }).handoff
+    );
+  }
+  private async reconcileFailedDelivery(run: Run, op: Operation) {
+    try {
+      if (op.state === "creating" && !op.agentId) {
+        const ids = await this.agents.find(run.id, op.id);
+        if (ids.length > 1) {
+          this.hold(run, "创建会话的结果不明确，已停止自动重发；请检查后选择重试");
+          return false;
+        }
+        if (ids.length === 1) this.bindAgent(run, op, ids[0]);
+      }
+      if (op.agentId && op.agentId !== run.chat?.mainAgentId)
+        await this.agents.inspect(op.agentId, op.id, op.createdAt);
+      return true;
+    } catch {
+      this.hold(
+        run,
+        op.state === "creating" && !op.agentId
+          ? "创建会话的结果不明确，已停止自动重发；请检查后选择重试"
+          : "无法确认上一条指令是否送达，已停止自动重发；请检查后重试",
+      );
+      return false;
+    }
   }
   private bindAgent(run: Run, op: Operation, agentId: string) {
     op.agentId = agentId;
@@ -738,6 +883,8 @@ export class Engine {
         this.hold(run, `执行受阻：${result.summary}`);
         return;
       }
+      if (run.executionAttempts) delete run.executionAttempts[task.profileId];
+      run.executionRelay = undefined;
       task.status = "executed";
       run.phase = "executing";
       this.event(run, `执行完成：${task.spec.title}；全部任务完成后统一审核`);
@@ -1137,8 +1284,7 @@ export class Engine {
   private async recoverResult(run: Run, op: Operation) {
     let outputError: string | undefined;
     const state = await this.agents.inspect(op.agentId!, op.id, op.createdAt);
-    if (["running", "permission"].includes(state.status))
-      throw new Error("原 AI 仍在执行或等待权限，请先在 Paseo 中处理");
+    if (!sessionSettled(state)) throw new Error("原 AI 仍在执行或等待权限，请先在 Paseo 中处理");
     // Recover valid completed work after an adapter fix, without another
     // AI turn. Interrupted or blocked work still takes the retry path. A final
     // review is only recovered once it was submitted, so it can be rechecked
@@ -1168,6 +1314,7 @@ export class Engine {
       }
     }
     if (state.status === "missing" || state.status === "error") {
+      if (!sessionSettled(state)) throw new Error("原 AI 仍在执行或等待权限，请先在 Paseo 中处理");
       if (op.agentId === run.chat?.mainAgentId)
         throw new Error("主会话不可用，请先在 Paseo 中恢复原主对话，再重试当前步骤");
       // Retain the failed operation, but create the retry session from
@@ -1176,10 +1323,446 @@ export class Engine {
     }
     return { recovered: false, outputError };
   }
+  private failureText(evidence: { message: string; code?: string; diagnostic?: string }) {
+    return [evidence.message, evidence.code, evidence.diagnostic]
+      .filter((part) => part && part.trim())
+      .join("\n")
+      .slice(0, 4000);
+  }
+  private async tryFinishValidExecution(run: Run, op: Operation, state?: AgentSnapshot) {
+    if (op.kind !== "execute") return false;
+    // lifecycle=error can still own a live turn. Do not start the next phase until it stops.
+    if (state && !sessionSettled(state)) return false;
+    let response: unknown = op.response;
+    if (response === undefined && state?.output.trim()) {
+      try {
+        response = parseOutput(state.output);
+      } catch {
+        return false;
+      }
+    }
+    const parsed = ResultSchema.safeParse(response);
+    if (!parsed.success) return false;
+    run.control = "running";
+    await this.finish(run, op, parsed.data);
+    return true;
+  }
+  /** Classify a real provider failure. Quota on an execute turn can hand off; other classes do not. */
+  private async handleTerminalFailure(run: Run, op: Operation, state: AgentSnapshot) {
+    if (await this.tryFinishValidExecution(run, op, state)) return true;
+    const evidence = providerFailureEvidence(state);
+    if (!evidence) {
+      if (state.status !== "error") return false;
+      throw new Error(state.error?.trim() || "AI 会话不可用");
+    }
+    const text = this.failureText(evidence);
+    const failure = classifyProviderFailure({
+      message: evidence.message,
+      code: evidence.code,
+      diagnostic: evidence.diagnostic,
+      source: "provider",
+    });
+    if (failure.class === "network") throw new Error(text.slice(0, 2000) || "AI 会话不可用");
+    if (
+      failure.handoff &&
+      op.kind === "execute" &&
+      !["paused", "canceled", "canceling"].includes(run.control)
+    ) {
+      await this.beginHandoff(run, op, text);
+      return true;
+    }
+    throw new Error(text.slice(0, 2000) || "AI 会话不可用");
+  }
+  private async selectFallback(run: Run, profileId: string, attempted: ExecutionModel[]) {
+    const unavailable: string[] = [];
+    for (const model of run.settings.executionFallbacks?.[profileId] ?? []) {
+      if (attempted.some((item) => item.provider === model.provider)) continue;
+      try {
+        await this.agents.validateExecutionModel(model);
+      } catch (error) {
+        unavailable.push(
+          `${model.provider}（${error instanceof Error ? error.message : String(error)}）`,
+        );
+        continue;
+      }
+      return { model, unavailable };
+    }
+    return { unavailable };
+  }
+  private quotaMessage(run: Run, profileId: string, text: string, unavailable: string[]) {
+    const list = run.settings.executionFallbacks?.[profileId] ?? [];
+    const attempted = run.executionAttempts?.[profileId] ?? [];
+    const exhausted =
+      list.length > 0 &&
+      list.every((model) => attempted.some((item) => item.provider === model.provider));
+    if (exhausted) return `备用模型额度也已耗尽，进度已保留，请手动处理。${text.slice(0, 800)}`;
+    if (unavailable.length)
+      return `备用模型不可用，进度已保留：${unavailable.join("、")}。${text.slice(0, 800)}`;
+    return `模型额度已耗尽，进度已保留，可以换模型继续。${text.slice(0, 800)}`;
+  }
+  private async beginHandoff(run: Run, op: Operation, text: string) {
+    try {
+      if (["paused", "canceled", "canceling"].includes(run.control)) return;
+      if (op.kind !== "execute" || !op.taskId) {
+        this.hold(run, text.slice(0, 2000));
+        return;
+      }
+      const current = op.executionModel ?? this.profileExecutionModel(run, op.profileId);
+      const attempted = rememberAttempt(run.executionAttempts?.[op.profileId] ?? [], current);
+      run.executionAttempts = { ...run.executionAttempts, [op.profileId]: attempted };
+      const { model, unavailable } = await this.selectFallback(run, op.profileId, attempted);
+      const token = (run.relayToken ?? run.revision) + 1;
+      run.relayToken = token;
+      const base = {
+        source: "none" as const,
+        operationId: op.id,
+        taskId: op.taskId,
+        profileId: op.profileId,
+        agentId: op.agentId,
+        errorClass: "quota" as const,
+        message: text.slice(0, 1500),
+        attempted,
+        manual: true,
+        token,
+        at: this.now(),
+      };
+      if (!model) {
+        run.executionRelay = { ...base, status: "blocked" };
+        this.hold(run, this.quotaMessage(run, op.profileId, text, unavailable));
+        return;
+      }
+      run.executionRelay = { ...base, status: "stopping", source: "automatic", target: model };
+      this.event(run, `模型额度已耗尽，正在切换到 ${model.provider}`);
+      this.save(run);
+      await this.continueRelay(run);
+    } catch (error) {
+      if (["canceled", "canceling"].includes(run.control)) return;
+      this.hold(
+        run,
+        `模型接力失败，进度已保留：${String(error instanceof Error ? error.message : error).slice(0, 1500)}`,
+      );
+    }
+  }
+  private failRelay(relay: ExecutionRelay, reason: string): ExecutionRelay {
+    return {
+      source: relay.source,
+      operationId: relay.operationId,
+      taskId: relay.taskId,
+      profileId: relay.profileId,
+      agentId: relay.agentId,
+      errorClass: relay.errorClass,
+      message: relay.message,
+      attempted: relay.attempted,
+      manual: relay.manual,
+      token: relay.token,
+      at: relay.at,
+      requestId: relay.requestId,
+      status: "failed",
+      reason,
+      ...("target" in relay ? { target: relay.target } : {}),
+    };
+  }
+  private async confirmStopped(run: Run, op: Operation) {
+    if (!op.agentId || op.agentId === run.chat?.mainAgentId) return true;
+    try {
+      await this.agents.stop(op.agentId);
+    } catch {
+      return false;
+    }
+    let state = await this.agents.inspect(op.agentId, op.id, op.createdAt);
+    if (sessionSettled(state)) return true;
+    try {
+      await this.agents.stop(op.agentId);
+    } catch {
+      return false;
+    }
+    state = await this.agents.inspect(op.agentId, op.id, op.createdAt);
+    return sessionSettled(state);
+  }
+  private async collectHandoff(run: Run, op: Operation) {
+    let activity: string | undefined;
+    let activityMissing = !op.agentId;
+    let activityTruncated = false;
+    if (op.agentId) {
+      try {
+        const evidence = await this.agents.handoffActivity(op.agentId, op.id);
+        activity = evidence.text;
+        activityMissing = evidence.missing;
+        activityTruncated = evidence.truncated;
+      } catch {
+        activityMissing = true;
+      }
+    }
+    let paths: string[] | undefined;
+    let diff: string | undefined;
+    let changesMissing = false;
+    let changesTruncated = false;
+    let pathCount: number | undefined;
+    try {
+      const changes = await this.repository.workingChanges(run);
+      paths = changes.paths;
+      diff = changes.diff;
+      changesMissing = changes.missing === true;
+      changesTruncated = changes.truncated === true;
+      pathCount = changes.pathCount;
+    } catch {
+      changesMissing = true;
+    }
+    return renderHandoffPackage({
+      activity,
+      activityMissing,
+      activityTruncated,
+      paths,
+      pathCount,
+      diff,
+      changesMissing,
+      changesTruncated,
+    });
+  }
+  /** After the old turn has stopped, keep a valid result instead of starting another model. */
+  private async recoverFinishedExecution(run: Run, op: Operation) {
+    if (op.agentId && op.agentId !== run.chat?.mainAgentId) {
+      const state = await this.agents.inspect(op.agentId, op.id, op.createdAt);
+      if (!sessionSettled(state)) {
+        const relay = run.executionRelay;
+        if (relay && (relay.status === "stopping" || relay.status === "preparing")) {
+          run.executionRelay = this.failRelay(relay, "停止旧执行会话失败或仍在运行");
+          this.hold(run, "旧执行会话未能停止，未启动新模型；进度已保留，可稍后重试切换");
+        }
+        return true;
+      }
+      if (!(await this.tryFinishValidExecution(run, op, state))) return false;
+    } else if (!(await this.tryFinishValidExecution(run, op))) return false;
+    if (run.executionRelay) {
+      run.executionRelay = undefined;
+      this.save(run);
+    }
+    return true;
+  }
+  private async continueRelay(run: Run) {
+    const relay = run.executionRelay;
+    if (!relay || (relay.status !== "stopping" && relay.status !== "preparing")) return;
+    if (["paused", "canceled", "canceling"].includes(run.control)) return;
+    const op = run.operations.find((candidate) => candidate.id === relay.operationId);
+    if (!op) {
+      this.hold(run, "接力来源操作不存在，进度已保留");
+      return;
+    }
+    if (run.activeOperationId && run.activeOperationId !== op.id) {
+      run.executionRelay = undefined;
+      this.save(run);
+      return;
+    }
+    if (this.budgetExhausted(run)) {
+      run.executionRelay = this.failRelay(relay, "时间预算已耗尽");
+      this.hold(run, "本轮任务总时间预算已耗尽，接力已停止；进度已保留");
+      return;
+    }
+    let preparing: Extract<ExecutionRelay, { status: "preparing" }>;
+    if (relay.status === "stopping") {
+      const stopped = await this.confirmStopped(run, op);
+      const latest = this.store.get(run.id);
+      if (["paused", "canceled", "canceling"].includes(latest.control)) {
+        run.control = latest.control;
+        return;
+      }
+      if (!stopped) {
+        run.executionRelay = this.failRelay(relay, "停止旧执行会话失败或仍在运行");
+        this.hold(run, "旧执行会话未能停止，未启动新模型；进度已保留，可稍后重试切换");
+        return;
+      }
+      if (await this.recoverFinishedExecution(run, op)) return;
+      const handoff = await this.collectHandoff(run, op);
+      preparing = { ...relay, status: "preparing", handoff, at: this.now() };
+      run.executionRelay = preparing;
+      this.save(run);
+    } else preparing = relay;
+    if (run.operations.length - (run.roundOperationOffset ?? 0) >= run.settings.maxAttempts) {
+      run.executionRelay = this.failRelay(preparing, "调用次数上限");
+      this.hold(run, "已达到本轮任务的调用次数上限，接力已停止；进度已保留");
+      return;
+    }
+    if (["paused", "canceled", "canceling"].includes(run.control)) return;
+    op.state = "abandoned";
+    op.superseded = true;
+    op.handoff = {
+      at: this.now(),
+      source: preparing.source === "manual" ? "manual" : "automatic",
+      errorClass: "quota",
+      target: preparing.target,
+      fromModel: op.executionModel,
+    };
+    run.executionModels = { ...run.executionModels, [op.profileId]: preparing.target };
+    run.executionRelay = undefined;
+    const task = run.tasks.find((candidate) => candidate.spec.id === op.taskId);
+    if (task?.agentId && task.agentId === op.agentId) task.agentId = undefined;
+    this.enqueue(run, "execute", op.taskId, 0, preparing.handoff);
+    this.event(run, `已切换执行模型到 ${preparing.target.provider}，继续同一任务`);
+    this.save(run);
+  }
+  private relayFingerprint(model: ExecutionModel) {
+    return JSON.stringify({
+      provider: model.provider,
+      thinkingOptionId: model.thinkingOptionId ?? null,
+      featureValues: model.featureValues ?? null,
+    });
+  }
+  async switchExecutor(
+    id: string,
+    input: {
+      expectedOperationId: string;
+      token: number;
+      requestId: string;
+      model: ExecutionModel;
+    },
+  ) {
+    return this.locked(id, async () => {
+      const run = this.store.get(id);
+      if (run.control === "canceled" || run.phase === "completed") throw new Error("任务已结束");
+      if (run.phase === "awaiting_acceptance") throw new Error("请验收成果或提交修改意见");
+      const fingerprint = this.relayFingerprint(input.model);
+      return (
+        (await this.resumeSwitch(run, input, fingerprint)) ??
+        this.beginManualSwitch(run, input, fingerprint)
+      );
+    });
+  }
+  private async resumeSwitch(
+    run: Run,
+    input: {
+      expectedOperationId: string;
+      token: number;
+      requestId: string;
+      model: ExecutionModel;
+    },
+    fingerprint: string,
+  ) {
+    const receipt = run.relayReceipts?.[input.requestId];
+    if (receipt && receipt.fingerprint !== fingerprint)
+      throw new Error("重复的切换请求与上次目标不一致");
+    // A finished switch is only a receipt. Repeating it must not dispatch again.
+    if (receipt?.operationId) return { ok: true as const, operationId: receipt.operationId };
+    const relay = run.executionRelay;
+    if (
+      receipt &&
+      relay?.requestId === input.requestId &&
+      (relay.status === "stopping" || relay.status === "preparing")
+    )
+      return { ok: true as const, operationId: run.activeOperationId };
+    if (receipt && relay?.requestId === input.requestId && relay.status === "failed")
+      return this.retryFailedSwitch(run, input, relay, receipt);
+    return undefined;
+  }
+  private async retryFailedSwitch(
+    run: Run,
+    input: {
+      expectedOperationId: string;
+      token: number;
+      requestId: string;
+      model: ExecutionModel;
+    },
+    relay: Extract<ExecutionRelay, { status: "failed" }>,
+    receipt: { provider: string; fingerprint: string; operationId?: string },
+  ) {
+    if (relay.token !== input.token || relay.operationId !== input.expectedOperationId)
+      throw new Error("切换请求已过期，请刷新后重试");
+    const op = this.current(run);
+    if (!op || op.kind !== "execute" || op.id !== relay.operationId)
+      throw new Error("切换请求已过期，请刷新后重试");
+    // Pause and cancellation stay as the user left them. Resume is a separate control.
+    if (run.control !== "needs_attention" && run.control !== "running")
+      throw new Error("当前步骤不能换模型继续");
+    const sourceId = op.id;
+    run.control = "running";
+    run.executionRelay = {
+      ...relay,
+      status: "stopping",
+      source: "manual",
+      target: input.model,
+    };
+    this.save(run);
+    await this.continueRelay(run);
+    const latest = this.store.get(run.id);
+    if (latest.executionRelay?.status === "failed") throw new Error(latest.message);
+    const next = this.current(latest);
+    if (next && next.id !== sourceId) {
+      latest.relayReceipts = {
+        ...latest.relayReceipts,
+        [input.requestId]: { ...receipt, operationId: next.id },
+      };
+      this.save(latest);
+    }
+    return { ok: true as const, operationId: next?.id };
+  }
+  private async beginManualSwitch(
+    run: Run,
+    input: {
+      expectedOperationId: string;
+      token: number;
+      requestId: string;
+      model: ExecutionModel;
+    },
+    fingerprint: string,
+  ) {
+    const relay = run.executionRelay;
+    const op = this.current(run);
+    if (
+      !relay ||
+      !relay.manual ||
+      relay.errorClass !== "quota" ||
+      !["blocked", "failed"].includes(relay.status)
+    )
+      throw new Error("当前步骤不能换模型继续");
+    if (run.control !== "needs_attention") throw new Error("当前步骤不能换模型继续");
+    if (!op || op.kind !== "execute" || op.id !== input.expectedOperationId)
+      throw new Error("只有额度耗尽的执行步骤可以换模型");
+    if (relay.operationId !== input.expectedOperationId || relay.token !== input.token)
+      throw new Error("切换请求已过期，请刷新后重试");
+    if (this.budgetExhausted(run)) throw new Error("本轮任务总时间预算已耗尽，请创建新任务");
+    await this.agents.validateExecutionModel(input.model);
+    run.relayReceipts = {
+      ...run.relayReceipts,
+      [input.requestId]: { provider: input.model.provider, fingerprint },
+    };
+    run.control = "running";
+    run.executionRelay = {
+      ...relay,
+      status: "stopping",
+      source: "manual",
+      target: input.model,
+      requestId: input.requestId,
+      at: this.now(),
+    };
+    this.event(run, `正在切换执行模型到 ${input.model.provider}`);
+    this.save(run);
+    await this.continueRelay(run);
+    const latest = this.store.get(run.id);
+    if (latest.executionRelay?.status === "failed") throw new Error(latest.message);
+    const next = this.current(latest);
+    if (next && next.id !== op.id) {
+      latest.relayReceipts = {
+        ...latest.relayReceipts,
+        [input.requestId]: {
+          provider: input.model.provider,
+          fingerprint,
+          operationId: next.id,
+        },
+      };
+      this.save(latest);
+    }
+    return { ok: true as const, operationId: next?.id };
+  }
   private async retryRun(run: Run) {
     if (run.control !== "needs_attention") throw new Error("仅受阻任务可以重试");
-    // A manual retry starts a fresh automatic retry budget.
+    const op = this.current(run);
+    if (op?.agentId && op.agentId !== run.chat?.mainAgentId) {
+      const state = await this.agents.inspect(op.agentId, op.id, op.createdAt);
+      // Leave the relay untouched until the old turn is confirmed stopped.
+      if (!sessionSettled(state)) throw new Error("原 AI 仍在执行或等待权限，请先在 Paseo 中处理");
+    }
+    // A manual retry starts a fresh automatic retry budget and keeps the current model.
     run.autoRetry = undefined;
+    run.executionRelay = undefined;
     return this.retryCurrent(run, "用户检查后重试当前步骤");
   }
   private async retryCurrent(run: Run, message: string) {
@@ -1232,6 +1815,8 @@ export class Engine {
     if (op) op.state = "abandoned";
     run.activeOperationId = undefined;
     run.goal = goal.trim();
+    run.executionRelay = undefined;
+    run.executionAttempts = undefined;
     run.planVersion = (run.planVersion ?? 1) + 1;
     this.release(run.finalEvidence, ...run.tasks.map((candidateEntry) => candidateEntry.evidence));
     const executionAgentId = run.tasks[0]?.agentId;

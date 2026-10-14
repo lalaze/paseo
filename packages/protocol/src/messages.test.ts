@@ -345,6 +345,18 @@ describe("agent detach RPC", () => {
     expect(parsed.features?.importSessionWorkspaceTarget).toBe(true);
   });
 
+  test("parses the collaboration execution handoff feature gate", () => {
+    const parsed = parseServerInfoStatusPayload({
+      status: "server_info",
+      serverId: "srv-test",
+      features: {
+        collaborationExecutionHandoff: true,
+      },
+    });
+    if (!parsed) throw new Error("Expected server info payload to parse");
+    expect(parsed.features?.collaborationExecutionHandoff).toBe(true);
+  });
+
   test("parses the session import search feature gate", () => {
     const parsed = parseServerInfoStatusPayload({
       status: "server_info",

@@ -13,11 +13,13 @@ import {
   validateCollaborationMode,
   type CollaborationIsolation,
   type CollaborationMode,
+  executionView,
   type ControlAction,
   type Profile,
   type Settings,
   type Run,
 } from "@getpaseo/protocol/collaboration/schema";
+import type { SwitchExecutionModelToolInput } from "@getpaseo/protocol/collaboration/rpc";
 import { CONFIRMATION_REPLY, noticeInstruction } from "./prompts.js";
 import type { Store } from "./store.js";
 import type { Engine, AgentSnapshot } from "./engine.js";
@@ -510,10 +512,12 @@ export class Conversations {
       const summary = this.summary(id),
         run = summary.run;
       const operation = run?.operations.find((o) => o.id === run.activeOperationId);
+      const execution = run ? executionView(run) : undefined;
       return {
         ...summary,
         latestUserMessage: latest,
         operation: operation && operation.agentId === c.agentId ? operation : undefined,
+        ...(execution ? { execution } : {}),
         toolsAvailable: true,
         confirmationInstructions:
           collaborationMode(c) === "execute_review"
@@ -562,6 +566,19 @@ export class Conversations {
       )
         throw new Error("主 Agent 无权提交此步骤");
       return this.engine.submit(run.id, "director", operationId, payload);
+    });
+  }
+  async switchExecutionModel(id: string, input: SwitchExecutionModelToolInput) {
+    return this.locked(id, async () => {
+      const c = this.activeConversation(id);
+      await this.user(c, input.sourceMessageId);
+      if (!c.runId) throw new Error("当前没有可切换的执行任务");
+      return this.engine.switchExecutor(c.runId, {
+        expectedOperationId: input.expectedOperationId,
+        token: input.token,
+        requestId: input.requestId,
+        model: input.model,
+      });
     });
   }
   private validateControlApproval(
@@ -799,6 +816,7 @@ export class Conversations {
     const run = this.store.get(c.runId!),
       op = run.operations.find((o) => o.id === run.activeOperationId);
     const confirmation = confirmationFor(run);
+    const execution = executionView(run);
     const key = digest(
       JSON.stringify([
         run.phase,
@@ -811,13 +829,14 @@ export class Conversations {
         ]),
         confirmation?.key,
         run.delivery,
+        ...(execution ? [execution] : []),
       ]),
     );
     if (key !== c.noticeKey) {
       const exhausted = !!confirmation && reworksExhausted(run);
       const mergeFailed = run.control === "running" && run.delivery?.status === "failed";
       const id = `chat-notice:${c.id}:${key}:${c.notices.length}`;
-      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind, exhausted, mergeFailed)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: exhausted ? run.finalReview : undefined })}`;
+      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind, exhausted, mergeFailed)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: exhausted ? run.finalReview : undefined, ...(execution ? { execution } : {}) })}`;
       // Coalesce unsent intermediate updates; keep sending/sent IDs for recovery.
       c.notices = c.notices.filter((n) => n.state !== "pending");
       c.notices.push({ id, key, text, state: "pending", createdAt: Date.now() });
