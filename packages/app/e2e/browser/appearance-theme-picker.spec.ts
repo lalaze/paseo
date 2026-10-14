@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { seedWorkspace } from "../support/helpers/seed-client";
@@ -571,4 +572,211 @@ test("Bing daily wallpaper is separate from image skins and survives reload", as
   await expect(toggle).not.toBeChecked();
   await expect(background).toHaveCount(0);
   await expect(page.getByTestId("skin-background")).toBeVisible();
+});
+
+const WALLPAPER_ARCHIVE_KEY = "@paseo:bing-wallpaper-archive";
+const WALLPAPER_IMAGE_DB = "paseo-bing-wallpapers";
+const WALLPAPER_IMAGE_STORE = "images";
+const WALLPAPER_IMAGE_WIDTH = 600;
+const WALLPAPER_IMAGE_HEIGHT = 400;
+
+interface SeededWallpaper {
+  id: string;
+  title: string;
+  date: string;
+}
+
+function wallpaperArchiveValue(entries: SeededWallpaper[]) {
+  return {
+    entries: entries.map((entry) => ({
+      date: entry.date,
+      url: `https://www.bing.com/th?id=${entry.id}`,
+      title: entry.title,
+      copyright: "Test wallpaper copyright",
+      copyrightUrl: "https://www.bing.com",
+      id: entry.id,
+    })),
+    selectedId: null,
+  };
+}
+
+async function readWallpaperArchive(
+  page: Page,
+): Promise<{ entries: unknown[]; selectedId: string | null }> {
+  return page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
+    WALLPAPER_ARCHIVE_KEY,
+  );
+}
+
+async function seedWallpaperImages(page: Page, entries: SeededWallpaper[]): Promise<void> {
+  await page.evaluate(
+    async ({ databaseName, storeName, ids, width, height }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d")!;
+      const gradient = context.createLinearGradient(0, 0, width, height);
+      gradient.addColorStop(0, "#0f766e");
+      gradient.addColorStop(1, "#f59e0b");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, width, height);
+      context.fillStyle = "#ffffff";
+      context.fillRect(40, 40, width / 3, height / 3);
+      const image = canvas.toDataURL("image/jpeg", 0.85);
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(databaseName, 1);
+        request.addEventListener("upgradeneeded", () =>
+          request.result.createObjectStore(storeName),
+        );
+        request.addEventListener("success", () => {
+          const database = request.result;
+          const transaction = database.transaction(storeName, "readwrite");
+          const store = transaction.objectStore(storeName);
+          for (const id of ids) store.put(image, id);
+          transaction.addEventListener("complete", () => {
+            database.close();
+            resolve();
+          });
+          transaction.addEventListener("error", () => reject(transaction.error));
+          transaction.addEventListener("abort", () => reject(transaction.error));
+        });
+        request.addEventListener("error", () => reject(request.error));
+      });
+    },
+    {
+      databaseName: WALLPAPER_IMAGE_DB,
+      storeName: WALLPAPER_IMAGE_STORE,
+      ids: entries.map((entry) => entry.id),
+      width: WALLPAPER_IMAGE_WIDTH,
+      height: WALLPAPER_IMAGE_HEIGHT,
+    },
+  );
+}
+
+test("wallpaper library previews archived images in a zoomable lightbox", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  const entries: SeededWallpaper[] = Array.from({ length: 12 }, (_, index) => ({
+    id: `OHR.Lightbox${index}_1920x1080.jpg`,
+    title: `Wallpaper ${index + 1}`,
+    date: `202601${String(12 - index).padStart(2, "0")}`,
+  }));
+  await page.addInitScript(
+    ({ key, archive }) => {
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(archive));
+    },
+    { key: WALLPAPER_ARCHIVE_KEY, archive: wallpaperArchiveValue(entries) },
+  );
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/settings/wallpapers");
+  await expect(page).toHaveURL(/\/settings\/wallpapers$/);
+  await seedWallpaperImages(page, entries);
+  await page.reload();
+
+  const cards = page.getByTestId("bing-archive-card");
+  await expect(cards).toHaveCount(entries.length);
+  const firstCard = cards.first();
+  const firstPreview = firstCard.getByTestId("bing-archive-preview");
+  await expect(firstPreview).toBeVisible();
+  await expect
+    .poll(() =>
+      firstPreview.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth),
+    )
+    .toBe(WALLPAPER_IMAGE_WIDTH);
+
+  const lightboxImage = page.getByTestId("attachment-lightbox-image");
+  const lightboxContentWidth = () =>
+    page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="attachment-lightbox-canvas"]');
+      const content = canvas?.firstElementChild as HTMLElement | null;
+      return content ? Math.round(content.getBoundingClientRect().width) : 0;
+    });
+  const openFromImage = async () => {
+    await firstCard.getByTestId("bing-archive-preview-button").click();
+    await expect(lightboxImage).toBeVisible();
+    await expect
+      .poll(() =>
+        lightboxImage.locator("img").evaluate((image: HTMLImageElement) => image.naturalHeight),
+      )
+      .toBe(WALLPAPER_IMAGE_HEIGHT);
+    // The zoom viewport measures itself with a ResizeObserver; outside presses are ignored until it has.
+    await expect.poll(lightboxContentWidth).toBeGreaterThan(0);
+  };
+  const firstCardY = async () => {
+    const box = await firstCard.boundingBox();
+    return box ? Math.round(box.y) : null;
+  };
+  const libraryScroll = (delta: number) =>
+    page.evaluate((dy) => {
+      const card = document.querySelector('[data-testid="bing-archive-card"]');
+      let scrollable = card?.parentElement ?? null;
+      while (scrollable && !/(auto|scroll)/.test(getComputedStyle(scrollable).overflowY)) {
+        scrollable = scrollable.parentElement;
+      }
+      if (scrollable) scrollable.scrollTop += dy;
+      return scrollable ? Math.round(scrollable.scrollTop) : -1;
+    }, delta);
+
+  // Image click opens the archived local image at its original size, and closing keeps the page.
+  const scrolledTo = await libraryScroll(60);
+  expect(scrolledTo).toBeGreaterThan(0);
+  const positionBefore = await firstCardY();
+  await openFromImage();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("wallpaper-lightbox-desktop.png") });
+  await page.keyboard.press("Escape");
+  await expect(lightboxImage).toHaveCount(0);
+  expect(await firstCardY()).toBe(positionBefore);
+  expect(await libraryScroll(0)).toBe(scrolledTo);
+  await expect(page).toHaveURL(/\/settings\/wallpapers$/);
+
+  // The detail overlay does not swallow the image press.
+  const firstBox = await firstCard.boundingBox();
+  expect(firstBox).not.toBeNull();
+  await page.mouse.click(firstBox!.x + firstBox!.width / 2, firstBox!.y + firstBox!.height - 24);
+  await expect(lightboxImage).toBeVisible();
+  const closeButton = page.getByTestId("attachment-lightbox-close");
+  await closeButton.focus();
+  await closeButton.click();
+  await expect(lightboxImage).toHaveCount(0);
+
+  // Clicking outside the image dismisses the lightbox.
+  await openFromImage();
+  const canvasBox = await page.getByTestId("attachment-lightbox-canvas").boundingBox();
+  expect(canvasBox).not.toBeNull();
+  await page.mouse.click(canvasBox!.x + canvasBox!.width / 2, canvasBox!.y + canvasBox!.height - 4);
+  await expect(lightboxImage).toHaveCount(0);
+
+  // Keyboard activation reaches the same preview.
+  await firstCard.getByTestId("bing-archive-preview-button").focus();
+  await page.keyboard.press("Enter");
+  await expect(lightboxImage).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(lightboxImage).toHaveCount(0);
+
+  // Previewing never applies or deletes: the archive is untouched and disabled rules hold.
+  const storedArchive = await readWallpaperArchive(page);
+  expect(storedArchive.selectedId).toBeNull();
+  expect(storedArchive.entries).toHaveLength(entries.length);
+  const apply = firstCard.getByRole("button", { name: `Apply ${entries[0].title}` });
+  const deleteCurrent = firstCard.getByRole("button", { name: `Delete ${entries[0].title}` });
+  await expect(apply).toBeEnabled();
+  await expect(deleteCurrent).toBeDisabled();
+  const deleteOther = page.getByRole("button", { name: `Delete ${entries[1].title}` });
+  await expect(deleteOther).toBeEnabled();
+  await deleteOther.click();
+  await expect(cards).toHaveCount(entries.length - 1);
+  await expect(lightboxImage).toHaveCount(0);
+
+  // Compact layout: the preview trigger is always available and the lightbox closes.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(firstPreview).toBeVisible();
+  await openFromImage();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("wallpaper-lightbox-compact.png") });
+  await page.keyboard.press("Escape");
+  await expect(lightboxImage).toHaveCount(0);
+  await expect(cards).toHaveCount(entries.length - 1);
 });

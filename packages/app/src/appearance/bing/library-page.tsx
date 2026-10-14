@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Image,
+  Pressable,
   ScrollView,
   Text,
   View,
@@ -12,6 +13,7 @@ import { ArrowLeft } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
+import { AttachmentLightbox, type ImageLightboxSource } from "@/components/attachment-lightbox";
 import { SettingsCard } from "@/components/settings";
 import { Button } from "@/components/ui/button";
 import { useIsCompactFormFactor } from "@/constants/layout";
@@ -56,6 +58,7 @@ export function WallpaperLibraryPage({ onBack, showBack, title }: WallpaperLibra
   const total = bing.entries.length;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [galleryWidth, setGalleryWidth] = useState(0);
+  const [previewSource, setPreviewSource] = useState<ImageLightboxSource | null>(null);
   const viewportHeight = useRef(0);
   const scrollOffset = useRef(0);
   const contentHeight = useRef(0);
@@ -105,83 +108,95 @@ export function WallpaperLibraryPage({ onBack, showBack, title }: WallpaperLibra
     () => [styles.scrollContent, { paddingBottom: insets.bottom }],
     [insets.bottom],
   );
+  const openPreview = useCallback((source: ImageLightboxSource) => setPreviewSource(source), []);
+  const closePreview = useCallback(() => setPreviewSource(null), []);
 
   return (
-    <ScrollView
-      style={styles.scrollView}
-      contentContainerStyle={contentStyle}
-      onLayout={measureViewport}
-      onScroll={handleScroll}
-      onContentSizeChange={handleContentSizeChange}
-      scrollEventThrottle={100}
-    >
-      {title}
-      {showBack ? (
-        <Button variant="ghost" size="sm" leftIcon={ArrowLeft} onPress={onBack} style={styles.back}>
-          {t("settings.appearance.bing.back")}
-        </Button>
-      ) : null}
-      <SettingsCard>
-        <View style={styles.details}>
-          <Text style={settingsStyles.rowHint}>
-            {t("settings.appearance.bing.archiveDescription")}
-          </Text>
-          {bing.enabled ? (
-            <View style={styles.actions}>
-              <Text style={settingsStyles.rowHint}>
-                {t(
-                  bing.selectedId
-                    ? "settings.appearance.bing.pinned"
-                    : "settings.appearance.bing.daily",
-                )}
+    <>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={contentStyle}
+        onLayout={measureViewport}
+        onScroll={handleScroll}
+        onContentSizeChange={handleContentSizeChange}
+        scrollEventThrottle={100}
+      >
+        {title}
+        {showBack ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            leftIcon={ArrowLeft}
+            onPress={onBack}
+            style={styles.back}
+          >
+            {t("settings.appearance.bing.back")}
+          </Button>
+        ) : null}
+        <SettingsCard>
+          <View style={styles.details}>
+            <Text style={settingsStyles.rowHint}>
+              {t("settings.appearance.bing.archiveDescription")}
+            </Text>
+            {bing.enabled ? (
+              <View style={styles.actions}>
+                <Text style={settingsStyles.rowHint}>
+                  {t(
+                    bing.selectedId
+                      ? "settings.appearance.bing.pinned"
+                      : "settings.appearance.bing.daily",
+                  )}
+                </Text>
+                {bing.selectedId ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={bing.selecting}
+                    onPress={bing.resumeDaily}
+                  >
+                    {t("settings.appearance.bing.resume")}
+                  </Button>
+                ) : null}
+              </View>
+            ) : null}
+            {bing.busy ? (
+              <Text role="status" style={settingsStyles.rowHint}>
+                {t("settings.appearance.bing.loading")}
               </Text>
-              {bing.selectedId ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={bing.selecting}
-                  onPress={bing.resumeDaily}
-                >
-                  {t("settings.appearance.bing.resume")}
-                </Button>
-              ) : null}
+            ) : null}
+            {bing.error ? (
+              <Text role="alert" style={styles.error}>
+                {t("settings.appearance.bing.failed", { reason: bing.error })}
+              </Text>
+            ) : null}
+            {bing.entries.length === 0 ? (
+              <Text style={settingsStyles.rowHint}>{t("settings.appearance.bing.empty")}</Text>
+            ) : null}
+            <View style={styles.gallery} onLayout={measureGallery}>
+              {galleryWidth > 0
+                ? columns.map((column) => (
+                    <View key={column.key} style={styles.column}>
+                      {column.entries.map((entry) => (
+                        <ArchiveCard key={entry.id} entry={entry} onPreview={openPreview} />
+                      ))}
+                    </View>
+                  ))
+                : null}
             </View>
-          ) : null}
-          {bing.busy ? (
-            <Text role="status" style={settingsStyles.rowHint}>
-              {t("settings.appearance.bing.loading")}
-            </Text>
-          ) : null}
-          {bing.error ? (
-            <Text role="alert" style={styles.error}>
-              {t("settings.appearance.bing.failed", { reason: bing.error })}
-            </Text>
-          ) : null}
-          {bing.entries.length === 0 ? (
-            <Text style={settingsStyles.rowHint}>{t("settings.appearance.bing.empty")}</Text>
-          ) : null}
-          <View style={styles.gallery} onLayout={measureGallery}>
-            {galleryWidth > 0
-              ? columns.map((column) => (
-                  <View key={column.key} style={styles.column}>
-                    {column.entries.map((entry) => (
-                      <ArchiveCard key={entry.id} entry={entry} />
-                    ))}
-                  </View>
-                ))
-              : null}
           </View>
-        </View>
-      </SettingsCard>
-    </ScrollView>
+        </SettingsCard>
+      </ScrollView>
+      <AttachmentLightbox source={previewSource} onClose={closePreview} />
+    </>
   );
 }
 
 interface ArchiveCardProps {
   entry: ArchivedWallpaper;
+  onPreview: (source: ImageLightboxSource) => void;
 }
 
-function ArchiveCard({ entry }: ArchiveCardProps) {
+function ArchiveCard({ entry, onPreview }: ArchiveCardProps) {
   const { t } = useTranslation();
   const bing = useBingWallpaper();
   const image = useArchiveImage(entry.id);
@@ -194,6 +209,10 @@ function ArchiveCard({ entry }: ArchiveCardProps) {
   const handlePointerEnter = useCallback(() => setIsHovered(true), []);
   const handlePointerLeave = useCallback(() => setIsHovered(false), []);
   const showDetails = isHovered || isNative || isCompact;
+  const openPreview = useCallback(() => {
+    if (!image.data) return;
+    onPreview({ type: "uri", uri: image.data });
+  }, [image.data, onPreview]);
   const date = `${entry.date.slice(0, 4)}-${entry.date.slice(4, 6)}-${entry.date.slice(6, 8)}`;
   return (
     <View
@@ -202,24 +221,36 @@ function ArchiveCard({ entry }: ArchiveCardProps) {
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
     >
-      {image.data ? (
-        <Image
-          source={source}
-          testID="bing-archive-preview"
-          style={styles.preview}
-          resizeMode="cover"
-          accessibilityLabel={entry.title}
-        />
-      ) : (
-        <View style={[styles.preview, styles.previewPlaceholder]}>
-          {image.error ? (
-            <Text style={styles.error}>{t("settings.appearance.bing.imageFailed")}</Text>
-          ) : null}
-        </View>
-      )}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t("composer.attachments.openImage")}
+        disabled={!image.data}
+        onPress={openPreview}
+        style={styles.previewButton}
+        testID="bing-archive-preview-button"
+      >
+        {image.data ? (
+          <Image
+            source={source}
+            testID="bing-archive-preview"
+            style={styles.preview}
+            resizeMode="cover"
+            accessibilityLabel={entry.title}
+          />
+        ) : (
+          <View style={[styles.preview, styles.previewPlaceholder]}>
+            {image.error ? (
+              <Text style={styles.error}>{t("settings.appearance.bing.imageFailed")}</Text>
+            ) : null}
+          </View>
+        )}
+      </Pressable>
       {/* Hidden with opacity only: on web the pointer is already over the card whenever it can reach these buttons. */}
-      <View style={[styles.overlay, showDetails ? null : styles.overlayHidden]}>
-        <View style={styles.overlayActions}>
+      <View
+        pointerEvents={showDetails ? "box-none" : "none"}
+        style={[styles.overlay, showDetails ? null : styles.overlayHidden]}
+      >
+        <View pointerEvents="box-none" style={styles.overlayActions}>
           <Button
             size="xs"
             accessibilityLabel={t("settings.appearance.bing.apply", { name: entry.title })}
@@ -245,7 +276,7 @@ function ArchiveCard({ entry }: ArchiveCardProps) {
             {t("settings.appearance.bing.deleteAction")}
           </Button>
         </View>
-        <View style={styles.overlayInfo}>
+        <View pointerEvents="none" style={styles.overlayInfo}>
           <Text style={styles.overlayTitle} numberOfLines={1}>
             {entry.title}
           </Text>
@@ -278,6 +309,7 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.borderRadius.md,
     overflow: "hidden",
   },
+  previewButton: { flex: 1 },
   preview: { width: "100%", height: "100%" },
   previewPlaceholder: {
     backgroundColor: theme.colors.surface2,
