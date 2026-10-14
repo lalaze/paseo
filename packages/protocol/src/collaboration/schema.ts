@@ -37,6 +37,14 @@ export const ProfileSchema = z.object({
   transport: z.enum(["structured", "mcp"]).default("structured"),
   instructions: InstructionTextSchema.optional(),
 });
+/** Model choice for an execution handoff. It cannot carry a role prompt or a task assignment. */
+export const ExecutionModelSchema = ProfileSchema.pick({
+  provider: true,
+  thinkingOptionId: true,
+  featureValues: true,
+}).strict();
+export type ExecutionModel = z.infer<typeof ExecutionModelSchema>;
+export const EXECUTION_FALLBACK_LIMIT = 8;
 export const CommandSchema = z.object({
   label: z.string().min(1).max(120),
   command: z.string().min(1).max(1000),
@@ -62,6 +70,13 @@ export const SettingsSchema = z
     runTimeoutMs: z.number().int().min(1000).max(86400000).default(14400000),
     requirePlanApproval: z.boolean().default(false),
     verificationCommands: z.array(CommandSchema).max(12).default([]),
+    /**
+     * Ordered backup models keyed by the logical execution profile.
+     * Absent or empty disables automatic handoff for that profile.
+     */
+    executionFallbacks: z
+      .record(z.string(), z.array(ExecutionModelSchema).max(EXECUTION_FALLBACK_LIMIT))
+      .optional(),
   })
   .superRefine((s, ctx) => {
     if (s.reviewerAsLead && s.reviewerProfileId !== s.directorProfileId)
@@ -77,6 +92,22 @@ export const SettingsSchema = z
       ...Object.values(s.taskOverrides),
     ]) {
       if (!ids.has(id)) ctx.addIssue({ code: "custom", message: `不存在的 AI 配置：${id}` });
+    }
+    for (const [profileId, models] of Object.entries(s.executionFallbacks ?? {})) {
+      if (!Id.safeParse(profileId).success || !ids.has(profileId))
+        ctx.addIssue({ code: "custom", message: `备用模型引用了不存在的 AI 配置：${profileId}` });
+      const profile = s.profiles.find((candidate) => candidate.id === profileId);
+      const seen = new Set<string>();
+      for (const model of models) {
+        if (seen.has(model.provider))
+          ctx.addIssue({ code: "custom", message: `备用模型重复：${model.provider}` });
+        seen.add(model.provider);
+        if (profile && model.provider === profile.provider)
+          ctx.addIssue({
+            code: "custom",
+            message: `备用模型不能与当前执行模型相同：${model.provider}`,
+          });
+      }
     }
   });
 export const TaskSchema = z.object({
@@ -164,6 +195,18 @@ export interface Operation {
   formatRetries: number;
   /** New unified reviews cover both plan and task criteria; absent on legacy operations. */
   reviewScope?: "all_tasks";
+  /** Model frozen for this operation. Absent means the logical profile's model. */
+  executionModel?: ExecutionModel;
+  /** The session was replaced after a quota handoff and must not be reused. */
+  superseded?: boolean;
+  /** Recorded when this operation was replaced by another model. */
+  handoff?: {
+    at: number;
+    source: "automatic" | "manual";
+    errorClass: "quota";
+    target: ExecutionModel;
+    fromModel?: ExecutionModel;
+  };
 }
 export type AgentRole = "director" | "worker" | "reviewer";
 // Task IDs cannot contain ':', so this actor cannot collide with a legacy task.
@@ -213,6 +256,28 @@ export type ControlAction =
   | "reject_final"
   | "request_changes"
   | "note";
+
+interface ExecutionRelayBase {
+  source: "automatic" | "manual" | "none";
+  operationId: string;
+  taskId: string;
+  profileId: string;
+  agentId?: string;
+  errorClass: "quota";
+  message: string;
+  attempted: ExecutionModel[];
+  /** The user may choose another model. Set only for an explicit quota block. */
+  manual: boolean;
+  token: number;
+  at: number;
+  requestId?: string;
+}
+export type ExecutionRelay =
+  | (ExecutionRelayBase & { status: "blocked" })
+  | (ExecutionRelayBase & { status: "stopping"; target: ExecutionModel })
+  | (ExecutionRelayBase & { status: "preparing"; target: ExecutionModel; handoff: string })
+  | (ExecutionRelayBase & { status: "failed"; reason: string; target?: ExecutionModel });
+
 export interface Run {
   mode?: CollaborationMode;
   id: string;
@@ -279,6 +344,15 @@ export interface Run {
   roundOperationOffset?: number;
   /** A transient provider failure retries by itself; `at` is when the next attempt starts. */
   autoRetry?: { attempts: number; at?: number };
+  /** Actual model now used for a logical execution profile after a successful handoff. */
+  executionModels?: Record<string, ExecutionModel>;
+  /** Providers already consumed by the current quota chain. A success clears the profile entry. */
+  executionAttempts?: Record<string, ExecutionModel[]>;
+  /** Quota handoff in progress or waiting. Pause and cancel still live on `control`. */
+  executionRelay?: ExecutionRelay;
+  relayToken?: number;
+  /** Manual switch requests. The same request id cannot dispatch twice. */
+  relayReceipts?: Record<string, { provider: string; fingerprint: string; operationId?: string }>;
   tasks: {
     spec: Task;
     profileId: string;
@@ -338,6 +412,25 @@ export function acceptanceMessage(run: Run): string {
     return `已返工 ${run.settings.maxReworks} 次，${operationLabel(run.settings, "final")}仍要求修改；请查看审核意见后验收、不采纳或提出修改意见`;
   return `${operationLabel(run.settings, "final")}最终审核通过，等待你验收或提出修改意见`;
 }
+export interface ExecutionRelayView {
+  status: ExecutionRelay["status"];
+  source: ExecutionRelay["source"];
+  operationId: string;
+  taskId?: string;
+  profileId: string;
+  errorClass: "quota";
+  message: string;
+  manual: boolean;
+  token: number;
+  target?: ExecutionModel;
+  attempted: ExecutionModel[];
+  reason?: string;
+}
+export interface ExecutionView {
+  profileId: string;
+  model?: ExecutionModel;
+  relay?: ExecutionRelayView;
+}
 export type RunSummary = Pick<
   Run,
   "id" | "goal" | "cwd" | "phase" | "control" | "message" | "createdAt" | "updatedAt"
@@ -346,10 +439,41 @@ export type RunSummary = Pick<
   total: number;
   mode?: CollaborationMode;
   deliveryStatus?: NonNullable<Run["delivery"]>["status"];
+  execution?: ExecutionView;
 };
+export function executionView(run: Run): ExecutionView | undefined {
+  const relay = run.executionRelay;
+  const active = run.operations.find((operation) => operation.id === run.activeOperationId);
+  const profileId = relay?.profileId ?? (active?.kind === "execute" ? active.profileId : undefined);
+  const override = profileId ? run.executionModels?.[profileId] : undefined;
+  if (!relay && !override) return undefined;
+  if (!profileId) return undefined;
+  const model = override ?? active?.executionModel;
+  const view: ExecutionView = {
+    profileId,
+    ...(model ? { model } : {}),
+  };
+  if (!relay) return view;
+  view.relay = {
+    status: relay.status,
+    source: relay.source,
+    operationId: relay.operationId,
+    taskId: relay.taskId,
+    profileId: relay.profileId,
+    errorClass: relay.errorClass,
+    message: relay.message,
+    manual: relay.manual,
+    token: relay.token,
+    attempted: relay.attempted,
+    ...("target" in relay && relay.target ? { target: relay.target } : {}),
+    ...("reason" in relay && relay.reason ? { reason: relay.reason } : {}),
+  };
+  return view;
+}
 export function summarize(run: Run): RunSummary {
   const { id, goal, cwd, phase, control, message, createdAt, updatedAt } = run;
   const waiting = awaitingAcceptance(run);
+  const execution = executionView(run);
   return {
     id,
     mode: collaborationMode(run),
@@ -363,6 +487,7 @@ export function summarize(run: Run): RunSummary {
     done: run.tasks.filter(executionComplete).length,
     total: run.tasks.length,
     deliveryStatus: run.delivery?.status,
+    ...(execution ? { execution } : {}),
   };
 }
 export function profileForTask(settings: Settings, task: Task): string {

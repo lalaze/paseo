@@ -1358,3 +1358,76 @@ test("a takeover that began before a close cannot resurrect the closed record", 
   assert.ok(h.store.conversation(c.id).disabledAt);
   assert.equal(h.store.conversations().length, 1);
 });
+
+test("a quota block is shown to the main chat and only the latest user message can switch models", async (t) => {
+  const h = await fixture(t);
+  h.store.saveSettings(reviewerSettings());
+  const c = await h.chats.open({
+    requestId: "switch-model",
+    workspaceId: "workspace",
+    fresh: true,
+    mode: "execute_review",
+    settings: reviewerSettings(),
+  });
+  h.gateway.user(c.agentId!, "goal", "修复校验");
+  const started = await h.chats.start(c.id, { sourceMessageId: "goal", goal: "修复校验" });
+  const runId = started.runId;
+  let op = h.store
+    .get(runId)
+    .operations.find((item) => item.kind === "execute" && item.state === "sent");
+  for (let attempt = 0; !op && attempt < 8; attempt++) {
+    await h.engine.tick();
+    op = h.store
+      .get(runId)
+      .operations.find((item) => item.kind === "execute" && item.state === "sent");
+  }
+  if (!op?.agentId) throw new Error("execute was not sent");
+  h.gateway.states.set(op.agentId, {
+    status: "error",
+    seen: true,
+    output: "",
+    error: "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 1h.",
+  });
+  await h.engine.tick();
+  const relay = h.store.get(runId).executionRelay;
+  assert.equal(relay?.status, "blocked");
+  assert.equal(relay?.manual, true);
+  await h.chats.tick();
+  const notice = h.store.conversation(c.id).notices.at(-1);
+  assert.match(notice?.text ?? "", /"status":"blocked"/);
+  assert.match(notice?.text ?? "", /quota/);
+  const model = { provider: "vendor-c/model-c", thinkingOptionId: "low" };
+  await assert.rejects(
+    h.chats.switchExecutionModel(c.id, {
+      sourceMessageId: "missing",
+      expectedOperationId: op.id,
+      token: relay!.token,
+      requestId: "chat-switch",
+      model,
+    }),
+    /真实用户消息/,
+  );
+  h.gateway.user(c.agentId!, "switch", "换到 vendor-c/model-c");
+  const switched = await h.chats.switchExecutionModel(c.id, {
+    sourceMessageId: "switch",
+    expectedOperationId: op.id,
+    token: relay!.token,
+    requestId: "chat-switch",
+    model,
+  });
+  assert.notEqual(switched.operationId, op.id);
+  const again = await h.chats.switchExecutionModel(c.id, {
+    sourceMessageId: "switch",
+    expectedOperationId: op.id,
+    token: relay!.token,
+    requestId: "chat-switch",
+    model,
+  });
+  assert.equal(again.operationId, switched.operationId);
+  const run = h.store.get(runId);
+  assert.equal(
+    run.operations.find((item) => item.id === switched.operationId)?.executionModel?.provider,
+    "vendor-c/model-c",
+  );
+  assert.equal(run.tasks[0]?.profileId, "worker");
+});

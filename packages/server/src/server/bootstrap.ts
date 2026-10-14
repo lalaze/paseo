@@ -2,7 +2,13 @@ import { createRealpathAwarePathMatcher } from "../utils/path.js";
 import { readPaseoWorktreeMetadata } from "../utils/worktree-metadata.js";
 import { CHAT_TOOLS } from "./collaboration/gateway.js";
 import { CollaborationService } from "./collaboration/service.js";
-import { isPaseoToolEnabled } from "./agent/paseo-tool-policy.js";
+import { validateAgentConfigurationAgainstProvider } from "./agent/agent-configuration-validator.js";
+import { resolveRequiredProviderModel } from "./agent/mcp-shared.js";
+import {
+  isPaseoToolEnabled,
+  isPaseoToolPolicyEnabled,
+  resolvePaseoToolPolicy,
+} from "./agent/paseo-tool-policy.js";
 import type { PluginRegistries } from "@getpaseo/protocol/plugin-registry";
 import { describeHookWorkspace } from "./plugins/lifecycle/index.js";
 import express from "express";
@@ -164,7 +170,6 @@ import { ScheduleService } from "./schedule/service.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { createOrchestrationSkills } from "./orchestration-skills/index.js";
 import { resolveConfigFromPersisted, type CliConfigOverrides } from "./config.js";
-import { resolvePaseoToolPolicy } from "./agent/paseo-tool-policy.js";
 import { BrowserToolsBroker } from "./browser-tools/broker.js";
 import { DaemonConfigBrowserToolsPolicy } from "./browser-tools/policy.js";
 import { WorkspaceGitServiceImpl } from "./workspace-git-service.js";
@@ -1496,6 +1501,32 @@ export async function createPaseoDaemon(
           created.workspaceId,
           `collaboration-discard-${created.workspaceId}`,
         );
+      },
+      validateExecutionModel: async (model) => {
+        const resolved = resolveRequiredProviderModel(model.provider);
+        const providers = await providerSnapshotManager.listProviders({ wait: false });
+        const entry = providers.find((candidate) => candidate.provider === resolved.provider);
+        if (!entry || !entry.enabled || entry.status !== "ready")
+          throw new Error(`执行模型不可用：${model.provider}`);
+        const issues = validateAgentConfigurationAgainstProvider({
+          input: {
+            provider: resolved.provider,
+            model: resolved.model,
+            thinkingOptionId: model.thinkingOptionId,
+          },
+          provider: entry,
+        });
+        if (issues.length) throw new Error(issues.map((issue) => issue.message).join("；"));
+        const daemonConfig = daemonConfigStore.get();
+        const policy = resolvePaseoToolPolicy(resolved.provider, daemonConfig.providers);
+        if (
+          daemonConfig.mcp?.enabled === false ||
+          daemonConfig.mcp?.injectIntoAgents === false ||
+          !isPaseoToolPolicyEnabled(policy) ||
+          !isPaseoToolEnabled(policy, "submit_result") ||
+          !isPaseoToolEnabled(policy, "get_run_status")
+        )
+          throw new Error("请先启用此供应商的 Paseo 工具，再切换执行模型");
       },
       assertToolsEnabled: (agentId, required = CHAT_TOOLS) => {
         const mcp = daemonConfigStore.get().mcp;

@@ -21,8 +21,10 @@ import { ICON_SIZE, type Theme } from "@/styles/theme";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
 
 import type { CollaborationCommandInput } from "./use-collaboration";
+import { manualSwitchTarget, type ExecutionSwitchTarget } from "./execution-switch";
+import { ExecutionSwitchSheet } from "./execution-switch-sheet";
 type Conversation = CollaborationState["conversations"][number];
-type Control = "pause" | "resume" | "retry" | "cancel";
+type Control = "pause" | "resume" | "retry" | "cancel" | "switch";
 interface HistoryProps {
   serverId: string;
   conversations: Conversation[];
@@ -87,6 +89,12 @@ function ConversationRow({
   );
   const run = conversation.run;
   const status = conversationStatus(conversation);
+  const switchTarget = conversation.disabledAt ? null : manualSwitchTarget(run);
+  const [switchSession, setSwitchSession] = useState<ExecutionSwitchTarget | null>(null);
+  const openSwitch = useCallback(() => {
+    if (switchTarget) setSwitchSession(switchTarget);
+  }, [switchTarget]);
+  const closeSwitch = useCallback(() => setSwitchSession(null), []);
   // A closed conversation is history only: it cannot resync or control a run.
   const actions = conversation.disabledAt ? [] : availableControls(run);
   return (
@@ -117,6 +125,7 @@ function ConversationRow({
           {run.message}
         </Text>
       )}
+      <HandoffStatus run={run} />
       {conversation.error && (
         <View style={styles.errorRow}>
           <ThemedAlert size={ICON_SIZE.sm} uniProps={dangerColor} />
@@ -159,6 +168,7 @@ function ConversationRow({
                     id={run.id}
                     pending={pending}
                     command={command}
+                    onSwitch={openSwitch}
                   />
                 ))}
               </>
@@ -166,7 +176,32 @@ function ConversationRow({
           </DropdownMenuContent>
         </DropdownMenu>
       </View>
+      {switchSession ? (
+        <ExecutionSwitchSheet
+          visible
+          onClose={closeSwitch}
+          serverId={serverId}
+          workspaceId={conversation.workspaceId}
+          target={switchSession}
+        />
+      ) : null}
     </View>
+  );
+}
+
+function HandoffStatus({ run }: { run: Conversation["run"] }) {
+  const { t } = useTranslation();
+  const relay = run?.execution?.relay;
+  if (!relay) return null;
+  const current = run?.execution?.model?.provider;
+  const next = relay.target?.provider;
+  const models = [current, next].filter(Boolean).join(" → ");
+  return (
+    <Text style={styles.secondary} testID="collaboration-handoff-status">
+      {models
+        ? `${models} · ${t(`collaboration.handoff.status.${relay.status}`)}`
+        : t(`collaboration.handoff.status.${relay.status}`)}
+    </Text>
   );
 }
 
@@ -203,7 +238,11 @@ function availableControls(run: Conversation["run"]): Control[] {
     return [];
   if (run.phase === "awaiting_acceptance") return ["cancel"];
   if (run.control === "paused") return ["resume", "cancel"];
-  if (run.control === "needs_attention") return ["retry", "cancel"];
+  if (run.control === "needs_attention") {
+    const actions: Control[] = ["retry", "cancel"];
+    if (manualSwitchTarget(run)) actions.unshift("switch");
+    return actions;
+  }
   // A timeout stop in progress can still be canceled; cancel does not wait for the AI.
   if (run.control === "canceling") return ["cancel"];
   return ["pause", "cancel"];
@@ -214,20 +253,30 @@ function RunAction({
   id,
   pending,
   command,
+  onSwitch,
 }: {
   action: Control;
   id: string;
   pending: boolean;
   command: HistoryProps["command"];
+  onSwitch: () => void;
 }) {
   const { t } = useTranslation();
-  const select = useCallback(
-    () => command({ name: "run.control", input: { id, action } }),
-    [command, id, action],
-  );
+  const select = useCallback(() => {
+    if (action === "switch") {
+      onSwitch();
+      return;
+    }
+    command({ name: "run.control", input: { id, action } });
+  }, [action, command, id, onSwitch]);
   return (
-    <DropdownMenuItem disabled={pending} onSelect={select} destructive={action === "cancel"}>
-      {t(`collaboration.${action}`)}
+    <DropdownMenuItem
+      disabled={pending}
+      onSelect={select}
+      destructive={action === "cancel"}
+      testID={action === "switch" ? "collaboration-history-switch" : undefined}
+    >
+      {action === "switch" ? t("collaboration.handoff.continue") : t(`collaboration.${action}`)}
     </DropdownMenuItem>
   );
 }

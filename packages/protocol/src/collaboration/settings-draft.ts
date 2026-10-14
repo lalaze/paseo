@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { CommandSchema, Id, ProfileSchema, SettingsSchema, type Settings } from "./schema.js";
+import {
+  CommandSchema,
+  EXECUTION_FALLBACK_LIMIT,
+  ExecutionModelSchema,
+  Id,
+  ProfileSchema,
+  SettingsSchema,
+  type Settings,
+} from "./schema.js";
 
 // Drafts also retain incomplete fields which are not valid saved settings yet.
 const DraftText = z.string().max(32000);
@@ -38,6 +46,9 @@ export const SettingsFormSchema = z.object({
   runHours: DraftText,
   approval: z.boolean(),
   allowSelection: z.boolean(),
+  executionFallbacks: z
+    .record(z.string(), z.array(ExecutionModelSchema).max(EXECUTION_FALLBACK_LIMIT))
+    .optional(),
 });
 export type SettingsForm = z.infer<typeof SettingsFormSchema>;
 export const SettingsDraftSchema = z.object({
@@ -96,6 +107,7 @@ export function settingsForm(initial: Settings | null): SettingsForm {
     runHours: String(value.runTimeoutMs / 3600000),
     approval: value.requirePlanApproval,
     allowSelection: value.allowDirectorSelection,
+    ...(value.executionFallbacks ? { executionFallbacks: value.executionFallbacks } : {}),
   };
 }
 

@@ -32,7 +32,10 @@ export interface PreInstruction {
   text: string;
 }
 
-/** Resolve by the operation, not the session's role: design can share a session with review. */
+/**
+ * Resolve by the operation, not the session's role: design can share a session with review.
+ * A quota handoff keeps these logical-profile instructions. The replacement model does not replace them.
+ */
 export function preInstructionsFor(
   run: Run,
   kind: Operation["kind"],

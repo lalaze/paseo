@@ -1,10 +1,11 @@
+import { z } from "zod";
 import { ENABLE_COLLABORATION_MESSAGE } from "@getpaseo/protocol/collaboration/conversation";
 import {
   readCollaborationNotice,
   readCollaborationPrompt,
 } from "@getpaseo/protocol/collaboration/presentation";
 import type { UserMessageItem } from "@/types/stream";
-import type { Plan } from "@getpaseo/protocol/collaboration/schema";
+import { ExecutionModelSchema, type Plan } from "@getpaseo/protocol/collaboration/schema";
 
 export type CollaborationMessageStage =
   | "plan"
@@ -16,6 +17,24 @@ export type CollaborationMessageStage =
   | "acceptance"
   | "enabled";
 
+const NoticeExecutionSchema = z.object({
+  profileId: z.string(),
+  model: ExecutionModelSchema.optional(),
+  relay: z
+    .object({
+      status: z.enum(["blocked", "stopping", "preparing", "failed"]),
+      source: z.enum(["automatic", "manual", "none"]),
+      operationId: z.string(),
+      token: z.number(),
+      manual: z.boolean(),
+      message: z.string(),
+      target: ExecutionModelSchema.optional(),
+      reason: z.string().optional(),
+    })
+    .optional(),
+});
+export type CollaborationNoticeExecution = z.infer<typeof NoticeExecutionSchema>;
+
 export interface CollaborationMessageSummary {
   stage: CollaborationMessageStage;
   /** Empty when the stage label says everything. */
@@ -24,6 +43,22 @@ export interface CollaborationMessageSummary {
   instructions: string;
   acceptance: string[];
   plan?: Plan;
+  /** Quota handoff carried by this notice. Absent on older notices. */
+  execution?: CollaborationNoticeExecution;
+}
+
+/** Read execution from a notice without dropping the notice when the field is absent or malformed. */
+export function readNoticeExecution(raw: string): CollaborationNoticeExecution | undefined {
+  const start = raw.indexOf("\n{");
+  if (start < 0) return;
+  try {
+    const body = JSON.parse(raw.slice(start + 1)) as { execution?: unknown };
+    if (body.execution === undefined) return;
+    const parsed = NoticeExecutionSchema.safeParse(body.execution);
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return;
+  }
 }
 
 const TAKEOVER_MARKER = "\n\n[paseo-director-takeover]\n";
@@ -48,12 +83,14 @@ export function collaborationMessageSummary(
     let stage: CollaborationMessageStage = "progress";
     if (notice.confirmation === "plan") stage = "approval";
     if (notice.confirmation === "final") stage = "acceptance";
+    const execution = readNoticeExecution(item.text);
     return {
       stage,
       text: notice.message,
       instructions: joinParagraphs(notice.instruction, notice.reply),
       acceptance: [],
       ...(notice.plan ? { plan: notice.plan } : {}),
+      ...(execution ? { execution } : {}),
     };
   }
   const boundary = item.text.indexOf(TAKEOVER_MARKER);

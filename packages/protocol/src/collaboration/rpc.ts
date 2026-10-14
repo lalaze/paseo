@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   CollaborationIsolationSchema,
   CollaborationModeSchema,
+  ExecutionModelSchema,
   RolePromptsSchema,
   SettingsSchema,
 } from "./schema.js";
@@ -15,7 +16,20 @@ export const CollaborationCommandSchema = z.enum([
   "conversation.disable",
   "conversation.confirm",
   "run.control",
+  "run.switch_executor",
 ]);
+export const SwitchExecutorInputSchema = z.object({
+  id: z.string().min(1),
+  expectedOperationId: z.string().min(1),
+  token: z.number().int(),
+  requestId: z.string().min(1).max(200),
+  model: ExecutionModelSchema,
+});
+export type SwitchExecutorInput = z.infer<typeof SwitchExecutorInputSchema>;
+export const SwitchExecutionModelToolSchema = SwitchExecutorInputSchema.omit({ id: true }).extend({
+  sourceMessageId: z.string().min(1),
+});
+export type SwitchExecutionModelToolInput = z.infer<typeof SwitchExecutionModelToolSchema>;
 export type CollaborationCommand = z.infer<typeof CollaborationCommandSchema>;
 export const CollaborationRequestSchema = z.object({
   type: z.literal("collaboration.command.request"),
@@ -62,6 +76,28 @@ export const CollaborationStateSchema = z.object({
           done: z.number(),
           total: z.number(),
           deliveryStatus: z.string().optional(),
+          execution: z
+            .object({
+              profileId: z.string(),
+              model: ExecutionModelSchema.optional(),
+              relay: z
+                .object({
+                  status: z.enum(["blocked", "stopping", "preparing", "failed"]),
+                  source: z.enum(["automatic", "manual", "none"]),
+                  operationId: z.string(),
+                  taskId: z.string().optional(),
+                  profileId: z.string(),
+                  errorClass: z.literal("quota"),
+                  message: z.string(),
+                  manual: z.boolean(),
+                  token: z.number(),
+                  target: ExecutionModelSchema.optional(),
+                  attempted: z.array(ExecutionModelSchema),
+                  reason: z.string().optional(),
+                })
+                .optional(),
+            })
+            .optional(),
         })
         .optional(),
     }),

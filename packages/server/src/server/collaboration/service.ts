@@ -3,9 +3,11 @@ import { muteCollaborationNotification } from "./notifications.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import type {
-  CollaborationCommand,
-  CollaborationState,
+import {
+  SwitchExecutionModelToolSchema,
+  SwitchExecutorInputSchema,
+  type CollaborationCommand,
+  type CollaborationState,
 } from "@getpaseo/protocol/collaboration/rpc";
 import {
   PlanSchema,
@@ -235,6 +237,11 @@ export class CollaborationService {
         await engine.control(request.id, request.action);
         break;
       }
+      case "run.switch_executor": {
+        const request = SwitchExecutorInputSchema.parse(input);
+        await engine.switchExecutor(request.id, request);
+        break;
+      }
     }
     this.wake();
     return this.status();
@@ -344,6 +351,18 @@ export class CollaborationService {
         async (input) => {
           const c = chat();
           return c.conversations.control(c.id, controlSchema.parse(input));
+        },
+      ),
+      define(
+        "switch_execution_model",
+        "执行子任务因模型额度耗尽受阻，且用户已明确指定其他模型时，继续同一子任务。必须引用 get_conversation_status 返回的最新真实用户消息、当前执行 operationId 和 execution.relay.token。不要自行选择模型，认证、欠费、网络和普通失败不能切换。",
+        SwitchExecutionModelToolSchema,
+        async (input) => {
+          const c = chat();
+          return c.conversations.switchExecutionModel(
+            c.id,
+            SwitchExecutionModelToolSchema.parse(input),
+          );
         },
       ),
       define(

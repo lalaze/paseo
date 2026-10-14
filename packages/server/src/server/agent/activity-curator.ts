@@ -216,6 +216,16 @@ export function curateAgentActivity(
     : "No activity to display.";
 }
 
+/** Recent assistant, tool, and error evidence for a model handoff. Thoughts and user prompts stay out. */
+export function curateHandoffActivity(timeline: AgentTimelineItem[], maxItems = 40): string {
+  return curateAgentActivity(timeline, {
+    maxItems,
+    labelAssistantMessages: true,
+    includeKinds: ["assistant_message", "tool_call", "error"],
+    includeExternalToolInput: false,
+  });
+}
+
 interface ForkCursorBoundary {
   timelineEpoch: string;
   cursor: { epoch: string; seq: number };

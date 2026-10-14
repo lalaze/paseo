@@ -3,12 +3,19 @@ import type { ProviderSnapshotEntry } from "@getpaseo/protocol/agent-types";
 import { SettingsSchema, type Settings } from "@getpaseo/protocol/collaboration/schema";
 import {
   buildModelSelection,
+  collectFallbackIssues,
   openCollaborationLaunch,
   type LaunchPreferences,
   type LaunchSnapshot,
   type ModelSelection,
 } from "./launch-model";
-import { resolveQuickLaunch, type QuickLaunch, type QuickLaunchCapabilities } from "./launch-quick";
+import {
+  canStartCollaboration,
+  resolveQuickLaunch,
+  settingsUseExecutionHandoff,
+  type QuickLaunch,
+  type QuickLaunchCapabilities,
+} from "./launch-quick";
 
 const providers: ProviderSnapshotEntry[] = [
   {
@@ -37,6 +44,7 @@ const providers: ProviderSnapshotEntry[] = [
 const capabilities: QuickLaunchCapabilities = {
   unified: true,
   worktree: true,
+  executionHandoff: true,
 };
 
 function selection(provider: string, model: string, thinkingOptionId?: string): ModelSelection {
@@ -298,5 +306,203 @@ describe("openCollaborationLaunch model inheritance", () => {
     model.applyProviders(providers);
     expect(model.resolve()).toBeNull();
     model.close();
+  });
+});
+
+describe("execution fallbacks", () => {
+  function readyModel(fallbacks?: ModelSelection[]) {
+    const model = openCollaborationLaunch(
+      snapshot(),
+      "execute_review",
+      {
+        director: null,
+        worker: selection("codex", "gpt-5", "high"),
+        reviewer: selection("claude", "opus"),
+      },
+      undefined,
+      undefined,
+      fallbacks,
+    );
+    model.applyProviders(providers);
+    return model;
+  }
+
+  it("omits an empty list and sends the order the user arranged", () => {
+    const model = readyModel();
+    expect(model.resolve()?.settings).not.toHaveProperty("executionFallbacks");
+    expect(model.preferences().fallbacks).toBeUndefined();
+    model.addFallback();
+    expect(model.getState().fallbackIssues.map((issue) => issue.code)).toContain("incomplete");
+    expect(model.resolve()).toBeNull();
+    model.selectFallbackProvider(0, "claude", "Claude");
+    model.selectFallbackModel(0, "opus", "Opus");
+    model.addFallback();
+    model.selectFallbackProvider(1, "codex", "Codex");
+    model.selectFallbackModel(1, "gpt-5-mini", "GPT-5 mini");
+    model.moveFallback(1, -1);
+    expect(model.resolve()?.settings?.executionFallbacks).toEqual({
+      worker: [{ provider: "codex/gpt-5-mini" }, { provider: "claude/opus" }],
+    });
+    expect(model.preferences().fallbacks?.map((item) => item.model)).toEqual([
+      "gpt-5-mini",
+      "opus",
+    ]);
+    model.removeFallback(0);
+    model.removeFallback(0);
+    expect(model.resolve()?.settings).not.toHaveProperty("executionFallbacks");
+    expect(model.preferences().fallbacks).toBeUndefined();
+    model.close();
+  });
+
+  it("blocks a duplicate, the execution model, a missing model, and a stale thinking level", () => {
+    const same = readyModel([selection("codex", "gpt-5", "high")]);
+    expect(same.getState().fallbackIssues.map((issue) => issue.code)).toContain("same");
+    expect(same.resolve()).toBeNull();
+    same.close();
+
+    const duplicate = readyModel([selection("claude", "opus"), selection("claude", "opus")]);
+    expect(duplicate.getState().fallbackIssues.map((issue) => issue.code)).toContain("duplicate");
+    expect(duplicate.resolve()).toBeNull();
+    duplicate.close();
+
+    const missing = readyModel([selection("codex", "removed")]);
+    expect(missing.getState().fallbackIssues.map((issue) => issue.code)).toContain("unavailable");
+    expect(missing.resolve()).toBeNull();
+    missing.close();
+
+    const thinking = readyModel([
+      {
+        provider: "codex",
+        model: "gpt-5-mini",
+        providerLabel: "codex",
+        modelLabel: "mini",
+        thinkingOptionId: "ultra",
+        thinkingOptionLabel: "Ultra",
+      },
+    ]);
+    expect(thinking.getState().fallbackIssues.map((issue) => issue.code)).toContain("thinking");
+    expect(thinking.resolve()).toBeNull();
+    thinking.close();
+  });
+
+  it("keeps an explicit empty list instead of restoring remembered backups", () => {
+    const model = openCollaborationLaunch(
+      snapshot(),
+      undefined,
+      undefined,
+      undefined,
+      preferences({ fallbacks: [selection("claude", "opus")] }),
+      [],
+    );
+    expect(model.getState().fallbacks).toEqual([]);
+    model.close();
+  });
+
+  it("keeps saved backups on an existing conversation without resending settings", () => {
+    const settings = SettingsSchema.parse({
+      ...savedSettings(),
+      executionFallbacks: { worker: [{ provider: "codex/gpt-5-mini" }] },
+    });
+    const model = openCollaborationLaunch(
+      snapshot({
+        conversation: {
+          id: "chat-1",
+          workspaceId: "ws-1",
+          agentId: "agent-1",
+          title: "Conversation",
+          mode: "execute_review",
+          settings,
+        },
+      }),
+    );
+    model.applyProviders(providers);
+    expect(model.getState().agentsLocked).toBe(true);
+    expect(model.getState().fallbacks.map((item) => item.model)).toEqual(["gpt-5-mini"]);
+    model.removeFallback(0);
+    model.moveFallback(0, -1);
+    expect(model.getState().fallbacks).toHaveLength(1);
+    expect(model.resolve()?.settings).toBeUndefined();
+    model.close();
+  });
+
+  it("reports the backup limit without treating an unloaded catalog as unavailable", () => {
+    const many = Array.from({ length: 9 }, (_, index) => selection("claude", `extra-${index}`));
+    const issues = collectFallbackIssues(many, selection("codex", "gpt-5"), () => "unknown");
+    expect(issues.map((issue) => issue.code)).toContain("limit");
+    expect(issues.map((issue) => issue.code)).not.toContain("unavailable");
+  });
+
+  it("opens the form when backups need a handoff the host does not offer", () => {
+    const remembered = preferences({ fallbacks: [selection("codex", "gpt-5-mini")] });
+    expect(
+      resolveQuickLaunch({
+        snapshot: snapshot(),
+        remembered,
+        providers,
+        capabilities: { ...capabilities, executionHandoff: false },
+      }),
+    ).toEqual({ kind: "configure" });
+    const started = expectStart(
+      resolveQuickLaunch({
+        snapshot: snapshot(),
+        remembered,
+        providers,
+        capabilities,
+      }),
+    );
+    expect(started.resolution.settings?.executionFallbacks).toEqual({
+      worker: [{ provider: "codex/gpt-5-mini" }],
+    });
+  });
+
+  it("opens the form when a remembered backup thinking level is gone", () => {
+    expect(
+      resolveQuickLaunch({
+        snapshot: snapshot(),
+        remembered: preferences({
+          fallbacks: [
+            {
+              provider: "codex",
+              model: "gpt-5-mini",
+              providerLabel: "codex",
+              modelLabel: "mini",
+              thinkingOptionId: "ultra",
+              thinkingOptionLabel: "Ultra",
+            },
+          ],
+        }),
+        providers,
+        capabilities,
+      }),
+    ).toEqual({ kind: "configure" });
+  });
+
+  it("refuses to start a new task that still has backups on an old host", () => {
+    const base = {
+      ready: true,
+      canContinue: true,
+      isolation: "local" as const,
+      supportsWorktree: true,
+      agentsLocked: false,
+      fallbackCount: 1,
+      supportsHandoff: true as boolean | null,
+    };
+    expect(canStartCollaboration(base)).toBe(true);
+    expect(canStartCollaboration({ ...base, supportsHandoff: false })).toBe(false);
+    expect(canStartCollaboration({ ...base, supportsHandoff: null })).toBe(false);
+    expect(canStartCollaboration({ ...base, fallbackCount: 0, supportsHandoff: false })).toBe(true);
+    expect(canStartCollaboration({ ...base, agentsLocked: true, supportsHandoff: false })).toBe(
+      true,
+    );
+    expect(settingsUseExecutionHandoff(undefined)).toBe(false);
+    expect(settingsUseExecutionHandoff(savedSettings())).toBe(false);
+    expect(
+      settingsUseExecutionHandoff(
+        SettingsSchema.parse({
+          ...savedSettings(),
+          executionFallbacks: { worker: [{ provider: "codex/gpt-5-mini" }] },
+        }),
+      ),
+    ).toBe(true);
   });
 });

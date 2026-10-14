@@ -5,6 +5,7 @@ import type { Conversation } from "@getpaseo/protocol/collaboration/conversation
 import {
   operationLabel,
   operationRole,
+  type ExecutionModel,
   type Operation,
   type Profile,
   type Run,
@@ -16,7 +17,7 @@ import { sendPromptToAgent } from "../agent/agent-prompt.js";
 import type { createAgentCommand } from "../agent/create-agent/create.js";
 import type { AgentMode } from "../agent/agent-sdk-types.js";
 import { resolveRequiredProviderModel } from "../agent/mcp-shared.js";
-import { curateAgentActivity } from "../agent/activity-curator.js";
+import { curateAgentActivity, curateHandoffActivity } from "../agent/activity-curator.js";
 import type {
   CreateIsolatedWorkspace,
   DiscardIsolatedWorkspace,
@@ -24,9 +25,11 @@ import type {
 } from "./repository.js";
 import type { WorkspaceRegistry } from "../workspace-registry.js";
 import type { AgentGateway, AgentSnapshot } from "./engine.js";
+import { providerFailureCode } from "./provider-failure.js";
 import type { ConversationGateway } from "./conversations.js";
 import {
   CHAT_PROMPT,
+  PRE_HANDOFF_CHAT_PROMPT,
   PRE_DELIVERY_CHAT_PROMPT,
   PRE_MERGE_RECOVERY_CHAT_PROMPT,
   PRE_DISABLE_CHAT_PROMPT,
@@ -41,8 +44,10 @@ export const CHAT_TOOLS = [
   "merge_result",
   "prepare_merge_recovery",
   "finish_merge_recovery",
+  "switch_execution_model",
 ];
 const PREVIOUS_CHAT_PROMPTS = [
+  PRE_HANDOFF_CHAT_PROMPT,
   PRE_MERGE_RECOVERY_CHAT_PROMPT,
   PRE_DELIVERY_CHAT_PROMPT,
   PRE_DISABLE_CHAT_PROMPT,
@@ -67,6 +72,8 @@ export interface CollaborationHost {
   findIsolatedWorkspace?: FindIsolatedWorkspace;
   discardIsolatedWorkspace?: DiscardIsolatedWorkspace;
   assertToolsEnabled: (agentId: string, tools?: readonly string[]) => void;
+  /** Catalog and Paseo-tool check only. Must not send an authentication request. */
+  validateExecutionModel?(model: ExecutionModel): Promise<void>;
   getProviderModes: (
     provider: string,
     cwd: string,
@@ -129,6 +136,26 @@ export function inspectMessages(items: AgentTimelineItem[], operationId: string)
     separated = false;
   }
   return { seen: true, interrupted: nextUser >= 0, output };
+}
+
+const HANDOFF_TIMELINE_LIMIT = 40;
+
+/** Recent timeline evidence for a handoff. Clipping is reported instead of looking complete. */
+export function handoffTimelineEvidence(items: AgentTimelineItem[], operationId: string) {
+  const marker = `[paseo-director:${operationId}]`;
+  const start = items.findIndex(
+    (item) =>
+      item.type === "user_message" &&
+      (item.clientMessageId === operationId ||
+        item.messageId === operationId ||
+        item.text.startsWith(marker)),
+  );
+  const after = start < 0 ? items : items.slice(start + 1);
+  const truncated = after.length > HANDOFF_TIMELINE_LIMIT;
+  const slice = truncated ? after.slice(-HANDOFF_TIMELINE_LIMIT) : after;
+  const text = curateHandoffActivity(slice, HANDOFF_TIMELINE_LIMIT);
+  const empty = !text.trim() || text === "No activity to display.";
+  return { text: empty ? "" : text, truncated: truncated && !empty, missing: start < 0 || empty };
 }
 
 export class CollaborationGateway implements AgentGateway, ConversationGateway {
@@ -307,11 +334,28 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
       status = "running";
     if (agent.lifecycle === "error") status = "error";
     if (agent.pendingPermissions.size) status = "permission";
+    const messages = inspectMessages(await this.conversationHistory(agentId), operationId);
+    const code = providerFailureCode(messages.output);
     return {
       status,
-      ...inspectMessages(await this.conversationHistory(agentId), operationId),
+      ...messages,
       error: agent.lastError,
+      ownership: {
+        inFlight: this.host.agentManager.hasInFlightRun(agentId),
+        pendingPermissions: agent.pendingPermissions.size,
+        lifecycle: agent.lifecycle,
+      },
+      ...(code ? { failure: { code } } : {}),
     };
+  }
+  async validateExecutionModel(model: ExecutionModel) {
+    if (!this.host.validateExecutionModel) throw new Error("当前主机不支持执行模型接力");
+    await this.host.validateExecutionModel(model);
+  }
+  async handoffActivity(agentId: string, operationId: string) {
+    const record = await this.host.agentStorage.get(agentId);
+    if (!record || record.archivedAt) return { text: "", truncated: false, missing: true };
+    return handoffTimelineEvidence(await this.conversationHistory(agentId), operationId);
   }
   async send(agentId: string, operationId: string, prompt: string) {
     const agent = await this.load(agentId);

@@ -80,6 +80,9 @@ export function CollaborationControl({
   const supportsDisable = useHostFeature(serverId, "collaborationDisable");
   const supportsWorktree =
     useHostFeatureAvailabilityMap([serverId], "collaborationWorktree").get(serverId) === true;
+  const supportsHandoff =
+    useHostFeatureAvailabilityMap([serverId], "collaborationExecutionHandoff").get(serverId) ===
+    true;
   const cwd = useWorkspaceFields(
     serverId,
     workspaceId,
@@ -185,6 +188,7 @@ export function CollaborationControl({
         capabilities: {
           unified: supportsUnified,
           worktree: supportsWorktree,
+          executionHandoff: supportsHandoff,
         },
       });
       if (decision.kind === "configure") {
@@ -216,6 +220,7 @@ export function CollaborationControl({
     openConfig,
     queryClient,
     serverId,
+    supportsHandoff,
     supportsUnified,
     supportsWorktree,
     workspaceId,

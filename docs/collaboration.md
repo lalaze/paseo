@@ -21,14 +21,21 @@ supplies the first request, and **Change** on the last-setup summary opens the f
 preserves the conversation and draft.
 
 The form shows **Plan first**, the isolation choice and the execution and review agents.
+Under the execution model you can add up to eight backup models, reorder them, and remove them.
+Leave that list empty to keep quota handoff manual. A saved list is remembered per host with the
+last setup and is sent with a new task. An older host that does not advertise
+`collaborationExecutionHandoff` keeps the list visible, explains that it needs an update, and will
+not start a new task that still contains backups, so the list is not silently dropped. An existing
+conversation keeps its saved backups and locks edits. Quick enable uses the same check and opens
+the form instead of starting when the host cannot hand off.
 Planning is off for a first task. Turning it on also exposes **Require plan approval**, off by default. Rework limit,
 time budget and the role-instructions entry sit under **Advanced settings**, collapsed by default;
 the collapsed row shows the chosen rework limit and time budget, so folding it never hides them.
 A model's thinking level expands with the model. Select each role's provider and model directly in
 the dialog; you do not need saved Agent profiles. The first task's execution model inherits the
 conversation's current provider, model and thinking level; review is chosen explicitly. The dialog
-remembers, per host and on this device, planning, plan approval, isolation, models, thinking levels, rework limit
-and time budget of the last task you started. The review agent leads the conversation and performs
+remembers, per host and on this device, planning, plan approval, isolation, models, thinking levels,
+backup models, rework limit and time budget of the last task you started. The review agent leads the conversation and performs
 the final review; when planning is on, it also prepares the plan. Implementation always runs in a
 separate session. Enabling in an existing chat retains its identity when its model and thinking
 level match the review selection. Otherwise, a new main conversation receives the original chat’s
@@ -165,8 +172,23 @@ also appears in the main conversation, labeled with the session it came from, so
 there. Existing role sessions retain their permissions until replaced.
 
 Network and server-side provider failures (`EOF`, connection resets, 5xx, overloaded) retry by
-themselves after 30 seconds, 2 minutes and 5 minutes before the run needs attention. Quota,
-billing and auth failures do not clear by retrying soon, so they stop at once.
+themselves after 30 seconds, 2 minutes and 5 minutes before the run needs attention. They do not
+change the model. Authentication failures, unpaid balance, invalid requests, a bare 429 or
+`RESOURCE_EXHAUSTED`, an ordinary rate limit, assistant text, and tool errors stop for attention
+and do not switch models. A clear quota exhaustion on an implementation step keeps the task,
+branch, workspace, and completed work. With no backups, or when every backup is unavailable or
+also out of quota, the run needs attention and the current stage offers **Switch model and
+continue**. The same action is in that conversation's history menu. Older stage rows do not keep
+the button. Choosing a model and thinking level sends one `run.switch_executor` request. Repeating
+the same provider, model, and thinking level reuses that request id, including after a network or
+stop error. Choosing a different provider, model, or thinking level starts a new request id and
+still uses the current operation token. A request id cannot be reused for a different target. The
+previous execution session must stop before the replacement starts. If it does not stop, nothing
+new is started and the progress remains. With backups saved
+for that execution profile, the host tries them in order, skipping a provider it already tried in
+this chain and any model the host cannot run. Later implementation steps and rework use the model
+that took over. The original role instructions stay with the logical execution profile. Pause and
+cancel still win over a switch. Planning and review do not hand off on quota.
 
 Pause stops subsequent dispatch; the current turn can finish. Cancel ends the run immediately from
 any unfinished state and retains the branch and files. It then interrupts the active role session
