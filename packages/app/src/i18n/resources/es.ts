@@ -152,6 +152,8 @@ export const es: TranslationResources = {
     runTimeoutMs: "Límite por ronda (minutos)",
     checks: "Comandos de verificación (uno por línea)",
     message: {
+      progressTitle: "Progreso de la colaboración",
+      updates: "{{count}} actualizaciones",
       plan: "Colaboración · planificación",
       execute: "Colaboración · implementación",
       review: "Colaboración · revisión",

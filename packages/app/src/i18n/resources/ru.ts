@@ -150,6 +150,8 @@ export const ru: TranslationResources = {
     runTimeoutMs: "Лимит цикла (минуты)",
     checks: "Команды проверки (по одной в строке)",
     message: {
+      progressTitle: "Ход совместной работы",
+      updates: "Обновлений: {{count}}",
       plan: "Совместная работа · планирование",
       execute: "Совместная работа · реализация",
       review: "Совместная работа · проверка",

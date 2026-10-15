@@ -146,6 +146,8 @@ export const en = {
     runTimeoutMs: "Round time limit (minutes)",
     checks: "Verification commands (one per line)",
     message: {
+      progressTitle: "Collaboration progress",
+      updates: "{{count}} updates",
       plan: "Collaboration · planning",
       execute: "Collaboration · implementation",
       review: "Collaboration · review",

@@ -144,6 +144,8 @@ export const zhCN: TranslationResources = {
     runTimeoutMs: "每轮时限（分钟）",
     checks: "验证命令（每行一条）",
     message: {
+      progressTitle: "协作进度",
+      updates: "{{count}} 条进度",
       plan: "协作 · 设计",
       execute: "协作 · 执行",
       review: "协作 · 审核",

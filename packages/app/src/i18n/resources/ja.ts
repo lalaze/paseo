@@ -149,6 +149,8 @@ export const ja: TranslationResources = {
     runTimeoutMs: "ラウンドの制限時間（分）",
     checks: "検証コマンド（1行に1つ）",
     message: {
+      progressTitle: "共同作業の進捗",
+      updates: "更新 {{count}} 件",
       plan: "共同作業 · 計画",
       execute: "共同作業 · 実装",
       review: "共同作業 · レビュー",

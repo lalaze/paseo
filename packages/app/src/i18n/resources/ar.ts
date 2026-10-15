@@ -147,6 +147,8 @@ export const ar: TranslationResources = {
     runTimeoutMs: "مهلة الجولة (دقائق)",
     checks: "أوامر التحقق (أمر في كل سطر)",
     message: {
+      progressTitle: "تقدم التعاون",
+      updates: "{{count}} تحديثات",
       plan: "التعاون · التخطيط",
       execute: "التعاون · التنفيذ",
       review: "التعاون · المراجعة",

@@ -21,6 +21,76 @@ const gitExec = promisify(execFile);
 
 test.use({ e2eInjectPaseoTools: true });
 
+for (const viewport of [
+  { name: "desktop", width: 1280, height: 900 },
+  { name: "phone", width: 390, height: 844 },
+]) {
+  test(`collaboration notices update one progress card across replies and reload on ${viewport.name}`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const session = await seedMockAgentWorkspace({
+      repoPrefix: "collaboration-progress-",
+      title: "Unified progress",
+    });
+    const client = await connectDaemonClient<DaemonClient>({
+      clientIdPrefix: "collaboration-progress",
+    });
+    async function sendNotice(conversation: string, sequence: number, message: string) {
+      const id = `chat-notice:${conversation}:digest:${sequence}`;
+      const text = `[paseo-director-chat:${id}]\n后台状态通知。\n${JSON.stringify({ message })}`;
+      await client.sendMessage(session.agentId, text, { messageId: id });
+      await session.client.waitForAgentUpsert(
+        session.agentId,
+        (agent) => agent.status === "idle",
+        15_000,
+      );
+    }
+    try {
+      await sendNotice("first-round", 0, "Implementation started");
+      await openAgentRoute(page, session);
+      const cards = page.getByTestId("collaboration-progress-card");
+      const first = cards.first();
+      await expect(cards).toHaveCount(1);
+      await expect(first.getByTestId("collaboration-progress-current")).toContainText(
+        "Implementation started",
+      );
+      await expect(first.getByTestId("collaboration-progress-history")).toHaveCount(0);
+      await first.getByTestId("collaboration-progress-toggle").click();
+      await expect(first.getByTestId("collaboration-stage")).toHaveCount(1);
+      // A real daemon message arrives while the card is expanded. The card must update in place.
+      await sendNotice("first-round", 1, "Review passed");
+      await expect(cards).toHaveCount(1);
+      await expect(first.getByTestId("collaboration-progress-current")).toContainText(
+        "Review passed",
+      );
+      await expect(first.getByTestId("collaboration-stage")).toHaveCount(2);
+      await expect(page.getByText("[paseo-director-chat:", { exact: false })).toHaveCount(0);
+      await first.scrollIntoViewIfNeeded();
+      const bounds = await first.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+      await first.getByTestId("collaboration-stage").first().click();
+      await expect(first.getByText("后台状态通知。", { exact: true })).toBeVisible();
+      await first.getByTestId("collaboration-stage").first().click();
+      await page.screenshot({ path: testInfo.outputPath(`progress-${viewport.name}.png`) });
+      await page.reload({ waitUntil: "commit" });
+      await expect(cards).toHaveCount(1);
+      await expect(first.getByTestId("collaboration-progress-current")).toContainText(
+        "Review passed",
+      );
+      await first.getByTestId("collaboration-progress-toggle").click();
+      await expect(first.getByTestId("collaboration-stage")).toHaveCount(2);
+      await sendNotice("second-round", 0, "Another collaboration task");
+      await expect(cards).toHaveCount(2);
+      await expect(cards.last()).toContainText("Another collaboration task");
+    } finally {
+      await client.close();
+      await session.cleanup();
+    }
+  });
+}
+
 test("plan approval shows the saved plan before approval on desktop and phone", async ({
   page,
 }, testInfo) => {
@@ -101,8 +171,12 @@ test("plan approval shows the saved plan before approval on desktop and phone", 
     db.exec("COMMIT");
     await openAgentRoute(page, session);
     const card = page.getByTestId("collaboration-plan");
+    const progress = page.getByTestId("collaboration-progress-card");
     const approve = page.getByRole("button", { name: "Approve plan", exact: true });
     await expect(approve).toBeVisible();
+    await expect(progress).toHaveCount(1);
+    await expect(progress.getByTestId("collaboration-plan")).toBeVisible();
+    await expect(progress.getByTestId("collaboration-progress-history")).toHaveCount(0);
     await expect(card.getByTestId("collaboration-confirmation-actions")).toBeVisible();
     await expect(card).toContainText("Approving starts implementation in the workspace.");
     for (const viewport of [

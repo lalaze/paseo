@@ -1,4 +1,6 @@
 import { CollaborationMessage } from "@/collaboration/message";
+import { CollaborationProgressCard } from "@/collaboration/progress-card";
+import { createCollaborationProgressProjection } from "@/collaboration/progress";
 import { collaborationMessageSummary } from "@/collaboration/message-summary";
 import { collaborationPermissionPlan } from "@/collaboration/permission-plan";
 import { CollaborationPlanCard } from "@/collaboration/plan-card";
@@ -395,9 +397,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const [expandedInlineToolCallIds, setExpandedInlineToolCallIds] = useState<Set<string>>(
       new Set(),
     );
-    const [expandedToolCallGroupIds, setExpandedToolCallGroupIds] = useState<Set<string>>(
-      new Set(),
-    );
+    const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
 
     // Get serverId (fallback to agent's serverId if not provided)
     const resolvedServerId = serverId ?? context.serverId ?? "";
@@ -461,7 +461,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     useEffect(() => {
       setIsNearBottom(true);
       setExpandedInlineToolCallIds(new Set());
-      setExpandedToolCallGroupIds(new Set());
+      setExpandedGroupIds(new Set());
     }, [agentId]);
 
     const handleInlinePathPress = useStableEvent(
@@ -578,20 +578,29 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const effectiveStreamHead = useRetainedValue(streamHead, isActive);
     const effectiveTurnPresentation = useRetainedValue(turnPresentation, isActive);
     const isTurnActive = effectiveTurnPresentation.isActive;
+    const projectCollaboration = useMemo(() => createCollaborationProgressProjection(), []);
+    const collaborationProgress = useMemo(
+      () =>
+        projectCollaboration({
+          tail: effectiveStreamItems,
+          head: effectiveStreamHead ?? EMPTY_STREAM_HEAD,
+        }),
+      [projectCollaboration, effectiveStreamItems, effectiveStreamHead],
+    );
     const presentStream = useMemo(() => createStreamPresentation(), []);
     const presentation = useMemo(
       () =>
         presentStream({
-          tail: effectiveStreamItems,
-          head: effectiveStreamHead ?? EMPTY_STREAM_HEAD,
+          tail: collaborationProgress.tail,
+          head: collaborationProgress.head,
           transform: transformTimelineItem,
           level: toolCallDetailLevel,
           isTurnActive,
         }),
       [
         presentStream,
-        effectiveStreamItems,
-        effectiveStreamHead,
+        collaborationProgress.tail,
+        collaborationProgress.head,
         transformTimelineItem,
         toolCallDetailLevel,
         isTurnActive,
@@ -719,8 +728,8 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       [streamRenderStrategy],
     );
 
-    const setToolCallGroupExpanded = useCallback((groupId: string, expanded: boolean) => {
-      setExpandedToolCallGroupIds((previous) => {
+    const setGroupExpanded = useCallback((groupId: string, expanded: boolean) => {
+      setExpandedGroupIds((previous) => {
         const next = new Set(previous);
         if (expanded) {
           next.add(groupId);
@@ -731,8 +740,22 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
       });
     }, []);
 
+    const getCollaborationProgress = useStableEvent((hostId: string) =>
+      collaborationProgress.groupsByHostId.get(hostId),
+    );
     const renderUserMessageItem = useCallback(
       (layoutItem: StreamLayoutItem, item: Extract<StreamItem, { kind: "user_message" }>) => {
+        const group = getCollaborationProgress(item.id);
+        if (group)
+          return (
+            <CollaborationProgressCard
+              group={group}
+              expanded={expandedGroupIds.has(group.id)}
+              onExpandedChange={setGroupExpanded}
+              serverId={resolvedServerId}
+              agentId={agentId}
+            />
+          );
         if (collaborationMessageSummary(item))
           return <CollaborationMessage item={item} serverId={resolvedServerId} agentId={agentId} />;
         return (
@@ -755,7 +778,16 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           />
         );
       },
-      [context.capabilities, agentId, client, pendingClientMessageIds, resolvedServerId],
+      [
+        context.capabilities,
+        agentId,
+        client,
+        pendingClientMessageIds,
+        resolvedServerId,
+        getCollaborationProgress,
+        expandedGroupIds,
+        setGroupExpanded,
+      ],
     );
 
     const renderAssistantMessageItem = useCallback(
@@ -873,13 +905,13 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
         if (!group) {
           return renderSingleToolCallItem(item, layoutItem.isLastInToolSequence);
         }
-        const expanded = expandedToolCallGroupIds.has(group.run.id);
+        const expanded = expandedGroupIds.has(group.run.id);
         return (
           <OverviewToolCallGroupView
             group={group}
             expanded={expanded}
             isLastInSequence={layoutItem.isLastInToolSequence}
-            onExpandedChange={setToolCallGroupExpanded}
+            onExpandedChange={setGroupExpanded}
           >
             {expanded
               ? group.run.calls.map((call, index) => (
@@ -895,12 +927,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
           </OverviewToolCallGroupView>
         );
       },
-      [
-        expandedToolCallGroupIds,
-        getToolCallGroup,
-        renderSingleToolCallItem,
-        setToolCallGroupExpanded,
-      ],
+      [expandedGroupIds, getToolCallGroup, renderSingleToolCallItem, setGroupExpanded],
     );
 
     const renderStreamItemContent = useCallback(
@@ -1133,10 +1160,10 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
     const historyRowRevision = useMemo(
       () => ({
         contentById: presentation.historyGroupUpdatesByHostId,
-        displayStateById: expandedToolCallGroupIds,
+        displayStateById: expandedGroupIds,
         globalDisplayState: isMobile,
       }),
-      [expandedToolCallGroupIds, isMobile, presentation.historyGroupUpdatesByHostId],
+      [expandedGroupIds, isMobile, presentation.historyGroupUpdatesByHostId],
     );
 
     const findItems = useMemo(
@@ -1160,7 +1187,7 @@ const AgentStreamViewComponent = forwardRef<AgentStreamViewHandle, AgentStreamVi
                 agentId,
                 segments: renderModel.segments,
                 historyRowRevision,
-                liveHeadRowRevision: expandedToolCallGroupIds,
+                liveHeadRowRevision: expandedGroupIds,
                 boundary,
                 renderers,
                 listEmptyComponent,

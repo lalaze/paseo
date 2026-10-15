@@ -150,6 +150,8 @@ export const ptBR: TranslationResources = {
     runTimeoutMs: "Limite por rodada (minutos)",
     checks: "Comandos de verificação (um por linha)",
     message: {
+      progressTitle: "Progresso da colaboração",
+      updates: "{{count}} atualizações",
       plan: "Colaboração · planejamento",
       execute: "Colaboração · implementação",
       review: "Colaboração · revisão",

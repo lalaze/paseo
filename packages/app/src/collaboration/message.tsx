@@ -10,33 +10,21 @@ import { CollaborationConfirmationActions } from "./confirmation-actions";
 import { CollaborationPlanCard } from "./plan-card";
 import { CollaborationHandoffAction } from "./execution-switch-sheet";
 
-/** A stage row in the main conversation; the row itself discloses the Agent's instructions. */
+/** A stage row disclosing the Agent's instructions, also used inside progress history. */
 export function CollaborationMessage({
   item,
   serverId,
   agentId,
+  showControls = true,
 }: {
   item: UserMessageItem;
   serverId: string;
   agentId: string;
+  showControls?: boolean;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(() => collaborationMessageSummary(item), [item]);
-  const noticeId = item.clientMessageId ?? item.messageId;
-  const confirmation =
-    (summary?.stage === "approval" || summary?.stage === "acceptance") && Boolean(noticeId);
-  const actions = useMemo(
-    () =>
-      confirmation && noticeId ? (
-        <CollaborationConfirmationActions
-          serverId={serverId}
-          agentId={agentId}
-          noticeId={noticeId}
-        />
-      ) : null,
-    [confirmation, noticeId, serverId, agentId],
-  );
   const toggle = useCallback(() => setExpanded((previous) => !previous), []);
   const renderDetails = useCallback(() => {
     if (!summary) return null;
@@ -79,21 +67,56 @@ export function CollaborationMessage({
       style={styles.row}
     />
   );
-  if (!confirmation && !summary.execution?.relay) return badge;
+  if (!showControls) return badge;
   return (
     <View>
       {badge}
+      <CollaborationMessageControls item={item} serverId={serverId} agentId={agentId} />
+    </View>
+  );
+}
+
+export function CollaborationMessageControls({
+  item,
+  serverId,
+  agentId,
+  showHandoff = true,
+}: {
+  item: UserMessageItem;
+  serverId: string;
+  agentId: string;
+  showHandoff?: boolean;
+}) {
+  const summary = useMemo(() => collaborationMessageSummary(item), [item]);
+  const noticeId = item.clientMessageId ?? item.messageId;
+  const confirmation = summary?.stage === "approval" || summary?.stage === "acceptance";
+  const actions = useMemo(
+    () =>
+      confirmation && noticeId ? (
+        <CollaborationConfirmationActions
+          serverId={serverId}
+          agentId={agentId}
+          noticeId={noticeId}
+        />
+      ) : null,
+    [confirmation, noticeId, serverId, agentId],
+  );
+  if (!summary) return null;
+  return (
+    <>
       {confirmation && summary.plan ? (
         <CollaborationPlanCard plan={summary.plan} footer={actions} testID="collaboration-plan" />
       ) : (
         actions
       )}
-      <CollaborationHandoffAction
-        serverId={serverId}
-        agentId={agentId}
-        execution={summary.execution}
-      />
-    </View>
+      {showHandoff ? (
+        <CollaborationHandoffAction
+          serverId={serverId}
+          agentId={agentId}
+          execution={summary.execution}
+        />
+      ) : null}
+    </>
   );
 }
 

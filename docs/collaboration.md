@@ -145,15 +145,21 @@ the previous acceptance does not authorize merging the new changes.
 ## Conversation timeline
 
 Operation prompts and background notices reach the main Agent as user-role messages. The app
-renders each one as a compact stage row (`Collaboration · review`, `Collaboration · awaiting
-acceptance`, and so on) with a one-line summary; expanding the row shows the instructions the
-Agent received, never the marker or JSON context. The row carries the status, so the Agent's reply
-must not restate it or narrate the scheduler: it says what changed, what is next, and what the user
-has to do. At acceptance the Agent gives one report — actual changes, verification run and results,
+collects background notices for the same collaboration conversation into one **Collaboration
+progress** card. The card sits at the latest notice, shows the current update and expands
+into its stage history. Retries and rework stay in that card; a new collaboration conversation
+gets a new card. Ordinary user messages and Agent replies keep their positions. Reloading or
+loading older history rebuilds the card from the persisted notices.
+
+Stage rows expand to show the instructions the Agent received, never the marker or JSON context.
+Plan snapshots, approval and acceptance actions, and the current model handoff stay visible
+outside the collapsed history. The card carries the status, so the Agent's reply must not restate
+it or narrate the scheduler: it says what changed, what is next, and what the user has to do.
+At acceptance the Agent gives one report — actual changes, verification run and results,
 known limitations — and ends with the exact replies: `验收通过` alone to accept, `不采纳成果`
 alone to reject, or a description of the changes to request rework.
 
-The rows are parsed from message text (`packages/app/src/collaboration/message-summary.ts`), and
+The stages are parsed from message text (`packages/app/src/collaboration/message-summary.ts`), and
 messages persisted by older hosts must keep parsing. Keep a notice's instruction on the single line
 between its marker and its JSON, and keep new JSON fields optional.
 

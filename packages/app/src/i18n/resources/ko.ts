@@ -147,6 +147,8 @@ export const ko: TranslationResources = {
     runTimeoutMs: "라운드 제한 시간(분)",
     checks: "검증 명령(줄당 하나)",
     message: {
+      progressTitle: "협업 진행 상황",
+      updates: "업데이트 {{count}}개",
       plan: "협업 · 계획",
       execute: "협업 · 구현",
       review: "협업 · 검토",
