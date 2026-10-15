@@ -179,7 +179,12 @@ before metering start with an empty budget.
 
 The step limit (30 minutes) catches a stuck step, so it counts from the session's last activity. A
 step that keeps working runs until it finishes or the time budget runs out; a silent one is stopped
-and waits for retry.
+and waits for retry. A result already returned is collected even if observation resumes after the
+step limit. Rapidly repeating a completed shell tool call with unchanged output can stop an
+implementation session earlier and retain its workspace. Commands whose tool calls are still
+running and permission waits do not trigger this repetition check. Detached background processes
+are not tracked, so rapid log polling can trigger it while the process is still running. Before
+retrying, check whether the process being awaited has exited and inspect its full output.
 
 To add a detail without changing the goal ("don't commit the measurements"), tell the main Agent.
 It records a note with `control_task` `note`; every later execution and review step receives the
@@ -217,7 +222,8 @@ any unfinished state and retains the branch and files. It then interrupts the ac
 as a follow-up, never the main conversation. An interrupt that fails is recorded on the run and does
 not undo the cancel, because a session the daemon cannot reach, such as an archived one, would
 otherwise hold the run and its workspace. A timeout or a requirement change, unlike cancel, waits
-until the AI has stopped, so the next turn cannot overlap the old one.
+until the AI has stopped, so the next turn cannot overlap the old one. If stopping for a timeout or
+a repetition fails, even with a network error, the run needs attention instead of retrying.
 Uncertain creation or delivery waits for inspection and explicit retry.
 Verification commands run as executable plus literal arguments, without shell expansion. Quotes
 are supported; add separate lines instead of pipelines or `&&`.

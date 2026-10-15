@@ -55,6 +55,8 @@ export interface AgentSnapshot {
   failure?: { code?: string; diagnostic?: string };
   /** When the session last showed activity (epoch ms). */
   activeAt?: number;
+  /** `REPEATED_SHELL_CALL_LIMIT` identical completed shell calls within the repetition window. */
+  hasRepeatedShellCalls?: boolean;
 }
 export interface AgentGateway {
   workspaceDirectory(workspaceId: string): Promise<string>;
@@ -75,6 +77,9 @@ export interface AgentGateway {
 }
 
 const AUTO_RETRY_DELAYS_MS = [30_000, 120_000, 300_000];
+/** An execution session repeating one completed shell call this often in the window is stopped. */
+export const REPEATED_SHELL_CALL_LIMIT = 12;
+export const REPEATED_SHELL_CALL_WINDOW_MS = 120_000;
 
 function sessionSettled(state: AgentSnapshot): boolean {
   if (state.ownership)
@@ -411,7 +416,7 @@ export class Engine {
       run,
       run.control === "canceled"
         ? "已取消；工作区与成果已保留"
-        : "执行超时，已停止；可以检查结果后重试",
+        : `AI 已停止；停止前状态：${run.message}。工作区与成果已保留，可以检查结果后重试`,
     );
     this.save(run);
   }
@@ -671,6 +676,24 @@ export class Engine {
       this.event(run, `权限或提问已处理，继续跟进${this.describe(run, op).actor}本轮结果`);
       this.save(run);
     }
+    const waitingForTurn =
+      state.status === "running" && !(conversational && op.response !== undefined);
+    if (!waitingForTurn && !(conversational && op.response === undefined)) return false;
+    const repeating =
+      !conversational &&
+      op.kind === "execute" &&
+      op.response === undefined &&
+      state.hasRepeatedShellCalls;
+    if (repeating) {
+      run.control = "canceling";
+      run.stopTarget = "needs_attention";
+      this.event(
+        run,
+        `执行 AI 重复空转：${REPEATED_SHELL_CALL_WINDOW_MS / 60_000} 分钟内连续重复同一命令及结果至少 ${REPEATED_SHELL_CALL_LIMIT} 次，正在停止 AI；检查被等待的进程是否已结束，换方法或报告阻碍后重试`,
+      );
+      this.save(run);
+      return true;
+    }
     if (this.stepStalled(run, op, state)) {
       run.control = "canceling";
       run.stopTarget = "needs_attention";
@@ -678,17 +701,14 @@ export class Engine {
       this.save(run);
       return true;
     }
-    if (state.status === "running" && !(conversational && op.response !== undefined)) {
-      if (!op.observedBusy) {
-        op.observedBusy = true;
-        const { actor, action, detail } = this.describe(run, op);
-        if (!resumed && op.response === undefined)
-          this.event(run, `${actor} 正在${action}${detail}`);
-        this.save(run);
-      }
-      return true;
+    if (!waitingForTurn) return false;
+    if (!op.observedBusy) {
+      op.observedBusy = true;
+      const { actor, action, detail } = this.describe(run, op);
+      if (!resumed && op.response === undefined) this.event(run, `${actor} 正在${action}${detail}`);
+      this.save(run);
     }
-    return false;
+    return true;
   }
   private async upgradeReview(run: Run, op: Operation | undefined) {
     // Upgrade queued legacy task reviews without discarding a review already
@@ -766,11 +786,15 @@ export class Engine {
       if (!this.scheduleAutoRetry(run, message)) this.hold(run, message);
     }
   }
-  /** Network and server-side provider failures retry with backoff instead of waiting for the user. */
+  /**
+   * Network and server-side provider failures retry with backoff instead of waiting for the user.
+   * A failed stop is not retried: it needs attention like any other failed stop.
+   */
   private scheduleAutoRetry(run: Run, message: string) {
     const op = this.current(run);
     const attempts = run.autoRetry?.attempts ?? 0;
     if (
+      run.control === "canceling" ||
       !op?.agentId ||
       op.agentId === run.chat?.mainAgentId ||
       attempts >= AUTO_RETRY_DELAYS_MS.length ||
@@ -1860,6 +1884,8 @@ export class Engine {
       throw new Error("任务已结束");
     if (run.phase === "awaiting_acceptance" && action !== "cancel")
       throw new Error("请验收成果或提交修改意见");
+    if (run.control === "canceling" && action === "note")
+      throw new Error("正在停止 AI，请等待停止后再补充要求");
     return recoveringMerge;
   }
   async control(

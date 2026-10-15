@@ -1,20 +1,172 @@
 import { test, describe } from "vitest";
 import assert from "node:assert/strict";
-import { harness, plan, result, review, settings } from "./test-utils/harness.js";
+import { harness, plan, result, review, settings, reviewerSettings } from "./test-utils/harness.js";
 import {
   profileForTask,
   validatePlan,
   parseOutput,
   canResumeRun,
   awaitingAcceptance,
+  finalAcceptance,
 } from "@getpaseo/protocol/collaboration/schema";
 import {
   CollaborationGateway,
   inspectMessages,
+  hasRepeatedShellCalls,
   profileCreateMode,
   type CollaborationHost,
 } from "./gateway.js";
 import { buildPrompt } from "./prompts.js";
+import type { AgentTimelineRow } from "../agent/agent-timeline-store-types.js";
+import { PiHistoryMapper } from "../agent/providers/pi/history-mapper.js";
+
+function shellPollingRows(count = 12, intervalMs = 5000): AgentTimelineRow[] {
+  const startedAt = Date.parse("2026-10-15T06:28:00Z");
+  const rows: AgentTimelineRow[] = [
+    {
+      seq: 1,
+      timestamp: new Date(startedAt).toISOString(),
+      item: { type: "user_message", text: "[paseo-director:operation]\n实现进度卡片" },
+    },
+  ];
+  for (let index = 0; index < count; index++) {
+    rows.push({
+      seq: index + 2,
+      timestamp: new Date(startedAt + (index + 1) * intervalMs).toISOString(),
+      item: {
+        type: "tool_call",
+        callId: `call-${index}`,
+        name: "bash",
+        status: "completed",
+        error: null,
+        detail: {
+          type: "shell",
+          command: "rg 'failed' /tmp/e2e-progress.txt",
+          output: "95:  1 failed\n",
+          exitCode: 0,
+        },
+      },
+    });
+  }
+  return rows;
+}
+
+describe("repeated shell results", () => {
+  test("completed Pi bash results without an exit code still detect the captured polling loop", () => {
+    const mapper = new PiHistoryMapper("pi");
+    const rows = shellPollingRows();
+    for (let index = 1; index < rows.length; index++) {
+      const events = mapper.mapMessages([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: `pi-call-${index}`,
+              name: "bash",
+              arguments: { command: "rg 'failed' /tmp/e2e-progress.txt" },
+            },
+          ],
+        },
+        {
+          role: "toolResult",
+          toolCallId: `pi-call-${index}`,
+          toolName: "bash",
+          content: [{ type: "text", text: "95:  1 failed\n" }],
+        },
+      ]);
+      const completed = events.find(
+        (event) => event.item.type === "tool_call" && event.item.status === "completed",
+      );
+      assert.ok(completed);
+      rows[index] = { ...rows[index], item: completed.item };
+    }
+    assert.equal(hasRepeatedShellCalls(rows, "operation"), true);
+  });
+  test("recognizes rapid unchanged test-log polling, but not slow polling or a short burst", () => {
+    assert.equal(hasRepeatedShellCalls(shellPollingRows(), "operation"), true);
+    assert.equal(hasRepeatedShellCalls(shellPollingRows(11), "operation"), false);
+    assert.equal(hasRepeatedShellCalls(shellPollingRows(12, 15_000), "operation"), false);
+    assert.equal(hasRepeatedShellCalls(shellPollingRows(), "other-operation"), false);
+  });
+  test("changed output, command, directory, exit code or another tool breaks the loop", () => {
+    for (const detail of [
+      {
+        type: "shell",
+        command: "rg 'failed' /tmp/e2e-progress.txt",
+        output: "1 passed\n",
+        exitCode: 0,
+      },
+      {
+        type: "shell",
+        command: "cat /tmp/e2e-progress.txt",
+        output: "95:  1 failed\n",
+        exitCode: 0,
+      },
+      {
+        type: "shell",
+        command: "rg 'failed' /tmp/e2e-progress.txt",
+        cwd: "/other",
+        output: "95:  1 failed\n",
+        exitCode: 0,
+      },
+      {
+        type: "shell",
+        command: "rg 'failed' /tmp/e2e-progress.txt",
+        output: "95:  1 failed\n",
+        exitCode: 1,
+      },
+      { type: "edit", filePath: "src/api.ts", newString: "fixed" },
+    ] satisfies Array<Extract<AgentTimelineRow["item"], { type: "tool_call" }>["detail"]>) {
+      const rows = shellPollingRows();
+      rows[6].item = {
+        type: "tool_call",
+        callId: "changed",
+        name: "bash",
+        status: "completed",
+        error: null,
+        detail,
+      };
+      assert.equal(hasRepeatedShellCalls(rows, "operation"), false);
+    }
+  });
+  test("running tool calls, unfinished results, duplicate call rows and user steering are not repetitions", () => {
+    const running = shellPollingRows();
+    running.splice(1, 0, {
+      seq: 1,
+      timestamp: running[0].timestamp,
+      item: {
+        type: "tool_call",
+        callId: "live",
+        name: "bash",
+        status: "running",
+        error: null,
+        detail: { type: "shell", command: "npm run build" },
+      },
+    });
+    assert.equal(hasRepeatedShellCalls(running, "operation"), false);
+    const pending = shellPollingRows();
+    pending[12].item = {
+      type: "tool_call",
+      callId: "pending",
+      name: "bash",
+      status: "running",
+      error: null,
+      detail: { type: "shell", command: "read_process", output: "Still running", exitCode: null },
+    };
+    assert.equal(hasRepeatedShellCalls(pending, "operation"), false);
+    const duplicates = shellPollingRows();
+    duplicates[12].item = duplicates[11].item;
+    assert.equal(hasRepeatedShellCalls(duplicates, "operation"), false);
+    const steered = shellPollingRows();
+    steered.push({
+      seq: 14,
+      timestamp: steered[12].timestamp,
+      item: { type: "user_message", text: "补充要求" },
+    });
+    assert.equal(hasRepeatedShellCalls(steered, "operation"), false);
+  });
+});
 describe("explicit retry replaces failed sessions with the original profile after restart", () => {
   for (const kind of ["plan", "execute", "final"] as const) {
     for (const failedState of ["ready", "sent"] as const)
@@ -710,6 +862,26 @@ test("a timeout whose stop fails needs attention instead of stopping again every
   await h.engine.control(h.id, "cancel");
   assert.equal(h.run().control, "canceled");
 });
+test("a stop that fails with a network error needs attention instead of promising a retry", async (t) => {
+  const h = await harness({ turnTimeoutMs: 1000 });
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  let attempts = 0;
+  h.agents.stop = async () => {
+    attempts++;
+    throw new Error("Codex app-server connection closed");
+  };
+  h.elapse(1001);
+  await h.engine.tick();
+  await h.engine.tick();
+  assert.equal(h.run().control, "needs_attention");
+  assert.equal(h.run().message, "Codex app-server connection closed");
+  assert.equal(h.run().autoRetry, undefined);
+  h.elapse(31_000);
+  await h.engine.tick();
+  assert.equal(attempts, 1);
+  assert.equal(h.agents.sent.length, 1);
+});
 test("crash after sending recovers from timeline marker, ambiguous delivery stops", async (t) => {
   const h = await harness();
   t.onTestFinished(() => h.cleanup());
@@ -772,6 +944,143 @@ test("the step limit stops a silent turn, not one that keeps working", async (t)
   await h.engine.tick();
   assert.equal(h.run().control, "canceling");
   assert.match(h.run().message, /没有进展/);
+});
+test("a finished result is collected even when the next observation is after the step limit", async (t) => {
+  const h = await harness({ turnTimeoutMs: 1000 });
+  t.onTestFinished(() => h.cleanup());
+  const op = await h.until("plan");
+  h.elapse(1001);
+  await h.complete(plan);
+  assert.equal(h.run().control, "running");
+  assert.equal(h.run().phase, "executing");
+  assert.equal(h.run().operations.find((candidate) => candidate.id === op.id)?.state, "done");
+  assert.deepEqual(h.agents.stopped, []);
+});
+describe("main-chat step limits", () => {
+  for (const kind of ["plan", "final"] as const) {
+    test(`an idle ${kind} without a submission stops after the step limit`, async (t) => {
+      const h = await harness({ turnTimeoutMs: 1000 });
+      t.onTestFinished(() => h.cleanup());
+      if (kind === "final") {
+        await h.until("plan");
+        await h.complete(plan);
+        await h.until("execute");
+        await h.complete(result);
+      }
+      const op = await h.until(kind);
+      const run = h.run();
+      run.chat = { version: 1, conversationId: "conversation", mainAgentId: op.agentId! };
+      h.store.save(run);
+      h.agents.states.set(op.agentId!, {
+        status: "idle",
+        seen: true,
+        output: "我会继续处理",
+        activeAt: h.now(),
+      });
+      h.elapse(999);
+      await h.engine.tick();
+      assert.equal(h.run().control, "running");
+      h.elapse(1);
+      await h.engine.tick();
+      assert.equal(h.run().control, "canceling");
+      await h.engine.tick();
+      assert.equal(h.run().control, "needs_attention");
+      assert.match(h.run().message, /没有进展/);
+      assert.equal(h.op()?.id, op.id);
+      assert.deepEqual(h.agents.stopped, []);
+    });
+    test(`a submitted ${kind} is collected after the step limit`, async (t) => {
+      const h = await harness({ turnTimeoutMs: 1000 });
+      t.onTestFinished(() => h.cleanup());
+      if (kind === "final") {
+        await h.until("plan");
+        await h.complete(plan);
+        await h.until("execute");
+        await h.complete(result);
+      }
+      const op = await h.until(kind);
+      const run = h.run();
+      run.chat = { version: 1, conversationId: "conversation", mainAgentId: op.agentId! };
+      h.store.save(run);
+      await h.engine.submit(h.id, "director", op.id, kind === "plan" ? plan : review(true));
+      h.elapse(1001);
+      await h.engine.tick();
+      assert.equal(h.run().phase, kind === "plan" ? "executing" : "awaiting_acceptance");
+      assert.equal(h.run().operations.find((candidate) => candidate.id === op.id)?.state, "done");
+      assert.deepEqual(h.agents.stopped, []);
+    });
+  }
+});
+test("repeated shell polling stops the worker before retry and retains its workspace and reason", async (t) => {
+  const h = await harness(reviewerSettings(), "execute_review");
+  t.onTestFinished(() => h.cleanup());
+  const op = await h.until("execute");
+  const cwd = h.run().cwd;
+  h.agents.states.set(op.agentId!, {
+    status: "running",
+    seen: true,
+    output: "",
+    activeAt: h.now(),
+    hasRepeatedShellCalls: hasRepeatedShellCalls(shellPollingRows(), "operation"),
+  });
+  await h.engine.tick();
+  assert.equal(h.run().control, "canceling");
+  assert.match(h.run().message, /重复空转/);
+  h.agents.holdInFlight.add(op.agentId!);
+  await h.engine.tick();
+  assert.equal(h.run().control, "canceling");
+  assert.equal(h.agents.created.length, 1);
+  assert.equal(h.agents.sent.length, 1);
+  const stoppingMessage = h.run().message;
+  await assert.rejects(
+    h.engine.control(h.id, "note", undefined, { feedback: "保留测试日志" }),
+    /正在停止 AI/,
+  );
+  assert.equal(h.run().message, stoppingMessage);
+  assert.deepEqual(h.run().notes ?? [], []);
+  h.agents.holdInFlight.delete(op.agentId!);
+  await h.engine.tick();
+  assert.equal(h.run().control, "needs_attention");
+  assert.match(h.run().message, /重复空转/);
+  assert.equal(h.run().cwd, cwd);
+  await h.engine.control(h.id, "retry");
+  const retried = await h.until("execute");
+  assert.equal(retried.agentId, op.agentId);
+  assert.match(retried.prompt, /先确认进程是否仍在运行/);
+  await h.complete(result);
+  await h.until("final");
+  await h.complete({
+    ...review(true),
+    criteria: finalAcceptance(h.run().plan!).map((criterion) => ({
+      criterion,
+      passed: true,
+      evidence: "实际代码和测试",
+    })),
+  });
+  assert.equal(h.run().phase, "awaiting_acceptance");
+});
+test("permission waits and finished worker results win over a repeated-tool signal", async (t) => {
+  const h = await harness(reviewerSettings(), "execute_review");
+  t.onTestFinished(() => h.cleanup());
+  const op = await h.until("execute");
+  h.agents.states.set(op.agentId!, {
+    status: "permission",
+    seen: true,
+    output: "",
+    hasRepeatedShellCalls: true,
+  });
+  await h.engine.tick();
+  assert.equal(h.run().control, "waiting_permission");
+  h.agents.states.set(op.agentId!, {
+    status: "idle",
+    seen: true,
+    output: JSON.stringify(result),
+    hasRepeatedShellCalls: true,
+  });
+  await h.engine.tick();
+  assert.equal(h.run().tasks[0].status, "executed");
+  assert.equal(h.run().control, "running");
+  assert.deepEqual(h.agents.stopped, []);
 });
 test("manual steering invalidates automatic consumption of the old turn", async (t) => {
   const h = await harness();
@@ -982,12 +1291,13 @@ test("inspecting a session reports when it last showed activity", async () => {
     agentManager: {
       getAgent: () => ({ lifecycle: "running", pendingPermissions: new Map(), updatedAt }),
       hasInFlightRun: () => true,
-      getTimelineRows: async () => [],
+      getTimelineRows: async () => shellPollingRows(),
     },
   } as unknown as CollaborationHost;
   const state = await new CollaborationGateway(host).inspect("worker", "operation");
   assert.equal(state.status, "running");
   assert.equal(state.activeAt, updatedAt.getTime());
+  assert.equal(state.hasRepeatedShellCalls, true);
 });
 
 describe("worker session continuity", () => {

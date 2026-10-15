@@ -12,6 +12,7 @@ import {
 } from "@getpaseo/protocol/collaboration/schema";
 import type { AgentManager } from "../agent/agent-manager.js";
 import type { AgentStorage } from "../agent/agent-storage.js";
+import type { AgentTimelineRow } from "../agent/agent-timeline-store-types.js";
 import { ensureUnarchivedAgentLoaded } from "../agent/agent-loading.js";
 import { sendPromptToAgent } from "../agent/agent-prompt.js";
 import type { createAgentCommand } from "../agent/create-agent/create.js";
@@ -24,7 +25,12 @@ import type {
   FindIsolatedWorkspace,
 } from "./repository.js";
 import type { WorkspaceRegistry } from "../workspace-registry.js";
-import type { AgentGateway, AgentSnapshot } from "./engine.js";
+import {
+  REPEATED_SHELL_CALL_LIMIT,
+  REPEATED_SHELL_CALL_WINDOW_MS,
+  type AgentGateway,
+  type AgentSnapshot,
+} from "./engine.js";
 import { providerFailureCode } from "./provider-failure.js";
 import type { ConversationGateway } from "./conversations.js";
 import {
@@ -138,6 +144,64 @@ export function inspectMessages(items: AgentTimelineItem[], operationId: string)
     separated = false;
   }
   return { seen: true, interrupted: nextUser >= 0, output };
+}
+
+function completedShellResult(item: AgentTimelineItem): string | null {
+  if (item.type !== "tool_call" || item.detail.type !== "shell") return null;
+  if (item.status !== "completed" && item.status !== "failed") return null;
+  const detail = item.detail;
+  // Pi marks finished bash calls as completed without always supplying an exit code.
+  if (detail.output === undefined) return null;
+  return JSON.stringify([
+    item.name,
+    item.status,
+    detail.command,
+    detail.cwd,
+    detail.output,
+    detail.exitCode,
+  ]);
+}
+
+/** Detect rapid repetition of completed shell tool calls, scoped to this operation. */
+export function hasRepeatedShellCalls(
+  rows: readonly AgentTimelineRow[],
+  operationId: string,
+): boolean {
+  const marker = `[paseo-director:${operationId}]`;
+  const start = rows.findLastIndex(
+    ({ item }) =>
+      item.type === "user_message" &&
+      (item.clientMessageId === operationId ||
+        item.messageId === operationId ||
+        item.text.startsWith(marker)),
+  );
+  if (start < 0) return false;
+  const current = rows.slice(start + 1);
+  // A command whose tool call is still running can be awaited by other tools. Detached background
+  // processes are not tracked here. User steering starts a new scope.
+  if (
+    current.some(
+      ({ item }) =>
+        item.type === "user_message" || (item.type === "tool_call" && item.status === "running"),
+    )
+  )
+    return false;
+  const tools = current
+    .filter(({ item }) => item.type === "tool_call")
+    .slice(-REPEATED_SHELL_CALL_LIMIT);
+  if (tools.length < REPEATED_SHELL_CALL_LIMIT) return false;
+  const latest = tools[tools.length - 1];
+  const baseline = completedShellResult(latest.item);
+  if (baseline === null) return false;
+  const span = Date.parse(latest.timestamp) - Date.parse(tools[0].timestamp);
+  if (!Number.isFinite(span) || span < 0 || span > REPEATED_SHELL_CALL_WINDOW_MS) return false;
+  const callIds = new Set<string>();
+  for (const { item } of tools) {
+    if (item.type !== "tool_call") return false;
+    if (completedShellResult(item) !== baseline || callIds.has(item.callId)) return false;
+    callIds.add(item.callId);
+  }
+  return true;
 }
 
 const HANDOFF_TIMELINE_LIMIT = 40;
@@ -340,7 +404,11 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
       status = "running";
     if (agent.lifecycle === "error") status = "error";
     if (agent.pendingPermissions.size) status = "permission";
-    const messages = inspectMessages(await this.conversationHistory(agentId), operationId);
+    const rows = await this.host.agentManager.getTimelineRows(agentId);
+    const messages = inspectMessages(
+      rows.map((row) => row.item),
+      operationId,
+    );
     const code = providerFailureCode(messages.output);
     return {
       status,
@@ -354,6 +422,7 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
       ...(code ? { failure: { code } } : {}),
       // The agent manager stamps every live stream event here.
       activeAt: agent.updatedAt.getTime(),
+      hasRepeatedShellCalls: hasRepeatedShellCalls(rows, operationId),
     };
   }
   async validateExecutionModel(model: ExecutionModel) {
