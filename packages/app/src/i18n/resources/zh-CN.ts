@@ -168,7 +168,10 @@ export const zhCN: TranslationResources = {
       retryMerge: "重试合并",
       mergeHint: "提交验收过的改动并在本地合并到 {{branch}}，不推送远端。",
       reject: "不采纳",
-      planHint: "如需调整方案，在输入框中说明。",
+      submitPlan: "提交协作方案",
+      submissionHint:
+        "将此方案及涉及的文件路径提交给管理当前任务的 Paseo 主机。是否开始执行遵循你保存的方案审批设置；允许提交与批准方案是两个操作。",
+      planHint: "批准后，执行 Agent 将按此方案修改工作区。如需调整，在输入框中说明。",
       changesHint: "如需修改，在输入框中描述要改的内容。",
       rejectTitle: "不采纳成果？",
       rejectMessage: "任务将结束，不采纳本次成果。分支和文件会保留。",

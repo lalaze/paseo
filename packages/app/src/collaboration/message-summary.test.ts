@@ -2,6 +2,7 @@ import { test, expect } from "vitest";
 import { ENABLE_COLLABORATION_MESSAGE } from "@getpaseo/protocol/collaboration/conversation";
 import { collaborationMessageSummary } from "./message-summary";
 import { collaborationPlanMarkdown } from "./plan-markdown";
+import { collaborationPermissionPlan } from "./permission-plan";
 
 const operationId = "0f8b3c1e-2a4d-4b6f-8c9e-1d2f3a4b5c6d";
 
@@ -96,18 +97,40 @@ test("operation prompts show the task and readable instructions without the JSON
   });
 });
 
-test("design prompts summarize with the goal", () => {
-  const summary = collaborationMessageSummary({
-    clientMessageId: operationId,
-    text: prompt("你是设计 AI。阅读项目并输出设计总纲。", {
-      goal: "新增导出功能",
-      cwd: "/repo",
-      bindings: { director: "lead", worker: "worker" },
-    }),
-  });
-  expect(summary?.stage).toBe("plan");
-  expect(summary?.text).toBe("新增导出功能");
-  expect(summary?.instructions).not.toContain("{");
+test.each(["主 Agent", "总 AI", "设计 AI"])(
+  "%s planning prompts summarize with the goal",
+  (role) => {
+    const summary = collaborationMessageSummary({
+      clientMessageId: operationId,
+      text: prompt(`你是${role}。阅读项目并输出设计总纲。`, {
+        goal: "新增导出功能",
+        cwd: "/repo",
+        bindings: { director: "lead", worker: "worker" },
+      }),
+    });
+    expect(summary?.stage).toBe("plan");
+    expect(summary?.text).toBe("新增导出功能");
+    expect(summary?.instructions).not.toContain("{");
+  },
+);
+
+test("plan submission permission previews the actual plan, without treating a review as a plan", () => {
+  for (const name of ["submit_plan", "mcp__paseo__submit_operation", "paseo.submit_plan"]) {
+    expect(collaborationPermissionPlan({ kind: "tool", name, input: { payload: plan } })).toEqual(
+      plan,
+    );
+  }
+  for (const request of [
+    { kind: "tool", name: "mcp__other__submit_plan", input: { payload: plan } },
+    {
+      kind: "tool",
+      name: "mcp__paseo__submit_operation",
+      input: { payload: { decision: "approved" } },
+    },
+    { kind: "plan", name: "submit_plan", input: { payload: plan } },
+  ] as const) {
+    expect(collaborationPermissionPlan(request)).toBeUndefined();
+  }
 });
 
 test("prompts addressed to another operation stay ordinary messages", () => {

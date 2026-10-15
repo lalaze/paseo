@@ -175,7 +175,11 @@ export const ptBR: TranslationResources = {
         "Cria um commit das alterações revisadas e mescla localmente em {{branch}}. Nada é enviado ao remoto.",
       accept: "Aceitar",
       reject: "Rejeitar",
-      planHint: "Para mudar o plano, descreva na caixa de mensagem.",
+      submitPlan: "Enviar plano de colaboração",
+      submissionHint:
+        "Envia este plano e os caminhos dos arquivos ao host do Paseo que gerencia esta tarefa. A implementação segue sua configuração salva de aprovação do plano; permitir o envio e aprovar o plano são ações distintas.",
+      planHint:
+        "A aprovação inicia a implementação no espaço de trabalho. Para mudar o plano, descreva na caixa de mensagem.",
       changesHint: "Para pedir alterações, descreva-as na caixa de mensagem.",
       rejectTitle: "Rejeitar o resultado?",
       rejectMessage:

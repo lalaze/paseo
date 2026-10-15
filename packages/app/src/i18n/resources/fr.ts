@@ -178,7 +178,11 @@ export const fr: TranslationResources = {
         "Enregistre les modifications vérifiées et les fusionne localement dans {{branch}}. Rien n’est envoyé au dépôt distant.",
       accept: "Accepter",
       reject: "Refuser",
-      planHint: "Pour modifier le plan, décrivez-le dans la zone de message.",
+      submitPlan: "Envoyer le plan de collaboration",
+      submissionHint:
+        "Envoie ce plan et les chemins de ses fichiers à l’hôte Paseo qui gère cette tâche. L’implémentation suit votre réglage enregistré d’approbation du plan ; autoriser l’envoi et approuver le plan sont deux actions distinctes.",
+      planHint:
+        "L’approbation lance l’implémentation dans l’espace de travail. Pour modifier le plan, décrivez-le dans la zone de message.",
       changesHint: "Pour demander des modifications, décrivez-les dans la zone de message.",
       rejectTitle: "Refuser le résultat ?",
       rejectMessage:

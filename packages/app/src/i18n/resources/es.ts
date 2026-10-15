@@ -177,7 +177,11 @@ export const es: TranslationResources = {
         "Confirma los cambios revisados y los fusiona localmente en {{branch}}. No se envía nada al remoto.",
       accept: "Aceptar",
       reject: "Rechazar",
-      planHint: "Para cambiar el plan, descríbelo en el cuadro de mensaje.",
+      submitPlan: "Enviar plan de colaboración",
+      submissionHint:
+        "Envía este plan y las rutas de sus archivos al host de Paseo que gestiona esta tarea. La implementación sigue tu configuración guardada de aprobación del plan; permitir el envío y aprobar el plan son acciones distintas.",
+      planHint:
+        "Al aprobar, comienza la implementación en el espacio de trabajo. Para cambiar el plan, descríbelo en el cuadro de mensaje.",
       changesHint: "Para pedir cambios, descríbelos en el cuadro de mensaje.",
       rejectTitle: "¿Rechazar el resultado?",
       rejectMessage:

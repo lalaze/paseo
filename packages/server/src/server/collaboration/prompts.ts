@@ -101,6 +101,7 @@ export function buildPrompt(
         }))
       : undefined;
   instruction += notesInstruction(run);
+  instruction += SUBMISSION_INSTRUCTION;
   return `[paseo-director:${operationId}]\n${instruction}\n\n${JSON.stringify({ ...(preInstructions.length ? { preInstructions } : {}), ...context, ...(options.handoff ? { handoff: options.handoff } : {}), reviewer, userChangeRequests, userNotes: userNotes(run) }, null, 2)}\n\n本轮 operationId=${operationId}。如果有 ${tool} 工具，调用它并传入 operationId 和 payload；否则最终回复只输出满足以下 schema 的 JSON（不含 operationId 包装）。工具提交成功后结束本轮，不重复提交。\n${JSON.stringify(z.toJSONSchema(responseSchema(kind)), null, 2)}`;
 }
 
@@ -146,10 +147,16 @@ export const PRE_HANDOFF_CHAT_PROMPT = PRE_MERGE_RECOVERY_CHAT_PROMPT.replace(
   "合并失败后不要只让用户手动重试。先读取 get_conversation_status 的当前失败和最新真实用户消息；用户已授权的交付包含合并修复，除非最新消息撤回或暂停该要求，无需再次询问能否处理。调用 prepare_merge_recovery 并引用最新真实用户消息 ID，获得当前修复范围。主 Agent 可亲自检查 Git 状态、恢复正确成果分支、排查提交钩子或环境问题，并在成果工作区解决与 targetBranch 的合并冲突；将目标分支合入成果分支时使用 --no-commit，解决并暂存冲突文件，不把未重新验收的解决方案提交或合入目标分支。仅可提交与 artifactId 一致的原始验收成果，以准备干净的合并起点。保留用户已有的暂存、未暂存、未跟踪改动；可以用有记录、可完整恢复暂存状态的 stash 临时隔离阻碍，但不得丢弃、擅自提交这些改动或覆盖用户工作，交付后恢复；无法安全保留时只询问具体阻碍的处理方式。不自行创建或派发子 Agent，不扩展功能范围，不推送或部署。修复后调用 finish_merge_recovery 并写明实际修复和验证。返回 merged 才报告合并成功；返回 review_required 表示快照改变，原验收已撤销，交给正常执行、审核与用户验收，主 Agent 不再自行修改或合并。新验收报告要说明冲突解决带来的实际代码变化。",
 );
 
-export const CHAT_PROMPT = PRE_HANDOFF_CHAT_PROMPT.replace(
+// COMPAT(collaborationSubmissionPrompt): added in v0.11.1, remove after 2027-04-14.
+export const PRE_SUBMISSION_CHAT_PROMPT = PRE_HANDOFF_CHAT_PROMPT.replace(
   "用户要求暂停、继续、取消、重试时调用相应控制。",
   "用户要求暂停、继续、取消、重试时调用相应控制。执行子任务因模型额度耗尽受阻且 execution.relay.manual 为真时，只有用户明确指定其他模型后才调用 switch_execution_model，并引用 get_conversation_status 返回的最新真实用户消息、当前执行 operationId 与 execution.relay.token。不要自行更换模型，不要编造消息或操作令牌。认证失败、欠费、网络错误和普通失败不能换模型。",
 );
+
+const SUBMISSION_INSTRUCTION =
+  "提交范围：submit_operation、submit_plan、submit_result、submit_review 将当前任务的结构化方案或报告（包括相关文件路径）回报给管理本次协作的同一 Paseo 主机。用户启用协作并提出任务后，按已授权的任务范围完成这一步；不要仅因工具名含 MCP 或内容包含文件路径，就另行要求用户回复固定的‘授权发送’口令。提交方案后是否开始执行遵循保存的 requirePlanApproval 设置；提交报告不替代方案批准或最终用户验收。只回报完成当前任务所需的内容。若供应商权限审批实际拒绝调用，准确说明被拒绝的操作、接收方、涉及内容和原始原因；需要补充授权时明确具体范围，不把发送授权说成批准方案或验收成果，不重复尝试同一个被拒绝的调用。";
+
+export const CHAT_PROMPT = `${PRE_SUBMISSION_CHAT_PROMPT}\n${SUBMISSION_INSTRUCTION}`;
 
 export const CONFIRMATION_REPLY = {
   plan: "请用户单独回复“批准方案”",

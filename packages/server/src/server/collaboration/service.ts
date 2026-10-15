@@ -336,7 +336,7 @@ export class CollaborationService {
       ),
       define(
         "submit_operation",
-        "提交主对话当前设计或审核结果。",
+        "将当前设计或审核结果（含相关文件路径）回报给管理本次协作的同一 Paseo 主机。方案提交后是否开始执行遵循已保存的方案审批设置；此调用不代替用户批准方案或验收成果。",
         z.object({ operationId: z.string(), payload: z.union([PlanSchema, ReviewSchema]) }),
         async (input) => {
           const c = chat();
@@ -413,19 +413,19 @@ export class CollaborationService {
       ),
       define(
         "submit_plan",
-        "提交当前协作计划。",
+        "将当前协作方案（含相关文件路径）提交给管理本次任务的同一 Paseo 主机。是否开始执行遵循已保存的方案审批设置；此调用不代替用户批准方案。",
         z.object({ operationId: z.string(), payload: PlanSchema }),
         (input) => submit(input, "plan"),
       ),
       define(
         "submit_result",
-        "提交当前子任务成果或阻塞原因。",
+        "将当前子任务成果或阻塞原因回报给管理本次协作的同一 Paseo 主机，用于继续调度和审核；此调用不代替最终用户验收。",
         z.object({ operationId: z.string(), payload: ResultSchema }),
         (input) => submit(input, "execute"),
       ),
       define(
         "submit_review",
-        "提交当前成果快照的审核决定。",
+        "将当前成果快照的 AI 审核决定回报给管理本次协作的同一 Paseo 主机；AI 审核通过后仍需用户验收。",
         z.object({ operationId: z.string(), payload: ReviewSchema }),
         (input) => submit(input, "review"),
       ),

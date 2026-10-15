@@ -103,6 +103,8 @@ test("plan approval shows the saved plan before approval on desktop and phone", 
     const card = page.getByTestId("collaboration-plan");
     const approve = page.getByRole("button", { name: "Approve plan", exact: true });
     await expect(approve).toBeVisible();
+    await expect(card.getByTestId("collaboration-confirmation-actions")).toBeVisible();
+    await expect(card).toContainText("Approving starts implementation in the workspace.");
     for (const viewport of [
       { name: "desktop", width: 1280, height: 1000 },
       { name: "phone", width: 390, height: 844 },

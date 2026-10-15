@@ -5,10 +5,9 @@ import { useTranslation } from "react-i18next";
 import { Users } from "lucide-react-native";
 import type { UserMessageItem } from "@/types/stream";
 import { ExpandableBadge } from "@/components/message";
-import { PlanCard } from "@/components/plan-card";
 import { collaborationMessageSummary } from "./message-summary";
 import { CollaborationConfirmationActions } from "./confirmation-actions";
-import { collaborationPlanMarkdown } from "./plan-markdown";
+import { CollaborationPlanCard } from "./plan-card";
 import { CollaborationHandoffAction } from "./execution-switch-sheet";
 
 /** A stage row in the main conversation; the row itself discloses the Agent's instructions. */
@@ -24,16 +23,20 @@ export function CollaborationMessage({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const summary = useMemo(() => collaborationMessageSummary(item), [item]);
-  const planText = useMemo(() => {
-    if (!summary?.plan) return;
-    return collaborationPlanMarkdown(summary.plan, {
-      architecture: t("collaboration.message.architecture"),
-      acceptanceCriteria: t("collaboration.message.acceptanceCriteria"),
-      tasks: t("collaboration.message.tasks"),
-      files: t("collaboration.message.files"),
-      dependsOn: t("collaboration.message.dependsOn"),
-    });
-  }, [summary, t]);
+  const noticeId = item.clientMessageId ?? item.messageId;
+  const confirmation =
+    (summary?.stage === "approval" || summary?.stage === "acceptance") && Boolean(noticeId);
+  const actions = useMemo(
+    () =>
+      confirmation && noticeId ? (
+        <CollaborationConfirmationActions
+          serverId={serverId}
+          agentId={agentId}
+          noticeId={noticeId}
+        />
+      ) : null,
+    [confirmation, noticeId, serverId, agentId],
+  );
   const toggle = useCallback(() => setExpanded((previous) => !previous), []);
   const renderDetails = useCallback(() => {
     if (!summary) return null;
@@ -63,9 +66,6 @@ export function CollaborationMessage({
     );
   }, [summary, t]);
   if (!summary) return null;
-  const noticeId = item.clientMessageId ?? item.messageId;
-  const confirmation =
-    (summary.stage === "approval" || summary.stage === "acceptance") && Boolean(noticeId);
   const badge = (
     <ExpandableBadge
       testID="collaboration-stage"
@@ -83,14 +83,11 @@ export function CollaborationMessage({
   return (
     <View>
       {badge}
-      {confirmation && planText ? <PlanCard text={planText} testID="collaboration-plan" /> : null}
-      {confirmation && noticeId ? (
-        <CollaborationConfirmationActions
-          serverId={serverId}
-          agentId={agentId}
-          noticeId={noticeId}
-        />
-      ) : null}
+      {confirmation && summary.plan ? (
+        <CollaborationPlanCard plan={summary.plan} footer={actions} testID="collaboration-plan" />
+      ) : (
+        actions
+      )}
       <CollaborationHandoffAction
         serverId={serverId}
         agentId={agentId}

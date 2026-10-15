@@ -25,6 +25,7 @@ import { Store } from "./store.js";
 import { plan, result } from "./test-utils/harness.js";
 import {
   CHAT_PROMPT,
+  PRE_SUBMISSION_CHAT_PROMPT,
   PRE_MERGE_RECOVERY_CHAT_PROMPT,
   PRE_DELIVERY_CHAT_PROMPT,
   PRE_DISABLE_CHAT_PROMPT,
@@ -453,6 +454,7 @@ test.for([
     name: "current",
     prompt: CHAT_PROMPT,
   },
+  { name: "before-submission-scope", prompt: PRE_SUBMISSION_CHAT_PROMPT },
   { name: "before-merge-recovery", prompt: PRE_MERGE_RECOVERY_CHAT_PROMPT },
   {
     name: "before-delivery",

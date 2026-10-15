@@ -171,7 +171,11 @@ export const en = {
       mergeHint:
         "Commits the reviewed changes and merges into {{branch}} locally. Nothing is pushed.",
       reject: "Reject",
-      planHint: "To change the plan, describe it in the message box.",
+      submitPlan: "Submit collaboration plan",
+      submissionHint:
+        "Sends this plan and its file paths to the Paseo host managing this task. Implementation follows your saved plan approval setting; sending is separate from approving the plan.",
+      planHint:
+        "Approving starts implementation in the workspace. To change the plan, describe it in the message box.",
       changesHint: "To request changes, describe them in the message box.",
       rejectTitle: "Reject the result?",
       rejectMessage: "The task ends without accepting the changes. The branch and files are kept.",

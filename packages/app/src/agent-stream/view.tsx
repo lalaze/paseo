@@ -1,5 +1,7 @@
 import { CollaborationMessage } from "@/collaboration/message";
 import { collaborationMessageSummary } from "@/collaboration/message-summary";
+import { collaborationPermissionPlan } from "@/collaboration/permission-plan";
+import { CollaborationPlanCard } from "@/collaboration/plan-card";
 import { ChatFind, ChatFindExpansion } from "@/agent-stream/chat-find";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import React, {
@@ -1457,6 +1459,7 @@ function PermissionRequestCard({
   const isMobile = useIsCompactFormFactor();
 
   const { request } = permission;
+  const submissionPlan = useMemo(() => collaborationPermissionPlan(request), [request]);
   const isPlanRequest = request.kind === "plan";
   const title = isPlanRequest
     ? t("agentStream.permission.plan")
@@ -1624,6 +1627,22 @@ function PermissionRequestCard({
       </View>
     </>
   );
+
+  if (submissionPlan) {
+    const submissionDescription = [t("collaboration.confirmation.submissionHint"), description]
+      .filter(Boolean)
+      .join("\n\n");
+    return (
+      <CollaborationPlanCard
+        plan={submissionPlan}
+        title={t("collaboration.confirmation.submitPlan")}
+        description={submissionDescription}
+        footer={footer}
+        testID="permission-collaboration-plan"
+        disableOuterSpacing
+      />
+    );
+  }
 
   if (isPlanRequest && planMarkdown) {
     return (

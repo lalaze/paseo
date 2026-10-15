@@ -172,7 +172,11 @@ export const ko: TranslationResources = {
         "검토한 변경 사항을 커밋하고 {{branch}}에 로컬로 병합합니다. 원격 저장소로 푸시하지 않습니다.",
       accept: "수락",
       reject: "거절",
-      planHint: "계획을 바꾸려면 메시지 입력란에 적어 주세요.",
+      submitPlan: "협업 계획 제출",
+      submissionHint:
+        "이 계획과 파일 경로를 현재 작업을 관리하는 Paseo 호스트에 보냅니다. 구현 시작은 저장된 계획 승인 설정을 따릅니다. 제출 허용과 계획 승인은 별개입니다.",
+      planHint:
+        "승인하면 작업 공간에서 구현이 시작됩니다. 계획을 바꾸려면 메시지 입력란에 적어 주세요.",
       changesHint: "수정을 요청하려면 메시지 입력란에 내용을 적어 주세요.",
       rejectTitle: "결과를 거절할까요?",
       rejectMessage: "변경 사항을 수락하지 않고 작업을 종료합니다. 브랜치와 파일은 유지됩니다.",

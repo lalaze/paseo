@@ -25,7 +25,9 @@ export function readCollaborationPrompt(raw: string) {
     if (instruction.startsWith("你是执行 AI。") && data.task) stage = "execute";
     else if (
       data.bindings &&
-      (instruction.startsWith("你是总 AI。") || instruction.startsWith("你是设计 AI。"))
+      (instruction.startsWith("你是主 Agent。") ||
+        instruction.startsWith("你是总 AI。") ||
+        instruction.startsWith("你是设计 AI。"))
     )
       stage = "plan";
     else if (

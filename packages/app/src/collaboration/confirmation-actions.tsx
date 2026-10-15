@@ -166,7 +166,13 @@ export function CollaborationConfirmationActions(props: ConfirmationActionsProps
     <View style={styles.container} testID="collaboration-confirmation-actions">
       <View style={styles.buttons}>
         {plan ? (
-          <Button size="sm" variant="default" disabled={busy} onPress={approvePlan}>
+          <Button
+            size="sm"
+            variant="default"
+            disabled={busy}
+            loading={sent === "approvePlan"}
+            onPress={approvePlan}
+          >
             {t("collaboration.confirmation.approvePlan")}
           </Button>
         ) : (

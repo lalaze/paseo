@@ -108,6 +108,10 @@ The plan approval card shows the saved plan expanded above its approval button: 
 architecture, acceptance criteria and each implementation task's description, files, criteria
 and dependencies. You can collapse and reopen it; it remains in the conversation after approval.
 Read this snapshot before approving, rather than relying on the main Agent's brief reply.
+The plan card keeps its approval action inside the card, below the snapshot, and explains that
+approval starts implementation. A provider permission to submit a plan shows that same snapshot
+and names the receiving Paseo host. Allowing that submission and approving the plan are separate
+decisions; the saved **Require plan approval** choice still controls when implementation starts.
 The buttons on the pending approval or acceptance card send the same exact reply as a user
 message, so they pass the same check; the host reports which notice is pending
 (`confirmation.noticeId` in collaboration status) so only that card shows them.
@@ -151,6 +155,12 @@ alone to reject, or a description of the changes to request rework.
 The rows are parsed from message text (`packages/app/src/collaboration/message-summary.ts`), and
 messages persisted by older hosts must keep parsing. Keep a notice's instruction on the single line
 between its marker and its JSON, and keep new JSON fields optional.
+
+Submitting a task's plan or report returns it to the Paseo host managing that collaboration.
+Keep this scope explicit in role instructions and tool descriptions so providers do not mistake
+the task's normal reporting for a new sharing request. A real provider denial still needs its
+operation, recipient, content and reason explained; sending permission never grants plan approval
+or final acceptance.
 
 The time budget bounds how long a run keeps going without you. It counts only running time:
 paused, blocked (needs attention), waiting for permission and awaiting acceptance time is free; the

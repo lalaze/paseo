@@ -30,6 +30,7 @@ import type { ConversationGateway } from "./conversations.js";
 import {
   CHAT_PROMPT,
   PRE_HANDOFF_CHAT_PROMPT,
+  PRE_SUBMISSION_CHAT_PROMPT,
   PRE_DELIVERY_CHAT_PROMPT,
   PRE_MERGE_RECOVERY_CHAT_PROMPT,
   PRE_DISABLE_CHAT_PROMPT,
@@ -47,6 +48,7 @@ export const CHAT_TOOLS = [
   "switch_execution_model",
 ];
 const PREVIOUS_CHAT_PROMPTS = [
+  PRE_SUBMISSION_CHAT_PROMPT,
   PRE_HANDOFF_CHAT_PROMPT,
   PRE_MERGE_RECOVERY_CHAT_PROMPT,
   PRE_DELIVERY_CHAT_PROMPT,
@@ -168,7 +170,11 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     if (record?.archivedAt) throw new Error("会话已归档，请先恢复会话");
     const previousPrompt = record?.config?.systemPrompt;
     const ownedPrompt =
-      previousPrompt && PREVIOUS_CHAT_PROMPTS.find((prompt) => previousPrompt.startsWith(prompt));
+      previousPrompt &&
+      PREVIOUS_CHAT_PROMPTS.find((prompt) => {
+        const outdated = !previousPrompt.startsWith(CHAT_PROMPT);
+        return outdated && previousPrompt.startsWith(prompt);
+      });
     if (
       record &&
       ownedPrompt &&
