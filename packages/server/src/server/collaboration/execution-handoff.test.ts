@@ -465,7 +465,7 @@ test("a submitted result is kept and a late result from the old session cannot f
   assert.equal(blocked.h.run().tasks[0].status, "executing");
 });
 
-test("a preparing relay survives restart and still obeys attempt and time limits", async (t) => {
+test("a preparing relay survives restart, ignores count limits and obeys the time budget", async (t) => {
   const { h, worker } = await executing(fallbacks());
   t.onTestFinished(() => h.cleanup());
   const handoff = "交接包是进度证据 HANDOFF-MARKER";
@@ -504,9 +504,10 @@ test("a preparing relay survives restart and still obeys attempt and time limits
   limited.settings.maxAttempts = limited.operations.length;
   h.store.save(limited);
   await h.engine.tick();
-  assert.equal(h.run().control, "needs_attention");
-  assert.equal(h.run().executionRelay?.reason, "调用次数上限");
-  assert.equal(h.agents.created.length, created + 1);
+  await h.until("execute");
+  assert.equal(h.run().control, "running");
+  assert.equal(h.run().executionRelay, undefined);
+  assert.equal(h.agents.created.length, created + 2);
 
   const timed = await executing();
   t.onTestFinished(() => timed.h.cleanup());

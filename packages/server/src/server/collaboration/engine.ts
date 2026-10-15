@@ -10,8 +10,6 @@ import {
   ResultSchema,
   ReviewSchema,
   hasFinalResult,
-  reworksExhausted,
-  acceptanceMessage,
   canResumeRun,
   executionComplete,
   finalAcceptance,
@@ -300,8 +298,6 @@ export class Engine {
     formatRetries = 0,
     handoff?: string,
   ) {
-    if (run.operations.length - (run.roundOperationOffset ?? 0) >= run.settings.maxAttempts)
-      throw new Error("已达到本轮任务的调用次数上限");
     const task = run.tasks.find((candidateEntry) => candidateEntry.spec.id === taskId);
     if (kind === "final" && (!run.tasks.length || !run.tasks.every(executionComplete)))
       throw new Error("全部任务执行完成后才能统一审核");
@@ -927,11 +923,7 @@ export class Engine {
         this.hold(run, `审核受阻：${review.summary}`);
         return;
       }
-      if (review.decision === "changes_requested" && !task && reworksExhausted(run)) {
-        run.phase = "awaiting_acceptance";
-        run.control = "paused";
-        this.event(run, acceptanceMessage(run));
-      } else if (review.decision === "changes_requested") this.rework(run, review);
+      if (review.decision === "changes_requested") this.rework(run, review);
       else if (task) {
         task.status = "approved";
         run.phase = "executing";
@@ -957,7 +949,6 @@ export class Engine {
     for (const id of ids) {
       const task = run.tasks.find((candidateEntry) => candidateEntry.spec.id === id);
       if (!task) throw new Error(`审核引用未知任务：${id}`);
-      if (task.reworks >= run.settings.maxReworks) throw new Error(`任务 ${id} 已达到返工次数上限`);
     }
     // Changing an accepted dependency invalidates all downstream acceptances.
     const invalid = new Set(ids);
@@ -1594,11 +1585,6 @@ export class Engine {
       run.executionRelay = preparing;
       this.save(run);
     } else preparing = relay;
-    if (run.operations.length - (run.roundOperationOffset ?? 0) >= run.settings.maxAttempts) {
-      run.executionRelay = this.failRelay(preparing, "调用次数上限");
-      this.hold(run, "已达到本轮任务的调用次数上限，接力已停止；进度已保留");
-      return;
-    }
     if (["paused", "canceled", "canceling"].includes(run.control)) return;
     op.state = "abandoned";
     op.superseded = true;

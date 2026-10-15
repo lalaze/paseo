@@ -28,7 +28,6 @@ import { FallbackEditor } from "./fallback-editor";
 import { enableCollaboration, type CollaborationTarget } from "./launch";
 import { canStartCollaboration } from "./launch-quick";
 import {
-  MAX_REWORKS_LIMIT,
   RUN_TIMEOUT_HOURS,
   openCollaborationLaunch,
   type LaunchLimits,
@@ -365,7 +364,6 @@ function LaunchForm({
     onConfigure(
       current.selections,
       {
-        maxReworks: current.maxReworks,
         runTimeoutMs: current.runTimeoutMs,
         requirePlanApproval: current.requirePlanApproval,
       },
@@ -375,15 +373,10 @@ function LaunchForm({
   const advancedSummaryNode = useMemo(
     () => (
       <Text style={styles.summary}>
-        {`${t("collaboration.maxReworks")} ${state.maxReworks} · ${t(
-          "collaboration.launch.runHours",
-          {
-            count: Math.round(state.runTimeoutMs / 3600000),
-          },
-        )}`}
+        {t("collaboration.launch.runHours", { count: Math.round(state.runTimeoutMs / 3600000) })}
       </Text>
     ),
-    [state.maxReworks, state.runTimeoutMs, t],
+    [state.runTimeoutMs, t],
   );
   const promptButton = useMemo(
     () => (
@@ -589,18 +582,11 @@ function RoleModels({ role, model, state }: RoleModelsProps) {
     </View>
   );
 }
-const reworkOptions = Array.from({ length: MAX_REWORKS_LIMIT + 1 }, (_, count) => ({
-  id: String(count),
-  value: String(count),
-  label: String(count),
-  testID: `collaboration-max-reworks-option-${count}`,
-}));
 function TaskLimits({ model, state }: Omit<RoleModelsProps, "role">) {
   const { t } = useTranslation();
   const compact = useIsCompactFormFactor();
   const size = compact ? "md" : "sm";
   const disabled = state.pending || state.agentsLocked;
-  const reworkDisplay = useMemo(() => ({ label: String(state.maxReworks) }), [state.maxReworks]);
   const hoursLabel = useCallback(
     (ms: number) => t("collaboration.launch.runHours", { count: Math.round(ms / 3600000) }),
     [t],
@@ -619,10 +605,6 @@ function TaskLimits({ model, state }: Omit<RoleModelsProps, "role">) {
     () => ({ label: hoursLabel(state.runTimeoutMs) }),
     [hoursLabel, state.runTimeoutMs],
   );
-  const changeReworks = useCallback(
-    (value: string) => model.selectMaxReworks(Number(value)),
-    [model],
-  );
   const changeTimeout = useCallback(
     (value: string) => model.selectRunTimeout(Number(value)),
     [model],
@@ -630,22 +612,6 @@ function TaskLimits({ model, state }: Omit<RoleModelsProps, "role">) {
   return (
     <View style={styles.role}>
       <View style={[styles.fields, compact && styles.compactFields]}>
-        <View style={styles.limitField}>
-          <Text style={styles.roleLabel}>{t("collaboration.maxReworks")}</Text>
-          <SelectField
-            field={false}
-            size={size}
-            label={t("collaboration.maxReworks")}
-            triggerTestID="collaboration-max-reworks"
-            value={String(state.maxReworks)}
-            selectedDisplay={reworkDisplay}
-            options={reworkOptions}
-            onChange={changeReworks}
-            disabled={disabled}
-            placeholder={t("collaboration.maxReworks")}
-            emptyText={t("collaboration.maxReworks")}
-          />
-        </View>
         <View style={styles.limitField}>
           <Text style={styles.roleLabel}>{t("collaboration.launch.runTimeout")}</Text>
           <SelectField
@@ -663,7 +629,6 @@ function TaskLimits({ model, state }: Omit<RoleModelsProps, "role">) {
           />
         </View>
       </View>
-      <Text style={styles.secondary}>{t("collaboration.launch.maxReworksHint")}</Text>
       <Text style={styles.secondary}>{t("collaboration.launch.runTimeoutHint")}</Text>
     </View>
   );

@@ -37,8 +37,6 @@ export const ja: TranslationResources = {
       advanced: "詳細設定",
       change: "変更",
       prompts: en.collaboration.launch.prompts,
-      maxReworksHint:
-        "修正回数を使い切っても審査が修正を求める場合、審査意見があなたに届き、承認・不採用・追加修正を選べます。",
       limits: "タスクの上限",
       runTimeout: "時間予算",
       runHours_one: "{{count}} 時間",
@@ -136,7 +134,6 @@ export const ja: TranslationResources = {
     execute: "実装の指示",
     review: "レビューの指示",
     maxAttempts: "ラウンドごとの操作上限",
-    maxReworks: "修正回数の上限",
     save: "共同作業設定を保存",
     open: "会話を開く",
     resync: "再同期",

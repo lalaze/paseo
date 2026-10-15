@@ -35,8 +35,6 @@ export const en = {
       advanced: "Advanced settings",
       change: "Change",
       prompts: "Instructions",
-      maxReworksHint:
-        "When reworks run out and review still requests changes, its findings come to you to accept, reject or request changes.",
       limits: "Limits",
       runTimeout: "Time budget",
       runHours_one: "{{count}} hour",
@@ -133,7 +131,6 @@ export const en = {
     execute: "Implementation instructions",
     review: "Review instructions",
     maxAttempts: "Maximum operations per round",
-    maxReworks: "Maximum reworks",
     save: "Save collaboration settings",
     open: "Open conversation",
     resync: "Resync",

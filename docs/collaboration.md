@@ -28,14 +28,14 @@ last setup and is sent with a new task. An older host that does not advertise
 not start a new task that still contains backups, so the list is not silently dropped. An existing
 conversation keeps its saved backups and locks edits. Quick enable uses the same check and opens
 the form instead of starting when the host cannot hand off.
-Planning is off for a first task. Turning it on also exposes **Require plan approval**, off by default. Rework limit,
-time budget and the role-instructions entry sit under **Advanced settings**, collapsed by default;
-the collapsed row shows the chosen rework limit and time budget, so folding it never hides them.
+Planning is off for a first task. Turning it on also exposes **Require plan approval**, off by default.
+Time budget and the role-instructions entry sit under **Advanced settings**, collapsed by default;
+the collapsed row shows the chosen time budget.
 A model's thinking level expands with the model. Select each role's provider and model directly in
 the dialog; you do not need saved Agent profiles. The first task's execution model inherits the
 conversation's current provider, model and thinking level; review is chosen explicitly. The dialog
 remembers, per host and on this device, planning, plan approval, isolation, models, thinking levels,
-backup models, rework limit and time budget of the last task you started. The review agent leads the conversation and performs
+backup models and time budget of the last task you started. The review agent leads the conversation and performs
 the final review; when planning is on, it also prepares the plan. Implementation always runs in a
 separate session. Enabling in an existing chat retains its identity when its model and thinking
 level match the review selection. Otherwise, a new main conversation receives the original chat’s
@@ -43,10 +43,11 @@ curated history as context; the original chat remains available. Historical requ
 task automatically.
 
 Host settings → Collaboration contains role instructions and conversation history. Instructions
-can be saved before choosing any models. New tasks use the built-in limits and verification
-defaults, except the rework limit (default 2) and the time budget per round (default 4
-hours), which you choose in the dialog; legacy advanced
-settings are retained for existing conversations.
+can be saved before choosing any models. Choose the time budget per round (default 4 hours) in
+the dialog. Reworks and total calls have no count limit, including existing conversations;
+legacy count settings stay readable for older clients but no longer stop execution.
+Starting collaboration from the app requires a host advertising `collaborationTimeBudget`,
+so an older host cannot silently apply a hidden count limit.
 
 Open **Conversation history** from the top of host collaboration settings to see each task's
 status, mode and progress on a separate page. Its Back action returns to that host's collaboration
@@ -100,9 +101,9 @@ base, when the worktree is gone. Worktrees already stored under the collaboratio
 are reused. A repository must have an initial commit and no unresolved merge conflicts.
 
 When planning is on, plan approval is optional. Final user acceptance is required even after the AI approves the
-result. When a task has used every rework and the final review still requests changes, the run
-goes to acceptance with that review instead of stopping: the main Agent lists the findings and you
-accept, reject, or request changes, which starts a new round with a fresh rework budget. Approval tools verify the latest real user message and the version of the confirmation
+result. When review requests changes, the affected tasks and their dependents run again, followed
+by another review, until approval or the time budget runs out. Approval tools verify the latest
+real user message and the version of the confirmation
 shown in that conversation. Background notices and worker output cannot approve a plan or result.
 The plan approval card shows the saved plan expanded above its approval button: summary,
 architecture, acceptance criteria and each implementation task's description, files, criteria

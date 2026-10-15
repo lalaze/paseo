@@ -38,8 +38,6 @@ export const es: TranslationResources = {
       advanced: "Configuración avanzada",
       change: "Cambiar",
       prompts: en.collaboration.launch.prompts,
-      maxReworksHint:
-        "Cuando se agoten las correcciones y la revisión siga pidiendo cambios, sus observaciones llegan a ti para aceptar, rechazar o pedir cambios.",
       limits: "Límites",
       runTimeout: "Presupuesto de tiempo",
       runHours_one: "{{count}} hora",
@@ -139,7 +137,6 @@ export const es: TranslationResources = {
     execute: "Instrucciones de implementación",
     review: "Instrucciones de revisión",
     maxAttempts: "Máximo de operaciones por ronda",
-    maxReworks: "Máximo de correcciones",
     save: "Guardar ajustes de colaboración",
     open: "Abrir conversación",
     resync: "Sincronizar de nuevo",

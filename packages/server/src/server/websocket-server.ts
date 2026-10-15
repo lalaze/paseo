@@ -1846,6 +1846,7 @@ export class VoiceAssistantWebSocketServer {
         collaborationExecuteReview: Boolean(this.collaborationService),
         collaborationInlineModels: Boolean(this.collaborationService),
         collaborationUnified: Boolean(this.collaborationService),
+        collaborationTimeBudget: Boolean(this.collaborationService),
         // COMPAT(collaborationWorktree): added in v0.9.2, remove gate after 2027-03-26.
         collaborationWorktree: Boolean(this.collaborationService),
         // COMPAT(collaborationDisable): added in v0.11.1, remove gate after 2027-04-10.

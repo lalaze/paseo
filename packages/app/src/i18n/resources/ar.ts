@@ -37,8 +37,6 @@ export const ar: TranslationResources = {
       advanced: "إعدادات متقدمة",
       change: "تغيير",
       prompts: en.collaboration.launch.prompts,
-      maxReworksHint:
-        "عند نفاد مرات إعادة العمل مع استمرار المراجعة في طلب تغييرات، تصلك ملاحظاتها لتقبل النتيجة أو ترفضها أو تطلب تعديلات.",
       limits: "الحدود",
       runTimeout: "ميزانية الوقت",
       runHours_one: "{{count}} ساعة",
@@ -134,7 +132,6 @@ export const ar: TranslationResources = {
     execute: "تعليمات التنفيذ",
     review: "تعليمات المراجعة",
     maxAttempts: "الحد الأقصى للعمليات في الجولة",
-    maxReworks: "الحد الأقصى لإعادة العمل",
     save: "حفظ إعدادات التعاون",
     open: "فتح المحادثة",
     resync: "إعادة المزامنة",

@@ -69,7 +69,7 @@ export function LaunchSummary({
             </Text>
           ))}
           <Text style={styles.secondary}>
-            {`${t("collaboration.maxReworks")}: ${state.maxReworks} · ${t("collaboration.launch.runHours", { count: Math.round(state.runTimeoutMs / 3600000) })}`}
+            {`${t("collaboration.launch.runTimeout")}: ${t("collaboration.launch.runHours", { count: Math.round(state.runTimeoutMs / 3600000) })}`}
           </Text>
         </View>
       )}

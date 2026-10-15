@@ -37,8 +37,6 @@ export const ko: TranslationResources = {
       advanced: "고급 설정",
       change: "변경",
       prompts: en.collaboration.launch.prompts,
-      maxReworksHint:
-        "재작업 횟수를 모두 쓴 뒤에도 검토에서 수정을 요청하면, 검토 의견이 전달되어 수락·거절·추가 수정을 선택할 수 있습니다.",
       limits: "작업 한도",
       runTimeout: "시간 예산",
       runHours_one: "{{count}}시간",
@@ -134,7 +132,6 @@ export const ko: TranslationResources = {
     execute: "구현 지침",
     review: "검토 지침",
     maxAttempts: "라운드당 최대 작업 수",
-    maxReworks: "최대 재작업 횟수",
     save: "협업 설정 저장",
     open: "대화 열기",
     resync: "다시 동기화",

@@ -19,7 +19,6 @@ const PreferencesSchema = z.object({
   mode: z.enum(["full", "execute_review"]),
   isolation: z.enum(["local", "worktree"]),
   selections: z.object({ director: Selection, worker: Selection, reviewer: Selection }),
-  maxReworks: z.number().int().min(0).max(10),
   // Absent in preferences saved before the time budget became selectable.
   runTimeoutMs: z.number().int().min(3600000).max(86400000).optional(),
   requirePlanApproval: z.boolean().optional(),

@@ -8,7 +8,6 @@ import {
   canResumeRun,
   awaitingAcceptance,
 } from "@getpaseo/protocol/collaboration/schema";
-import { confirmationFor } from "@getpaseo/protocol/collaboration/conversation";
 import {
   CollaborationGateway,
   inspectMessages,
@@ -203,7 +202,7 @@ describe("retry replaces invalid plans from structured output and MCP without by
       );
     });
 });
-test("invalid plan retries remain bounded by the original call budget", async (t) => {
+test("explicit retries continue past the saved call limit", async (t) => {
   const h = await harness({ maxAttempts: 3 });
   t.onTestFinished(() => h.cleanup());
   const invalid = { ...plan, tasks: [{ ...plan.tasks[0], dependsOn: ["task-1"] }] };
@@ -213,10 +212,12 @@ test("invalid plan retries remain bounded by the original call budget", async (t
     assert.equal(h.run().control, "needs_attention");
     if (attempt < 2) await h.engine.control(h.id, "retry");
   }
-  await assert.rejects(h.engine.control(h.id, "retry"), /调用次数上限/);
-  assert.equal(h.run().operations.length, 3);
-  assert.equal(h.run().control, "needs_attention");
-  assert.equal(h.run().plan, undefined);
+  await h.engine.control(h.id, "retry");
+  await h.until("plan");
+  assert.equal(h.run().operations.length, 4);
+  assert.equal(h.run().control, "running");
+  await h.complete(plan);
+  assert.deepEqual(h.run().plan, plan);
 });
 test("interrupted output cannot be recovered on retry", async (t) => {
   const h = await harness();
@@ -431,40 +432,33 @@ test("duplicate events, restart, and duplicate create request never duplicate a 
   await h.until("final");
   assert.equal(h.agents.created.length, 2);
 });
-test("rework returns precise instructions to original worker and hands the review to the user at the limit", async (t) => {
-  const h = await harness({ maxReworks: 1 });
+test("rework keeps the worker and continues past saved count limits until the time budget runs out", async (t) => {
+  const h = await harness({ maxReworks: 1, maxAttempts: 3, runTimeoutMs: 60000 });
   t.onTestFinished(() => h.cleanup());
   await h.until("plan");
   await h.complete(plan);
   const worker = await h.until("execute");
-  await h.complete(result);
-  await h.until("final");
-  await h.complete(review(true, "changes_requested"));
-  const redo = await h.until("execute");
-  assert.equal(redo.agentId, worker.agentId);
-  assert.match(redo.prompt, /增加空值处理/);
-  // Superseded verification output is released once the run stops showing it.
-  assert.equal(h.run().finalEvidence, undefined);
-  assert.equal(h.repository.discarded.length, 1);
-  await h.complete(result);
-  await h.until("final");
-  await h.complete(review(true, "changes_requested"));
-  const run = h.run();
-  assert.equal(run.phase, "awaiting_acceptance");
-  assert.equal(run.control, "paused");
-  assert.equal(run.activeOperationId, undefined);
-  assert.equal(run.operations.at(-1)!.state, "done");
-  assert.equal(run.finalReview!.decision, "changes_requested");
-  assert.ok(awaitingAcceptance(run));
-  assert.match(run.message, /已返工 1 次/);
-  assert.equal(confirmationFor(run)?.kind, "final");
-  await h.engine.control(h.id, "request_changes", undefined, {
-    artifactId: run.finalEvidence!.id,
-    expectedRevision: run.revision,
-    feedback: "按审核意见继续修改",
-  });
-  const next = await h.until("plan");
-  assert.match(next.prompt, /按审核意见继续修改/);
+  for (let count = 1; count <= 12; count++) {
+    await h.complete(result);
+    await h.until("final");
+    await h.complete(review(true, "changes_requested"));
+    const redo = await h.until("execute");
+    assert.equal(redo.agentId, worker.agentId);
+    assert.match(redo.prompt, /增加空值处理/);
+    assert.equal(h.run().tasks[0].reworks, count);
+    assert.equal(h.run().finalEvidence, undefined);
+    assert.equal(h.repository.discarded.length, count);
+    assert.equal(awaitingAcceptance(h.run()), false);
+    h.elapse(1000);
+  }
+  h.elapse(60000);
+  await h.engine.tick();
+  assert.equal(h.run().control, "canceling");
+  assert.match(h.run().message, /时间预算/);
+  await h.engine.tick();
+  assert.equal(h.run().control, "needs_attention");
+  assert.deepEqual(h.agents.stopped, [worker.agentId]);
+  assert.equal(h.run().tasks[0].reworks, 12);
 });
 test("retry recovers a submitted final review left behind by the old rework-limit stop", async (t) => {
   const h = await harness({ maxReworks: 0 });
@@ -488,9 +482,10 @@ test("retry recovers a submitted final review left behind by the old rework-limi
   // The review arrived before the budget ran out; recovering it needs no more running time.
   h.elapse(1000);
   await h.engine.control(h.id, "retry");
-  assert.equal(h.run().phase, "awaiting_acceptance");
-  assert.equal(h.run().finalReview!.decision, "changes_requested");
-  assert.ok(awaitingAcceptance(h.run()));
+  assert.equal(h.run().phase, "executing");
+  assert.equal(h.run().control, "running");
+  assert.equal(h.run().tasks[0].reworks, 1);
+  assert.equal(awaitingAcceptance(h.run()), false);
   assert.equal(h.agents.sent.length, sent);
 });
 test("the time budget counts running time only and starts over when the user continues", async (t) => {

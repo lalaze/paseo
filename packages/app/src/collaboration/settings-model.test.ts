@@ -176,26 +176,22 @@ test("existing collaboration shows its saved thinking and locks changes", async 
   model.close();
 });
 
-test("a new task carries the chosen rework limit, existing conversations show their saved one", async () => {
+test("a new task carries only the chosen time budget, existing conversations keep theirs", async () => {
   const model = openCollaborationLaunch({ settings: null, currentAgent: false }, "execute_review");
   model.applyProviders(providers);
   choose(model, "worker");
   choose(model, "reviewer");
-  expect(model.getState().maxReworks).toBe(2);
   expect(model.getState().runTimeoutMs).toBe(4 * 3600000);
-  model.selectMaxReworks(5);
   model.selectRunTimeout(12 * 3600000);
   await model.start(async (_mode, settings) => {
-    expect(settings?.maxReworks).toBe(5);
     expect(settings?.runTimeoutMs).toBe(12 * 3600000);
   });
   const restored = openCollaborationLaunch(
     { settings: null, currentAgent: false },
     "execute_review",
     undefined,
-    { maxReworks: 4, runTimeoutMs: 8 * 3600000 },
+    { runTimeoutMs: 8 * 3600000 },
   );
-  expect(restored.getState().maxReworks).toBe(4);
   expect(restored.getState().runTimeoutMs).toBe(8 * 3600000);
   const settings = SettingsSchema.parse({
     profiles: [{ id: "worker", label: "Model A", provider: "codex/model-a" }],
@@ -203,6 +199,7 @@ test("a new task carries the chosen rework limit, existing conversations show th
     workerProfileId: "worker",
     reviewerProfileId: "worker",
     maxReworks: 7,
+    runTimeoutMs: 8 * 3600000,
   });
   const existing = openCollaborationLaunch({
     settings: null,
@@ -215,8 +212,8 @@ test("a new task carries the chosen rework limit, existing conversations show th
       mode: "execute_review",
     },
   });
-  existing.selectMaxReworks(1);
-  expect(existing.getState().maxReworks).toBe(7);
+  existing.selectRunTimeout(3600000);
+  expect(existing.getState().runTimeoutMs).toBe(8 * 3600000);
   model.close();
   restored.close();
   existing.close();
@@ -230,7 +227,6 @@ test("a new task starts from the last launch, an existing conversation keeps its
   choose(first, "worker");
   first.selectProvider("reviewer", "claude", "Claude");
   first.selectModel("reviewer", "sonnet", "Sonnet");
-  first.selectMaxReworks(4);
   first.selectRunTimeout(24 * 3600000);
   const remembered = first.preferences();
   first.close();
@@ -246,7 +242,6 @@ test("a new task starts from the last launch, an existing conversation keeps its
   expect(next.getState()).toMatchObject({
     mode: "execute_review",
     isolation: "worktree",
-    maxReworks: 4,
     runTimeoutMs: 24 * 3600000,
     canContinue: true,
   });
@@ -254,7 +249,6 @@ test("a new task starts from the last launch, an existing conversation keeps its
   await next.start(async (mode, settings, isolation) => {
     expect(mode).toBe("execute_review");
     expect(isolation).toBe("worktree");
-    expect(settings?.maxReworks).toBe(4);
     expect(settings?.runTimeoutMs).toBe(24 * 3600000);
     expect(settings?.profiles.find((p) => p.id === "reviewer")?.provider).toBe("claude/sonnet");
   });
@@ -322,7 +316,7 @@ test("planning uses the reviewer as lead and preserves models and approval acros
     { settings: null, currentAgent: false },
     model.getState().mode,
     model.getState().selections,
-    { maxReworks: 2, runTimeoutMs: 4 * 3600000, requirePlanApproval: true },
+    { runTimeoutMs: 4 * 3600000, requirePlanApproval: true },
   );
   reopened.applyProviders(providers);
   expect(reopened.getState().selections).toEqual(model.getState().selections);

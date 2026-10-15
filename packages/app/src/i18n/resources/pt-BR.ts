@@ -38,8 +38,6 @@ export const ptBR: TranslationResources = {
       advanced: "Configurações avançadas",
       change: "Alterar",
       prompts: en.collaboration.launch.prompts,
-      maxReworksHint:
-        "Quando os retrabalhos acabarem e a revisão ainda pedir mudanças, os apontamentos chegam a você para aceitar, rejeitar ou pedir alterações.",
       limits: "Limites",
       runTimeout: "Orçamento de tempo",
       runHours_one: "{{count}} hora",
@@ -137,7 +135,6 @@ export const ptBR: TranslationResources = {
     execute: "Instruções de implementação",
     review: "Instruções de revisão",
     maxAttempts: "Máximo de operações por rodada",
-    maxReworks: "Máximo de retrabalhos",
     save: "Salvar configurações de colaboração",
     open: "Abrir conversa",
     resync: "Sincronizar novamente",

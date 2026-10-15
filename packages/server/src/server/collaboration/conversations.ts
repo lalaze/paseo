@@ -9,7 +9,6 @@ import {
 import {
   SettingsSchema,
   collaborationMode,
-  reworksExhausted,
   validateCollaborationMode,
   type CollaborationIsolation,
   type CollaborationMode,
@@ -833,10 +832,10 @@ export class Conversations {
       ]),
     );
     if (key !== c.noticeKey) {
-      const exhausted = !!confirmation && reworksExhausted(run);
+      const changesRequested = !!confirmation && run.finalReview?.decision === "changes_requested";
       const mergeFailed = run.control === "running" && run.delivery?.status === "failed";
       const id = `chat-notice:${c.id}:${key}:${c.notices.length}`;
-      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind, exhausted, mergeFailed)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: exhausted ? run.finalReview : undefined, ...(execution ? { execution } : {}) })}`;
+      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind, changesRequested, mergeFailed)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: changesRequested ? run.finalReview : undefined, ...(execution ? { execution } : {}) })}`;
       // Coalesce unsent intermediate updates; keep sending/sent IDs for recovery.
       c.notices = c.notices.filter((n) => n.state !== "pending");
       c.notices.push({ id, key, text, state: "pending", createdAt: Date.now() });

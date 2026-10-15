@@ -79,6 +79,9 @@ export async function enableCollaboration(
   // COMPAT(collaborationUnified): added in v0.11.1, remove after 2027-04-11 once the host floor supports reviewer-led collaboration.
   if (!features?.collaborationUnified)
     throw new Error("Update the host to use reviewer-led collaboration.");
+  // COMPAT(collaborationTimeBudget): added in v0.11.1, remove gate after 2027-04-14.
+  if (!features.collaborationTimeBudget)
+    throw new Error("Update the host to use collaboration without rework limits.");
   if (target.isolation === "worktree" && !features?.collaborationWorktree)
     throw new Error("Update the host to run collaboration in a separate worktree.");
   // COMPAT(collaborationExecutionHandoff): added in v0.11.1, remove gate after 2027-04-14.

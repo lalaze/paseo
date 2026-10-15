@@ -725,19 +725,73 @@ test("inherits the conversation's model into the first task and preserves the dr
   }
 });
 
-test("the config chevron opens the form with Advanced collapsed", async ({ page }) => {
-  const workspace = await seedWorkspace({ repoPrefix: "collaboration-config-" });
+for (const viewport of [
+  { name: "desktop", width: 1280, height: 900 },
+  { name: "phone", width: 390, height: 844 },
+]) {
+  test(`advanced settings use only a time budget on ${viewport.name}`, async ({
+    page,
+  }, testInfo) => {
+    const workspace = await seedWorkspace({ repoPrefix: "collaboration-config-" });
+    try {
+      await gotoWorkspace(page, workspace.workspaceId);
+      await clickNewChat(page);
+      await page.setViewportSize(viewport);
+      await page.getByTestId("composer-collaboration-config").filter({ visible: true }).click();
+      await expect(page.getByTestId("collaboration-mode-dialog")).toBeVisible();
+      await expect(page.getByTestId("collaboration-advanced")).toContainText("4 hours");
+      await expect(page.getByTestId("collaboration-manage-prompts")).toHaveCount(0);
+      await page.getByTestId("collaboration-advanced-toggle").click();
+      await expect(page.getByTestId("collaboration-manage-prompts")).toBeVisible();
+      await expect(page.getByTestId("collaboration-max-reworks")).toHaveCount(0);
+      await expect(page.getByText("Maximum reworks", { exact: true })).toHaveCount(0);
+      await page.getByTestId("collaboration-run-timeout").click();
+      await page
+        .getByTestId("collaboration-run-timeout-option-8")
+        .filter({ visible: true })
+        .click();
+      await expect(page.getByTestId("collaboration-run-timeout")).toContainText("8 hours");
+      await expect(
+        page.getByTestId("collaboration-run-timeout-option-8").filter({ visible: true }),
+      ).toHaveCount(0);
+      await page.getByTestId("collaboration-manage-prompts").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`time-budget-${viewport.name}.png`) });
+      await page.getByTestId("collaboration-advanced-toggle").click();
+      await expect(page.getByTestId("collaboration-advanced")).toContainText("8 hours");
+    } finally {
+      await workspace.cleanup();
+    }
+  });
+}
+
+test("an older host cannot silently apply hidden collaboration count limits", async ({ page }) => {
+  const gate = await installDaemonWebSocketGate(page);
+  gate.setServerFeatureStripped("collaborationTimeBudget", true);
+  const workspace = await seedWorkspace({ repoPrefix: "collaboration-time-budget-gate-" });
+  const client = await connectDaemonClient<DaemonClient>({
+    clientIdPrefix: "collaboration-time-budget-gate",
+  });
   try {
+    const before = await client.collaborationCommand("status");
     await gotoWorkspace(page, workspace.workspaceId);
     await clickNewChat(page);
     await page.getByTestId("composer-collaboration-config").filter({ visible: true }).click();
-    await expect(page.getByTestId("collaboration-mode-dialog")).toBeVisible();
-    await expect(page.getByTestId("collaboration-advanced")).toBeVisible();
-    // Collapsed by default: the instructions action is not mounted until expanded.
-    await expect(page.getByTestId("collaboration-manage-prompts")).toHaveCount(0);
-    await page.getByTestId("collaboration-advanced-toggle").click();
-    await expect(page.getByTestId("collaboration-manage-prompts")).toBeVisible();
+    await chooseModel(page, "worker");
+    await chooseModel(page, "reviewer");
+    await page.getByTestId("collaboration-continue").click();
+    await expect(
+      page
+        .getByTestId("collaboration-mode-dialog")
+        .getByText("Update the host to use collaboration without rework limits.", {
+          exact: true,
+        }),
+    ).toBeVisible();
+    expect((await client.collaborationCommand("status")).conversations).toHaveLength(
+      before.conversations.length,
+    );
   } finally {
+    gate.restore();
+    await client.close();
     await workspace.cleanup();
   }
 });

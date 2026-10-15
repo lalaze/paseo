@@ -64,6 +64,7 @@ export const SettingsSchema = z
     categoryOverrides: z.record(z.string(), Id).default({}),
     taskOverrides: z.record(z.string(), Id).default({}),
     allowDirectorSelection: z.boolean().default(false),
+    // COMPAT(collaborationCountLimits): added in v0.11.1, retain ignored count fields until older clients are retired after 2027-04-14.
     maxReworks: z.number().int().min(0).max(10).default(2),
     maxAttempts: z.number().int().min(3).max(200).default(40),
     turnTimeoutMs: z.number().int().min(1000).max(7200000).default(1800000),
@@ -370,22 +371,13 @@ export interface Run {
   finalReview?: Review;
   events: { time: number; message: string }[];
 }
-/** The final review still requests changes to a task that has used every rework; the user decides. */
-export function reworksExhausted(run: Run): boolean {
-  return (
-    run.finalReview?.decision === "changes_requested" &&
-    run.finalReview.findings.some((finding) => {
-      const task = run.tasks.find((candidate) => candidate.spec.id === finding.taskId);
-      return !!task && task.reworks >= run.settings.maxReworks;
-    })
-  );
-}
 /** Legacy completed runs can still be accepted or revised by their user. */
 export function hasFinalResult(run: Run): boolean {
   return (
     ["awaiting_acceptance", "completed"].includes(run.phase) &&
     ["paused", "running"].includes(run.control) &&
-    (run.finalReview?.decision === "approved" || reworksExhausted(run)) &&
+    (run.finalReview?.decision === "approved" ||
+      run.finalReview?.decision === "changes_requested") &&
     !!run.finalEvidence &&
     !run.activeOperationId
   );
@@ -408,8 +400,8 @@ export function canResumeRun(run: Run): boolean {
   );
 }
 export function acceptanceMessage(run: Run): string {
-  if (reworksExhausted(run))
-    return `已返工 ${run.settings.maxReworks} 次，${operationLabel(run.settings, "final")}仍要求修改；请查看审核意见后验收、不采纳或提出修改意见`;
+  if (run.finalReview?.decision === "changes_requested")
+    return `${operationLabel(run.settings, "final")}仍要求修改；请查看审核意见后验收、不采纳或提出修改意见`;
   return `${operationLabel(run.settings, "final")}最终审核通过，等待你验收或提出修改意见`;
 }
 export interface ExecutionRelayView {

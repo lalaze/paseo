@@ -38,8 +38,6 @@ export const ru: TranslationResources = {
       advanced: "Дополнительные настройки",
       change: "Изменить",
       prompts: en.collaboration.launch.prompts,
-      maxReworksHint:
-        "Если доработки закончились, а проверка всё ещё требует изменений, её замечания придут вам: примите, отклоните или запросите изменения.",
       limits: "Ограничения",
       runTimeout: "Бюджет времени",
       runHours_one: "{{count}} ч",
@@ -137,7 +135,6 @@ export const ru: TranslationResources = {
     execute: "Инструкции для реализации",
     review: "Инструкции для проверки",
     maxAttempts: "Максимум операций за цикл",
-    maxReworks: "Максимум доработок",
     save: "Сохранить настройки",
     open: "Открыть диалог",
     resync: "Синхронизировать снова",

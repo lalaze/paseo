@@ -25,14 +25,11 @@ export interface ModelSelection {
   rowKey?: string;
 }
 export type LaunchSelections = Record<LaunchRole, ModelSelection | null>;
-export const DEFAULT_MAX_REWORKS = 2;
-export const MAX_REWORKS_LIMIT = 10;
 const HOUR_MS = 3600000;
 export const DEFAULT_RUN_TIMEOUT_MS = 4 * HOUR_MS;
 /** Time budget choices; the schema caps a round at 24 hours. */
 export const RUN_TIMEOUT_HOURS = [1, 2, 4, 8, 12, 24] as const;
 export interface LaunchLimits {
-  maxReworks: number;
   runTimeoutMs: number;
   requirePlanApproval?: boolean;
 }
@@ -218,7 +215,6 @@ export function openCollaborationLaunch(
   let fallbacks = initialFallbacks(initial);
   let fallbacksSeeded = initial.ready !== false;
   // New tasks start from the built-in limit, not the host's legacy advanced settings.
-  let maxReworks = restoredLimits?.maxReworks ?? remembered?.maxReworks ?? DEFAULT_MAX_REWORKS;
   let runTimeoutMs =
     restoredLimits?.runTimeoutMs ?? remembered?.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
   let requirePlanApproval =
@@ -257,7 +253,6 @@ export function openCollaborationLaunch(
   function limits(): Required<LaunchLimits> {
     const saved = snapshot.conversation?.settings;
     return {
-      maxReworks: saved?.maxReworks ?? maxReworks,
       runTimeoutMs: saved?.runTimeoutMs ?? runTimeoutMs,
       requirePlanApproval: saved?.requirePlanApproval ?? requirePlanApproval,
     };
@@ -362,7 +357,6 @@ export function openCollaborationLaunch(
       reviewerProfileId: "reviewer",
       reviewerAsLead: true,
       requirePlanApproval: mode === "full" && requirePlanApproval,
-      maxReworks,
       runTimeoutMs,
       ...(backup.length ? { executionFallbacks: { worker: backup } } : {}),
     });
@@ -383,7 +377,6 @@ export function openCollaborationLaunch(
         mode: state.mode,
         isolation: state.isolation,
         selections: state.selections,
-        maxReworks: state.maxReworks,
         runTimeoutMs: state.runTimeoutMs,
         requirePlanApproval: state.requirePlanApproval,
       };
@@ -455,12 +448,6 @@ export function openCollaborationLaunch(
           thinkingOptionLabel: thinkingOptionId ? label : undefined,
         },
       };
-      error = "";
-      publish();
-    },
-    selectMaxReworks(next: number) {
-      if (pending || state.agentsLocked) return;
-      maxReworks = Math.min(MAX_REWORKS_LIMIT, Math.max(0, Math.trunc(next)));
       error = "";
       publish();
     },

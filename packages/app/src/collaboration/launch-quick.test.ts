@@ -60,7 +60,6 @@ function preferences(overrides: Partial<LaunchPreferences> = {}): LaunchPreferen
       worker: selection("codex", "gpt-5", "high"),
       reviewer: selection("claude", "opus"),
     },
-    maxReworks: 2,
     runTimeoutMs: 4 * 3_600_000,
     ...overrides,
   };

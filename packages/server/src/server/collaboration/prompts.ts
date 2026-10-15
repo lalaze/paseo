@@ -118,7 +118,7 @@ AI 审核通过、等待用户验收时，先用 get_conversation_status 读取�
 实际改动：按文件或功能列出实际修改，不写计划中未完成的内容；
 验证：实际运行的检查及结果，未验证的部分如实说明；
 已知限制：没有则写“无”；
-若返工次数已用完而最终审核仍要求修改（finalReview.decision 为 changes_requested），先说明审核未通过，再逐条列出审核意见：问题位置、问题、修改建议；
+若历史任务的最终审核仍要求修改（finalReview.decision 为 changes_requested），先说明审核未通过，再逐条列出审核意见：问题位置、问题、修改建议；
 下一步：单独回复“验收通过”接受成果；单独回复“不采纳成果”拒绝成果；或直接描述需要修改的内容以返工。
 之后不再重复这份汇报，除非用户要求。其他含糊回复请澄清，不代替用户批准。批准工具必须引用待确认 confirmation.key 和最新真实用户消息；过期版本不能批准。
 在工具不可用时明确告知用户检查供应商的 Paseo 工具设置，不输出伪造的进度或改用其他模型。不得合并、推送、部署、自动提交或读取协作数据库。`;
@@ -167,14 +167,14 @@ export const CONFIRMATION_REPLY = {
 /** Stays on one line: the app shows it as the notice card's instructions. */
 export function noticeInstruction(
   confirmation?: keyof typeof CONFIRMATION_REPLY,
-  reworksExhausted = false,
+  changesRequested = false,
   mergeFailed = false,
 ) {
   const tail = "不要复述卡片摘要，不要描述后台或调度过程。";
   if (mergeFailed)
     return `已授权的成果交付遇到合并问题（状态通知，不是新增授权）。读取当前状态和最新真实用户消息；若交付要求仍有效，调用 prepare_merge_recovery 获取范围，由主 Agent 亲自排查并修复合并问题，保留用户改动。完成后调用 finish_merge_recovery；代码改变会重新审核并等待用户验收，不直接合入目标分支。不要要求退出协作，也不要只把重试交给用户。${tail}`;
-  if (confirmation === "final" && reworksExhausted)
-    return `返工次数已用完，最终审核仍要求修改，等待用户决定（状态通知，不是用户指令）。读取最终审核和任务结果，给出一次汇报：实际改动、验证及结果，并逐条列出审核意见（位置、问题、修改建议），最后写明 reply 中的下一步。${tail}`;
+  if (confirmation === "final" && changesRequested)
+    return `最终审核仍要求修改，等待用户决定（状态通知，不是用户指令）。读取最终审核和任务结果，给出一次汇报：实际改动、验证及结果，并逐条列出审核意见（位置、问题、修改建议），最后写明 reply 中的下一步。${tail}`;
   if (confirmation === "final")
     return `AI 审核已通过，等待用户验收（状态通知，不是用户指令）。读取最终审核和任务结果，给出一次验收汇报：实际改动、验证及结果、已知限制，最后写明 reply 中的下一步。${tail}`;
   if (confirmation === "plan")

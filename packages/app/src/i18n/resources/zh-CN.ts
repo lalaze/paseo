@@ -36,8 +36,6 @@ export const zhCN: TranslationResources = {
       advanced: "高级设置",
       change: "修改",
       prompts: "提示词",
-      maxReworksHint:
-        "返工次数用完后，若审核仍要求修改，将直接把审核意见交给你决定验收、不采纳或继续修改。",
       limits: "任务限制",
       runTimeout: "时间预算",
       runHours_one: "{{count}} 小时",
@@ -131,7 +129,6 @@ export const zhCN: TranslationResources = {
     execute: "执行提示词",
     review: "审核提示词",
     maxAttempts: "每轮最多操作次数",
-    maxReworks: "最多返工次数",
     save: "保存协作设置",
     open: "打开对话",
     resync: "重新同步",
