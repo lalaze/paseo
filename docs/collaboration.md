@@ -240,6 +240,9 @@ native-tool handoff. Inspect the task before resuming; uncertain sends require r
 loopback Director MCP configuration is removed when the corresponding idle session is resumed.
 No separate Director listener or file bridge is started.
 
+Built-in collaboration instructions use English; the main Agent replies in your language. Saved
+role instructions and user requirements retain their original text.
+
 Role-instruction changes apply to future conversations. Existing conversations and tasks retain
 their saved configuration so editing instructions cannot change an operation midway through execution.
 The host refreshes its built-in workflow rules when a saved main chat resumes, preserving your

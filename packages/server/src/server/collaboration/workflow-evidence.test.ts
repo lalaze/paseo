@@ -100,14 +100,16 @@ test("blocked final review receives workflow evidence on retry without rerunning
   await h.until("final");
   await h.complete({ ...review(true, "blocked"), summary: "缺少流程记录" });
   assert.equal(h.run().control, "needs_attention");
-  const executions = h.agents.sent.filter((sent) => sent.prompt.includes("你是执行 AI。"));
+  const executions = h.agents.sent.filter((sent) =>
+    sent.prompt.includes("You are the implementation AI."),
+  );
   await h.engine.control(h.id, "retry");
   const final = await h.until("final");
   assert.equal(final.agentId, director.agentId);
   const context = JSON.parse(
     final.prompt.slice(
       final.prompt.indexOf("\n\n{") + 2,
-      final.prompt.indexOf("\n\n本轮 operationId="),
+      final.prompt.indexOf("\n\nCurrent operationId="),
     ),
   );
   assert.equal(context.previousReview.summary, "缺少流程记录");
@@ -121,7 +123,7 @@ test("blocked final review receives workflow evidence on retry without rerunning
     false,
   );
   assert.deepEqual(
-    h.agents.sent.filter((sent) => sent.prompt.includes("你是执行 AI。")),
+    h.agents.sent.filter((sent) => sent.prompt.includes("You are the implementation AI.")),
     executions,
   );
   assert.equal(h.agents.created.length, 2);

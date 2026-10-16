@@ -30,7 +30,7 @@ test("execute-review skips planning, uses independent sessions and preserves its
   assert.equal(h.run().tasks.length, 1);
   assert.equal(workflowEvidence(h.run()).planApproval.required, false);
   assert.equal(workflowEvidence(h.run()).planApproval.userApprovedAt, null);
-  assert.doesNotMatch(execution.prompt, /核对批准/);
+  assert.doesNotMatch(execution.prompt, /verify approval/);
   await h.complete(result);
   const audit = await h.until("final");
   assert.equal(audit.profileId, "worker");
@@ -163,7 +163,7 @@ test("all tasks execute serially in dependency order before one verification and
   assert.equal(final.reviewScope, "all_tasks");
   assert.equal(h.repository.verifications, 1);
   assert.deepEqual(readDirectorPrompt(final.prompt)?.acceptance, finalAcceptance(multiPlan));
-  assert.match(final.prompt, /不要求此前存在逐任务审核记录/);
+  assert.match(final.prompt, /no prior per-task review records are required/);
   await h.restart();
   await h.engine.tick();
   assert.equal(h.repository.verifications, 1);

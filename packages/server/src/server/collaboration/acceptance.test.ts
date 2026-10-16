@@ -8,7 +8,7 @@ import { harness, plan, result, review } from "./test-utils/harness.js";
 type Harness = Awaited<ReturnType<typeof harness>>;
 const input = (run: Run) => ({ artifactId: run.finalEvidence!.id, expectedRevision: run.revision });
 const context = (prompt: string) =>
-  JSON.parse(prompt.slice(prompt.indexOf("\n\n{") + 2, prompt.indexOf("\n\n本轮 operationId=")));
+  JSON.parse(prompt.slice(prompt.indexOf("\n\n{") + 2, prompt.indexOf("\n\nCurrent operationId=")));
 async function finishRound(h: Harness) {
   await h.until("plan");
   await h.complete(plan);
@@ -191,7 +191,10 @@ test("user feedback preserves goal, evidence and team, gates the revised plan, a
   assert.deepEqual(draft.previousPlan, original.plan);
   assert.equal(draft.previousTaskResults[0].agentId, worker);
   assert.equal(draft.userChangeRequests[0].feedback, request.feedback);
-  assert.match(planning.prompt, /只设计和提交计划，具体修改交给执行 AI/);
+  assert.match(
+    planning.prompt,
+    /Only design and submit the plan; leave implementation to the implementation AI/,
+  );
   assert.equal(readDirectorPrompt(planning.prompt)!.stage, "plan");
   assert.deepEqual(readDirectorPrompt(planning.prompt)!.changes, [request.feedback]);
   await h.complete(plan);
@@ -207,7 +210,7 @@ test("user feedback preserves goal, evidence and team, gates the revised plan, a
   await h.complete(result);
   const final = await h.until("final");
   assert.equal(final.agentId, original.directorAgentId);
-  assert.match(final.prompt, /不替用户确认完成/);
+  assert.match(final.prompt, /must not confirm completion on the user's behalf/);
   assert.equal(context(final.prompt).userChangeRequests[0].feedback, request.feedback);
   await h.complete(review(true));
   assert.equal(h.run().phase, "awaiting_acceptance");

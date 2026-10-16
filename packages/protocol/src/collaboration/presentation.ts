@@ -16,23 +16,24 @@ export function readCollaborationPrompt(raw: string) {
   const marker = /^\[paseo-director:([\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12})\]\n/i.exec(raw);
   if (!marker) return;
   const start = raw.indexOf("\n\n{", marker[0].length);
-  const end = raw.indexOf(`\n\n本轮 operationId=${marker[1]}。`, start);
+  let end = raw.indexOf(`\n\nCurrent operationId=${marker[1]}.`, start);
+  // COMPAT(collaborationEnglishEnvelope): added in v0.11.1, remove after 2027-04-16 once persisted Chinese prompts are retired.
+  if (end < 0) end = raw.indexOf(`\n\n本轮 operationId=${marker[1]}。`, start);
   if (start < 0 || end < 0) return;
   try {
     const data = ContextSchema.parse(JSON.parse(raw.slice(start + 2, end)));
     const instruction = raw.slice(marker[0].length, start);
     let stage: "plan" | "execute" | "review" | "final";
-    if (instruction.startsWith("你是执行 AI。") && data.task) stage = "execute";
+    if (/^(?:You are the implementation AI\.|你是执行 AI。)/.test(instruction) && data.task)
+      stage = "execute";
     else if (
       data.bindings &&
-      (instruction.startsWith("你是主 Agent。") ||
-        instruction.startsWith("你是总 AI。") ||
-        instruction.startsWith("你是设计 AI。"))
+      /^(?:You are the planning AI\.|你是(?:主 Agent|总 AI|设计 AI)。)/.test(instruction)
     )
       stage = "plan";
     else if (
       data.plan &&
-      (instruction.startsWith("你是原总 AI，") || instruction.startsWith("你是审核 AI，"))
+      /^(?:You are the (?:original lead|review) AI,|你是(?:原总|审核) AI，)/.test(instruction)
     )
       stage = data.taskResults ? "final" : "review";
     else return;

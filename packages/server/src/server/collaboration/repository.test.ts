@@ -77,8 +77,8 @@ test("working changes lists the baseline diff without writing an artifact", asyn
     changesMissing: changes.missing,
     changesTruncated: changes.truncated,
   });
-  assert.match(pack, /缺失：无/);
-  assert.match(pack, /截断：无/);
+  assert.match(pack, /Missing: None/);
+  assert.match(pack, /Truncated: No/);
   assert.match(pack, /npm test reported/);
 });
 
@@ -104,8 +104,8 @@ test("working changes report clipped diffs and failed reads", async (t) => {
     diff: changes.diff,
     changesTruncated: changes.truncated,
   });
-  assert.match(clipped, /截断：有/);
-  assert.match(clipped, /缺失：无/);
+  assert.match(clipped, /Truncated: Yes/);
+  assert.match(clipped, /Missing: None/);
   assert.match(clipped, /npm test reported/);
   assert.equal(clipped.includes("DEMO_SECRET_VALUE"), false);
 
@@ -120,8 +120,8 @@ test("working changes report clipped diffs and failed reads", async (t) => {
     diff: failed.diff,
     changesMissing: true,
   });
-  assert.match(missing, /缺失：工作区改动/);
-  assert.doesNotMatch(missing, /缺失：无/);
+  assert.match(missing, /Missing: Workspace changes/);
+  assert.doesNotMatch(missing, /Missing: None/);
   assert.match(missing, /npm test reported/);
 });
 

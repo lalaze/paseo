@@ -217,7 +217,7 @@ describe("explicit retry replaces failed sessions with the original profile afte
         assert.equal(h.agents.sent.length, sends + 1);
         assert.ok(replacement.sentAt);
         assert.ok(replacement.deliveryConfirmedAt);
-        assert.match(replacement.prompt, /不要重复实施已完成的修改/);
+        assert.match(replacement.prompt, /Do not repeat completed changes/);
         assert.equal(
           h.run().operations.find((candidateOperation) => candidateOperation.id === original.id)!
             .agentId,
@@ -457,7 +457,7 @@ test("worktree isolation uses the created workspace and does not switch the sour
   assert.equal(h.store.get(stayed).cwd, h.directory);
   assert.deepEqual(calls, ["worktree", "retain-name", "local"]);
   // Only the source checkout carries the user's uncommitted work into the diff.
-  const userChanges = /用户原有改动/;
+  const userChanges = /pre-existing user changes/;
   assert.doesNotMatch(buildPrompt(h.store.get(id), "plan", "op"), userChanges);
   assert.match(buildPrompt(h.store.get(stayed), "plan", "op"), userChanges);
 });
@@ -531,7 +531,10 @@ test("without extra commands the original director reviews, requests rework and 
   assert.equal(h.run().phase, "executing");
   const firstReview = await h.until("final");
   assert.equal(firstReview.agentId, director.agentId);
-  assert.match(firstReview.prompt, /用户未指定额外检查命令，验证方式由你决定/);
+  assert.match(
+    firstReview.prompt,
+    /The user specified no additional check commands; choose the verification method yourself/,
+  );
   assert.equal(h.run().finalEvidence?.passed, false);
   assert.equal(h.run().finalEvidence?.verificationStatus, "not_configured");
   await h.complete(review(true, "changes_requested"));
@@ -1046,7 +1049,7 @@ test("repeated shell polling stops the worker before retry and retains its works
   await h.engine.control(h.id, "retry");
   const retried = await h.until("execute");
   assert.equal(retried.agentId, op.agentId);
-  assert.match(retried.prompt, /先确认进程是否仍在运行/);
+  assert.match(retried.prompt, /first check whether the process is still running/);
   await h.complete(result);
   await h.until("final");
   await h.complete({
@@ -1320,7 +1323,7 @@ describe("worker session continuity", () => {
     assert.equal(second.agentId, first.agentId);
     assert.equal(h.agents.created.length, 2);
     assert.match(second.prompt, /基线脚本位于 scripts\/measure\.mjs/);
-    assert.match(second.prompt, /同一执行会话/);
+    assert.match(second.prompt, /same execution session/);
   });
   test("revised requirements keep the worker session", async (t) => {
     const h = await harness();
@@ -1347,7 +1350,7 @@ describe("worker session continuity", () => {
     const second = await h.until("execute");
     assert.notEqual(second.agentId, first.agentId);
     assert.equal(h.run().control, "running");
-    assert.doesNotMatch(second.prompt, /同一执行会话/);
+    assert.doesNotMatch(second.prompt, /same execution session/);
   });
   test("a turn that ends without a result is asked to report in the same session", async (t) => {
     const h = await harness();
@@ -1362,7 +1365,7 @@ describe("worker session continuity", () => {
       assert.equal(h.run().control, "running");
       const nudge = await h.until("execute");
       assert.equal(nudge.agentId, worker.agentId);
-      assert.match(nudge.prompt, /没有提交任务结果/);
+      assert.match(nudge.prompt, /without submitting a task result/);
     }
     h.agents.states.set(worker.agentId!, { status: "idle", seen: true, output: "" });
     h.elapse(21000);
@@ -1396,7 +1399,7 @@ describe("automatic retry of transient provider errors", () => {
     const retried = await h.until("execute");
     assert.notEqual(retried.id, worker.id);
     assert.equal(h.agents.sent.length, sends + 1);
-    assert.match(retried.prompt, /本轮是重试/);
+    assert.match(retried.prompt, /This round is a retry/);
     await h.complete(result);
     assert.equal(h.run().autoRetry, undefined);
   });

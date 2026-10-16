@@ -114,6 +114,57 @@ test.each(["主 Agent", "总 AI", "设计 AI"])(
   },
 );
 
+test.each([
+  {
+    stage: "plan",
+    instruction: "You are the planning AI.",
+    context: { bindings: { director: "lead", worker: "worker" } },
+    text: "修复输入校验",
+    acceptance: [],
+  },
+  {
+    stage: "execute",
+    instruction: "You are the implementation AI.",
+    context: { task },
+    text: task.title,
+    acceptance: task.acceptance,
+  },
+  {
+    stage: "review",
+    instruction: "You are the original lead AI, responsible for review.",
+    context: { plan, task },
+    text: task.title,
+    acceptance: task.acceptance,
+  },
+  {
+    stage: "final",
+    instruction: "You are the review AI, responsible for review.",
+    context: { plan, taskResults: [], acceptance: plan.acceptance },
+    text: "修复输入校验",
+    acceptance: plan.acceptance,
+  },
+])(
+  "English $stage prompts render as stage cards",
+  ({ stage, instruction, context, text, acceptance }) => {
+    const message = `[paseo-director:${operationId}]\n${instruction}\n\n${JSON.stringify({ goal: "修复输入校验", cwd: "/repo", ...context }, null, 2)}\n\nCurrent operationId=${operationId}. Submit the result.\n{}`;
+    expect(collaborationMessageSummary({ clientMessageId: operationId, text: message })).toEqual({
+      stage,
+      text,
+      instructions: instruction,
+      acceptance,
+    });
+    expect(
+      collaborationMessageSummary({
+        clientMessageId: operationId,
+        text: message.replace(
+          `Current operationId=${operationId}`,
+          "Current operationId=another-operation",
+        ),
+      }),
+    ).toBeUndefined();
+  },
+);
+
 test("plan submission permission previews the actual plan, without treating a review as a plan", () => {
   for (const name of ["submit_plan", "mcp__paseo__submit_operation", "paseo.submit_plan"]) {
     expect(collaborationPermissionPlan({ kind: "tool", name, input: { payload: plan } })).toEqual(

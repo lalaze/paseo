@@ -25,6 +25,7 @@ import { Store } from "./store.js";
 import { plan, result } from "./test-utils/harness.js";
 import {
   CHAT_PROMPT,
+  PRE_ENGLISH_CHAT_PROMPT,
   PRE_SUBMISSION_CHAT_PROMPT,
   PRE_MERGE_RECOVERY_CHAT_PROMPT,
   PRE_DELIVERY_CHAT_PROMPT,
@@ -67,7 +68,7 @@ class NativeToolClient implements AgentClient {
         const operation = readCollaborationPrompt(text);
         if (operation?.stage === "final" && this.reviewIndependently) {
           const start = text.indexOf("\n\n{") + 2;
-          const end = text.indexOf("\n\n本轮 operationId=", start);
+          const end = text.indexOf("\n\nCurrent operationId=", start);
           const reviewContext = z
             .object({ evidence: z.object({ id: z.string() }) })
             .parse(JSON.parse(text.slice(start, end)));
@@ -454,6 +455,7 @@ test.for([
     name: "current",
     prompt: CHAT_PROMPT,
   },
+  { name: "before-english-prompts", prompt: PRE_ENGLISH_CHAT_PROMPT },
   { name: "before-submission-scope", prompt: PRE_SUBMISSION_CHAT_PROMPT },
   { name: "before-merge-recovery", prompt: PRE_MERGE_RECOVERY_CHAT_PROMPT },
   {
@@ -531,7 +533,9 @@ test.for([
     const released = daemon.daemon.agentManager.getAgent(mainId)!;
     expect(released.labels["director-conversation"]).toBeUndefined();
     // Only the collaboration prefix is stripped; the user's own instructions survive exactly.
-    expect(released.config.systemPrompt).toBe("用户补充要求：\n只回答问题，不要改代码");
+    expect(released.config.systemPrompt).toBe(
+      "Additional user requirements:\n只回答问题，不要改代码",
+    );
     // A normal message is an ordinary chat: no collaboration task is created.
     const reader = new Store(join(daemon.paseoHome, "director", "director.sqlite"), false);
     t.onTestFinished(() => reader.close());

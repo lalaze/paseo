@@ -28,7 +28,7 @@ function migrateRecords(store: Store) {
     if (!conversation.takeover.messages.some((message) => message.id === id)) {
       conversation.takeover.messages.push({
         id,
-        text: "协作已迁入 Paseo。请使用本会话内置的 get_conversation_status、start_task、submit_operation、control_task 工具。停止使用旧插件的文件桥接或独立 Director MCP。读取状态并简短告知用户；此通知不批准方案、不启动或恢复任务。",
+        text: "Collaboration has moved into Paseo. Use the built-in get_conversation_status, start_task, submit_operation and control_task tools in this session. Stop using the old plugin file bridge or standalone Director MCP. Read status and briefly inform the user; this notice does not approve a plan or start or resume a task.",
         automatic: true,
         state: "pending",
         createdAt: Date.now(),

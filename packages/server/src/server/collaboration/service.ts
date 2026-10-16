@@ -315,7 +315,7 @@ export class CollaborationService {
     return [
       define(
         "get_conversation_status",
-        "读取当前协作任务、操作上下文和最新真实用户消息。需先由用户启用协作。",
+        "Read the current collaboration task, operation context and latest real user message. The user must enable collaboration first.",
         z.object({}),
         async () => {
           const c = chat();
@@ -324,7 +324,7 @@ export class CollaborationService {
       ),
       define(
         "start_task",
-        "在用户明确要求实施后启动协作任务；讨论不启动。执行位置由用户在启动协作时选定，此工具不能更改。",
+        "Start a collaboration task only after an explicit implementation request, not a discussion. The user chooses the execution location when enabling collaboration; this tool cannot change it.",
         z.object({ sourceMessageId: z.string(), goal: z.string().trim().min(1).max(32000) }),
         async (input) => {
           const c = chat();
@@ -336,7 +336,7 @@ export class CollaborationService {
       ),
       define(
         "submit_operation",
-        "将当前设计或审核结果（含相关文件路径）回报给管理本次协作的同一 Paseo 主机。方案提交后是否开始执行遵循已保存的方案审批设置；此调用不代替用户批准方案或验收成果。",
+        "Report the current design or review result, including relevant file paths, to the same Paseo host managing this collaboration. The saved plan approval setting controls whether implementation starts after submission. This call does not grant user plan approval or result acceptance.",
         z.object({ operationId: z.string(), payload: z.union([PlanSchema, ReviewSchema]) }),
         async (input) => {
           const c = chat();
@@ -346,7 +346,7 @@ export class CollaborationService {
       ),
       define(
         "control_task",
-        "按最新用户要求控制协作；批准需要真实用户消息与当前确认版本。accept_final 接受“验收通过”；“验收并合并”还会由后台提交成果并合并到原分支，无需退出协作。note 记录用户在执行中补充的要求（写在 feedback），不重新设计；目标本身改变才用 revise。",
+        "Control collaboration according to the latest user request. Approval requires a real user message and the current confirmation version. accept_final accepts “验收通过”; “验收并合并” also asks the host to commit and merge into the original branch without exiting collaboration. note records additional requirements in feedback without replanning; use revise only when the goal itself changes.",
         controlSchema,
         async (input) => {
           const c = chat();
@@ -355,7 +355,7 @@ export class CollaborationService {
       ),
       define(
         "switch_execution_model",
-        "执行子任务因模型额度耗尽受阻，且用户已明确指定其他模型时，继续同一子任务。必须引用 get_conversation_status 返回的最新真实用户消息、当前执行 operationId 和 execution.relay.token。不要自行选择模型，认证、欠费、网络和普通失败不能切换。",
+        "Continue the same execution task after quota exhaustion only when the user explicitly selects another model. Reference the latest real user message, current execution operationId and execution.relay.token from get_conversation_status. Do not choose a model yourself. Authentication, unpaid balance, network and ordinary failures do not permit switching.",
         SwitchExecutionModelToolSchema,
         async (input) => {
           const c = chat();
@@ -367,7 +367,7 @@ export class CollaborationService {
       ),
       define(
         "merge_result",
-        "在成果验收后，按用户单独回复“合并成果”提交并合并到原分支。旧任务未记录原分支时，用户回复“合并成果到 <目标分支>”，传入 targetBranch，不能更换已记录的原分支。失败后可重试；不推送或部署。",
+        "After acceptance, commit and merge into the original branch when the user replies with “合并成果” alone. For old tasks without a recorded original branch, the user replies “合并成果到 <target branch>”; pass targetBranch. Do not change a recorded original branch. Retry failures when requested; never push or deploy.",
         z.object({
           sourceMessageId: z.string(),
           targetBranch: z.string().trim().min(1).optional(),
@@ -387,7 +387,7 @@ export class CollaborationService {
       ),
       define(
         "prepare_merge_recovery",
-        "已验收成果合并失败时，主 Agent 获取修复范围、成果和目标工作区、分支、错误及验证命令。只修复合并问题；不能丢弃或提交用户的其他改动，修复后调用 finish_merge_recovery。",
+        "After a failed merge of an accepted result, let the main Agent obtain the repair scope, result and target workspaces, branches, errors and verification commands. Repair only the merge problem; do not discard or commit unrelated user changes. Call finish_merge_recovery afterward.",
         z.object({ sourceMessageId: z.string() }),
         async (input) => {
           const c = chat();
@@ -399,7 +399,7 @@ export class CollaborationService {
       ),
       define(
         "finish_merge_recovery",
-        "主 Agent 完成合并修复后提交修复说明和当前真实用户消息 ID。成果快照没变时重试原合并；代码变了则送回执行验证、审核和用户验收，不能自行跳过。",
+        "After merge repair, submit the repair summary and current real user message ID. Retry delivery if the accepted snapshot is unchanged. Code changes return to implementation verification, review and user acceptance; do not bypass them.",
         z.object({ sourceMessageId: z.string(), summary: z.string().trim().min(1).max(16000) }),
         async (input) => {
           const c = chat();
@@ -413,44 +413,49 @@ export class CollaborationService {
       ),
       define(
         "submit_plan",
-        "将当前协作方案（含相关文件路径）提交给管理本次任务的同一 Paseo 主机。是否开始执行遵循已保存的方案审批设置；此调用不代替用户批准方案。",
+        "Submit the current collaboration plan, including relevant file paths, to the same Paseo host managing this task. The saved plan approval setting controls whether implementation starts. This call does not grant user plan approval.",
         z.object({ operationId: z.string(), payload: PlanSchema }),
         (input) => submit(input, "plan"),
       ),
       define(
         "submit_result",
-        "将当前子任务成果或阻塞原因回报给管理本次协作的同一 Paseo 主机，用于继续调度和审核；此调用不代替最终用户验收。",
+        "Report the current subtask result or blocker to the same Paseo host managing this collaboration for continued scheduling and review. This call does not grant final user acceptance.",
         z.object({ operationId: z.string(), payload: ResultSchema }),
         (input) => submit(input, "execute"),
       ),
       define(
         "submit_review",
-        "将当前成果快照的 AI 审核决定回报给管理本次协作的同一 Paseo 主机；AI 审核通过后仍需用户验收。",
+        "Report the AI review decision for the current result snapshot to the same Paseo host managing this collaboration. User acceptance is still required after AI review approval.",
         z.object({ operationId: z.string(), payload: ReviewSchema }),
         (input) => submit(input, "review"),
       ),
-      define("get_run_status", "读取当前会话所属协作任务。", z.object({}), async () => {
-        const { store } = this.start();
-        const run = store
-          .all()
-          .find(
-            (candidateRun) =>
-              candidateRun.directorAgentId === agentId ||
-              candidateRun.reviewerAgentId === agentId ||
-              candidateRun.tasks.some((candidateTask) => candidateTask.agentId === agentId),
-          );
-        if (!run) throw new Error("当前会话不属于协作任务");
-        return {
-          ...summarize(run),
-          workflowEvidence: workflowEvidence(run),
-          operationId: run.activeOperationId,
-          tasks: run.tasks.map((candidateTask) => ({
-            id: candidateTask.spec.id,
-            status: candidateTask.status,
-            executorId: candidateTask.profileId,
-          })),
-        };
-      }),
+      define(
+        "get_run_status",
+        "Read the collaboration task that owns the current session.",
+        z.object({}),
+        async () => {
+          const { store } = this.start();
+          const run = store
+            .all()
+            .find(
+              (candidateRun) =>
+                candidateRun.directorAgentId === agentId ||
+                candidateRun.reviewerAgentId === agentId ||
+                candidateRun.tasks.some((candidateTask) => candidateTask.agentId === agentId),
+            );
+          if (!run) throw new Error("当前会话不属于协作任务");
+          return {
+            ...summarize(run),
+            workflowEvidence: workflowEvidence(run),
+            operationId: run.activeOperationId,
+            tasks: run.tasks.map((candidateTask) => ({
+              id: candidateTask.spec.id,
+              status: candidateTask.status,
+              executorId: candidateTask.profileId,
+            })),
+          };
+        },
+      ),
     ];
   }
   muteNotification(agentId: string, reason: string): boolean {

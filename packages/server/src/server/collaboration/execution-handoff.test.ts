@@ -156,16 +156,16 @@ test("an ordered fallback continues the same task and a later task reuses that m
   assert.equal(created.profile.provider, "vendor-c/model-c");
   assert.equal(created.profile.thinkingOptionId, "high");
   assert.equal(created.profile.instructions, "保留现有接口");
-  assert.match(next.prompt, /额度耗尽后的模型接力/);
+  assert.match(next.prompt, /model handoff after quota exhaustion/);
   assert.match(next.prompt, /实现新功能/);
   assert.match(next.prompt, /保留现有接口/);
   assert.match(next.prompt, /保留原有缓存/);
   assert.match(next.prompt, /src\/api.ts/);
-  assert.match(next.prompt, /不能当作通过/);
+  assert.match(next.prompt, /cannot count as passed/);
   assert.match(next.prompt, /\[redacted\]/);
   assert.doesNotMatch(next.prompt, /sk-supersecretvalue|\[Thought\]|mcpServers/);
-  assert.match(next.prompt, /缺失：无/);
-  assert.match(next.prompt, /截断：无/);
+  assert.match(next.prompt, /Missing: None/);
+  assert.match(next.prompt, /Truncated: No/);
   assert.equal(h.run().cwd, cwd);
   assert.equal(h.repository.prepares, prepares);
   assert.equal(h.repository.discarded.length, 0);
@@ -280,7 +280,7 @@ test("ordinary assistant text and a plan quota error do not switch the executor"
   const nudged = await h.until("execute");
   assert.equal(nudged.agentId, worker.agentId);
   assert.equal(h.run().executionRelay, undefined);
-  assert.match(nudged.prompt, /结果格式错误/);
+  assert.match(nudged.prompt, /invalid format/);
 });
 
 test("a manual switch is idempotent and rejects stale, canceled or non-quota requests", async (t) => {
@@ -816,7 +816,7 @@ test("assistant text cannot invent or hide a provider quota failure", async (t) 
   assert.equal(chatter.h.run().executionRelay, undefined);
   const nudged = await chatter.h.until("execute");
   assert.equal(nudged.agentId, chatter.worker.agentId);
-  assert.match(nudged.prompt, /结果格式错误/);
+  assert.match(nudged.prompt, /invalid format/);
 
   const masked = await executing(fallbacks());
   t.onTestFinished(() => masked.h.cleanup());
@@ -1024,9 +1024,9 @@ test("handoff reports clipped evidence and removes credential fields", async (t)
   await h.engine.tick();
   const next = await h.until("execute");
   assert.match(next.prompt, /npm test reported/);
-  assert.match(next.prompt, /截断：有/);
-  assert.match(next.prompt, /缺失：工作区改动/);
-  assert.doesNotMatch(next.prompt, /缺失：无/);
+  assert.match(next.prompt, /Truncated: Yes/);
+  assert.match(next.prompt, /Missing: Workspace changes/);
+  assert.doesNotMatch(next.prompt, /Missing: None/);
   assert.equal(next.prompt.includes("DEMO_SECRET_VALUE"), false);
   assert.equal(next.prompt.includes("DEMO_PASSWORD_VALUE"), false);
   assert.equal(next.prompt.includes("mcpServers"), false);

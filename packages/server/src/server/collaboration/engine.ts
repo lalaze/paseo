@@ -559,7 +559,7 @@ export class Engine {
       (note) => !op.prompt.includes(JSON.stringify(note.text).slice(1, -1)),
     );
     if (late.length)
-      op.prompt += `\n用户在此步骤排队后补充了要求，与 goal 同等有效：\n${late.map((note) => `- ${note.text}`).join("\n")}`;
+      op.prompt += `\nThe user added requirements after this step was queued; they have the same authority as goal:\n${late.map((note) => `- ${note.text}`).join("\n")}`;
     run.control = "running";
     op.state = "sending";
     op.sentAt = this.now();
@@ -592,7 +592,7 @@ export class Engine {
       this.retryInSession(
         run,
         op,
-        "上一轮结束时没有提交任务结果。先核对已完成的工作，补齐未完成的部分后按要求提交结果；不要重复实施已完成的修改。",
+        "The previous turn ended without submitting a task result. Inspect completed work, finish what remains and submit the required result; do not repeat completed changes.",
       );
       return;
     }
@@ -610,7 +610,7 @@ export class Engine {
       this.retryInSession(
         run,
         op,
-        `上一轮结果格式错误，请补交正确格式，不要重复实施已完成的修改。错误：${String(error).slice(0, 2000)}`,
+        `The previous result had an invalid format. Submit the correct format without repeating completed changes. Error: ${String(error).slice(0, 2000)}`,
       );
       return;
     }
@@ -1304,7 +1304,7 @@ export class Engine {
         await this.finalControl(run, "request_changes", {
           artifactId: evidence.id,
           expectedRevision: run.revision,
-          feedback: `主 Agent 已处理合并问题：${input.summary}。在当前成果上验证并审核冲突解决，不要重新实现已完成的改动。`,
+          feedback: `The main Agent repaired the merge: ${input.summary}. Verify and review the conflict resolution on the current result; do not reimplement completed changes.`,
         });
         return { status: "review_required" as const, runId: run.id };
       }),
@@ -1818,7 +1818,7 @@ export class Engine {
         this.enqueue(run, op.kind, op.taskId, op.formatRetries);
         if (outputError)
           this.current(run)!.prompt +=
-            `\n上一轮结果无效，请修正后重新提交，不要重复实施已完成的修改。错误：${outputError}`;
+            `\nThe previous result was invalid. Correct it and resubmit without repeating completed changes. Error: ${outputError}`;
       }
     }
     this.event(run, message);

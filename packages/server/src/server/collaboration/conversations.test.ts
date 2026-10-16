@@ -379,8 +379,14 @@ for (const { reply, retry } of [
     const notice = h.gateway.sent.find((entry) => entry.opId === pending.noticeId);
     const card = readCollaborationNotice(pending.noticeId, notice!.prompt);
     assert.equal(card?.confirmation, "final");
-    assert.match(card!.instruction, /实际改动、验证及结果、已知限制/);
-    assert.match(card!.reply!, /单独回复“验收通过”.+单独回复“不采纳成果”.+描述需要修改的内容/);
+    assert.match(
+      card!.instruction,
+      /actual changes, verification and results, and known limitations/,
+    );
+    assert.match(
+      card!.reply!,
+      /Reply with “验收通过” alone.+“不采纳成果” alone.+describe the changes needed/,
+    );
     h.gateway.user(c.agentId!, "ambiguous", "好");
     await assert.rejects(
       h.chats.control(c.id, {
@@ -996,7 +1002,7 @@ test("workers receive the persisted approval made in an adopted main conversatio
   const run = h.store.get(runId);
   const prompt = buildPrompt(run, "execute", "test-operation", run.tasks[0].spec.id);
   const start = prompt.indexOf("\n\n") + 2,
-    end = prompt.indexOf("\n\n本轮 operationId=");
+    end = prompt.indexOf("\n\nCurrent operationId=");
   const evidence = JSON.parse(prompt.slice(start, end)).workflowEvidence;
   assert.equal(evidence.planApproval.approved, true);
   assert.equal(evidence.planApproval.required, true);
@@ -1033,20 +1039,29 @@ test("a stalled poll of one conversation does not delay tool calls from another"
 });
 
 test("main Agent replies stay out of the stage card and end acceptance with exact next actions", () => {
-  assert.match(CHAT_PROMPT, /不要复述卡片内容/);
-  assert.match(CHAT_PROMPT, /不要描述后台、调度器、通知或工具调用过程/);
-  assert.match(CHAT_PROMPT, /有什么变化、下一步是什么、用户是否需要操作/);
-  assert.match(CHAT_PROMPT, /不要轮询或连续重复调用它来等待进展/);
-  const report = ["实际改动：", "验证：", "已知限制：", "下一步："].map((section) =>
-    CHAT_PROMPT.indexOf(section),
+  assert.match(CHAT_PROMPT, /Do not repeat card content/);
+  assert.match(CHAT_PROMPT, /Do not narrate the host, scheduler, notices or tool calls/);
+  assert.match(CHAT_PROMPT, /what changed, what comes next and whether the user needs to act/);
+  assert.match(CHAT_PROMPT, /do not poll or repeatedly call it to wait for progress/);
+  const report = ["Actual changes:", "Verification:", "Known limitations:", "Next actions:"].map(
+    (section) => CHAT_PROMPT.indexOf(section),
   );
   assert.ok(report.every((index, i) => index > 0 && (i === 0 || index > report[i - 1])));
-  assert.match(CHAT_PROMPT, /单独回复“验收通过”.+单独回复“不采纳成果”.+描述需要修改的内容以返工/);
-  assert.match(CHAT_PROMPT, /批准工具必须引用待确认 confirmation\.key 和最新真实用户消息/);
+  assert.match(
+    CHAT_PROMPT,
+    /Reply with “验收通过” alone.+“不采纳成果” alone.+describe the changes needed for rework/,
+  );
+  assert.match(
+    CHAT_PROMPT,
+    /Approval tools must reference the pending confirmation\.key and the latest real user message/,
+  );
   for (const kind of [undefined, "plan", "final"] as const) {
     // The app splits the notice at the first line break before its JSON context.
     assert.doesNotMatch(noticeInstruction(kind), /[\n{]/);
-    assert.match(noticeInstruction(kind), /不要复述卡片摘要，不要描述后台或调度过程/);
+    assert.match(
+      noticeInstruction(kind),
+      /Do not repeat the card summary or narrate background processing or scheduling/,
+    );
   }
 });
 
