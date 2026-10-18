@@ -56,6 +56,8 @@ export interface Conversation {
     id: string;
     key: string;
     text: string;
+    /** Timeline-only progress never starts a provider turn. Older notices used prompts. */
+    delivery?: "timeline" | "prompt";
     state: "pending" | "sending" | "sent";
     attempts?: number;
     createdAt?: number;

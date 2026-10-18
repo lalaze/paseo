@@ -28,6 +28,7 @@ class ChatAgents extends FakeAgents implements ConversationGateway {
   links: { agent: string; conversation: string }[] = [];
   released: string[] = [];
   failCreate = false;
+  failAppendAfterWrite = false;
   async releaseConversation(c: Conversation) {
     this.released.push(c.agentId!);
   }
@@ -80,6 +81,15 @@ class ChatAgents extends FakeAgents implements ConversationGateway {
     await super.send(agent, id, prompt);
     if (this.histories.has(agent))
       this.histories.get(agent)!.push({ type: "user_message", text: prompt, clientMessageId: id });
+  }
+  async appendNotice(agent: string, id: string, text: string) {
+    const history = this.histories.get(agent)!;
+    if (history.some((item) => item.type === "user_message" && item.clientMessageId === id)) return;
+    history.push({ type: "user_message", text, clientMessageId: id });
+    if (this.failAppendAfterWrite) {
+      this.failAppendAfterWrite = false;
+      throw new Error("lost append response");
+    }
   }
   user(agent: string, id: string, text: string) {
     this.histories.get(agent)!.push({ type: "user_message", text, messageId: id });
@@ -651,7 +661,83 @@ test("migration retains every persisted lifecycle state, completed outcomes and 
   assert.equal(h.gateway.sent.filter((s) => s.prompt.startsWith("[paseo-director:")).length, 0);
 });
 
-test("busy main chats queue/coalesce notices, and a lost send acknowledgment is reconciled once", async (t) => {
+test("ordinary progress updates the stage card without starting or interrupting a main turn", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "quiet-progress",
+    workspaceId: "workspace",
+    fresh: true,
+    mode: "execute_review",
+    settings: reviewerSettings(),
+  });
+  h.gateway.user(c.agentId!, "goal", "实现功能");
+  await h.chats.start(c.id, { sourceMessageId: "goal", goal: "实现功能" });
+  h.gateway.states.set(c.agentId!, { status: "running", seen: false, output: "" });
+  await h.chats.tick();
+  const notice = h.store.conversation(c.id).notices.at(-1)!;
+  const history = await h.gateway.conversationHistory(c.agentId!);
+  const item = history.at(-1)!;
+  assert.equal(item.type, "user_message");
+  assert.ok(item.type === "user_message" && readCollaborationNotice(notice.id, item.text));
+  assert.equal(notice.state, "sent");
+  assert.equal(h.gateway.sent.length, 0);
+  assert.equal((await h.gateway.inspect(c.agentId!)).status, "running");
+  assert.equal((await h.chats.status(c.id)).latestUserMessage?.id, "goal");
+  await h.chats.tick();
+  assert.equal(history.length, 2);
+  assert.equal(h.gateway.sent.length, 0);
+});
+
+test("a timeline notice with a lost acknowledgment recovers once after restart without prompting", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "quiet-recovery",
+    workspaceId: "workspace",
+    fresh: true,
+    mode: "execute_review",
+    settings: reviewerSettings(),
+  });
+  h.gateway.user(c.agentId!, "goal", "实现功能");
+  await h.chats.start(c.id, { sourceMessageId: "goal", goal: "实现功能" });
+  h.gateway.failAppendAfterWrite = true;
+  await h.chats.tick();
+  assert.match(h.chats.summary(c.id).error!, /lost append response/);
+  assert.equal(h.store.conversation(c.id).notices.at(-1)?.state, "sending");
+  await h.chats.close();
+  const restarted = new Conversations(h.store, h.engine, h.gateway);
+  t.onTestFinished(() => restarted.close());
+  await restarted.tick();
+  await restarted.tick();
+  assert.equal(h.chats.summary(c.id).error, undefined);
+  assert.equal(h.store.conversation(c.id).notices.at(-1)?.state, "sent");
+  assert.equal(h.gateway.histories.get(c.agentId!)!.length, 2);
+  assert.equal(h.gateway.sent.length, 0);
+});
+
+for (const control of ["needs_attention", "waiting_permission"] as const)
+  test(`${control} still prompts the main Agent once`, async (t) => {
+    const h = await fixture(t);
+    const c = await h.chats.open({
+      requestId: `attention-${control}`,
+      workspaceId: "workspace",
+      fresh: true,
+      mode: "execute_review",
+      settings: reviewerSettings(),
+    });
+    h.gateway.user(c.agentId!, "goal", "实现功能");
+    await h.chats.start(c.id, { sourceMessageId: "goal", goal: "实现功能" });
+    const run = h.store.all()[0];
+    run.control = control;
+    h.store.save(run);
+    await h.chats.tick();
+    assert.equal(h.gateway.sent.length, 1);
+    assert.match(h.gateway.sent[0].prompt, new RegExp(control));
+    h.gateway.idle(c.agentId!);
+    await h.chats.tick();
+    assert.equal(h.gateway.sent.length, 1);
+  });
+
+test("busy main chats queue critical notices, and a lost send acknowledgment is reconciled once", async (t) => {
   const h = await fixture(t),
     c = await h.chats.open({
       requestId: "notifications",
@@ -662,6 +748,9 @@ test("busy main chats queue/coalesce notices, and a lost send acknowledgment is 
     goal: "实现功能",
     sourceMessageId: (await h.chats.status(c.id)).latestUserMessage!.id,
   });
+  const run = h.store.all()[0];
+  run.control = "needs_attention";
+  h.store.save(run);
   await h.chats.tick();
   assert.equal(h.gateway.sent.length, 1);
   h.gateway.idle(c.agentId!);

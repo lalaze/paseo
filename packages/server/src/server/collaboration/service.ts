@@ -28,6 +28,7 @@ import { Conversations } from "./conversations.js";
 import { GitRepository } from "./repository.js";
 import { CollaborationGateway, type CollaborationHost } from "./gateway.js";
 import type { PaseoToolDefinition } from "../agent/tools/types.js";
+import type { ImportedTimelineEntry } from "../agent/agent-sdk-types.js";
 import { workflowEvidence } from "./workflow-evidence.js";
 
 const openSchema = z.object({
@@ -75,6 +76,24 @@ export class CollaborationService {
   }
   isActive() {
     return this.runtime !== null;
+  }
+  timelineNotices(agentId: string): ImportedTimelineEntry[] {
+    const conversations = this.runtime?.store.conversations() ?? [];
+    return conversations
+      .filter((conversation) => conversation.agentId === agentId)
+      .flatMap((conversation) =>
+        conversation.notices
+          .filter((notice) => notice.delivery === "timeline" && notice.state !== "pending")
+          .map(
+            (notice): ImportedTimelineEntry => ({
+              item: { type: "user_message", clientMessageId: notice.id, text: notice.text },
+              timestamp:
+                notice.createdAt === undefined
+                  ? undefined
+                  : new Date(notice.createdAt).toISOString(),
+            }),
+          ),
+      );
   }
   start() {
     if (this.closed) throw new Error("协作服务已关闭");

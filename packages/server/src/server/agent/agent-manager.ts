@@ -323,6 +323,8 @@ export interface AgentManagerOptions {
   onAgentAttention?: AgentAttentionCallback;
   onWorkspaceStateMayHaveChanged?: (params: { cwd: string }) => void;
   durableTimelineStore?: AgentTimelineStore;
+  /** Host-owned display entries are replayed alongside provider history, never sent as prompts. */
+  getHostTimeline?: (agentId: string) => readonly ImportedTimelineEntry[];
   terminalManager?: TerminalManager | null;
   mcpBaseUrl?: string;
   mcpAuthToken?: string;
@@ -731,6 +733,7 @@ export class AgentManager {
   private readonly idFactory: () => string;
   private readonly registry?: AgentStorage;
   private readonly durableTimelineStore?: AgentTimelineStore;
+  private readonly getHostTimeline?: AgentManagerOptions["getHostTimeline"];
   private readonly previousStatuses = new Map<string, AgentLifecycleStatus>();
   private readonly backgroundTasks = new Set<Promise<void>>();
   private readonly agentRegistrationTasks = new Set<Promise<void>>();
@@ -760,6 +763,7 @@ export class AgentManager {
     this.idFactory = options?.idFactory ?? (() => randomUUID());
     this.registry = options?.registry;
     this.durableTimelineStore = options?.durableTimelineStore;
+    this.getHostTimeline = options.getHostTimeline;
     this.onAgentAttention = options?.onAgentAttention;
     this.onWorkspaceStateMayHaveChanged = options?.onWorkspaceStateMayHaveChanged;
     this.mcpBaseUrl = options?.mcpBaseUrl ?? null;
@@ -4051,6 +4055,7 @@ export class AgentManager {
       }
     }
 
+    const timelineHistory = this.withHostTimeline(agent, historyEvents);
     this.agentStreamCoalescer.flushAndDiscard(agent.id);
     await this.deleteCommittedTimeline(agent.id);
     this.timelineStore.delete(agent.id);
@@ -4068,7 +4073,7 @@ export class AgentManager {
         this.dispatch({ type: "provider_subagent", event: update });
       }
     }
-    for (const event of historyEvents) {
+    for (const event of timelineHistory) {
       const row = this.recordTimeline(
         agent.id,
         event.item,
@@ -4084,6 +4089,41 @@ export class AgentManager {
     }
     this.touchUpdatedAt(agent);
     this.emitState(agent);
+  }
+
+  private withHostTimeline(
+    agent: ActiveManagedAgent,
+    history: Extract<AgentStreamEvent, { type: "timeline" }>[],
+  ): Extract<AgentStreamEvent, { type: "timeline" }>[] {
+    const entries = this.getHostTimeline?.(agent.id) ?? [];
+    if (!entries.length) return history;
+    const hostEvents = entries.map(
+      (entry): Extract<AgentStreamEvent, { type: "timeline" }> => ({
+        type: "timeline",
+        provider: agent.provider,
+        item: limitAgentTimelineItemContent(entry.item),
+        timestamp: entry.timestamp,
+      }),
+    );
+    hostEvents.sort((a, b) => Date.parse(a.timestamp ?? "") - Date.parse(b.timestamp ?? ""));
+    const merged: Extract<AgentStreamEvent, { type: "timeline" }>[] = [];
+    let next = 0;
+    // Keep provider replay order even when it omits timestamps or reports them out of order.
+    for (const event of history) {
+      while (next < hostEvents.length) {
+        const pending = hostEvents[next];
+        if (
+          !pending.timestamp ||
+          !event.timestamp ||
+          Date.parse(pending.timestamp) > Date.parse(event.timestamp)
+        )
+          break;
+        merged.push(pending);
+        next++;
+      }
+      merged.push(event);
+    }
+    return merged.concat(hostEvents.slice(next));
   }
 
   private async primeTimelineFromLegacyProviderHistory(
@@ -4120,6 +4160,7 @@ export class AgentManager {
       throw error;
     }
 
+    const timelineHistory = this.withHostTimeline(agent, historyEvents);
     // The replay is the timeline, so drop the rows a previous hydration committed.
     // Keeping them would leave getTimelineRows reading one copy per hydration.
     await this.deleteCommittedTimeline(agent.id);
@@ -4138,7 +4179,7 @@ export class AgentManager {
         this.dispatch(managerEvent);
       }
     }
-    for (const event of historyEvents) {
+    for (const event of timelineHistory) {
       const row = this.recordTimeline(
         agent.id,
         event.item,

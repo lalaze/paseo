@@ -144,9 +144,11 @@ the previous acceptance does not authorize merging the new changes.
 
 ## Conversation timeline
 
-Operation prompts and background notices reach the main Agent as user-role messages. The app
-collects background notices for the same collaboration conversation into one **Collaboration
-progress** card. The card sits at the latest notice, shows the current update and expands
+Operation prompts reach the main Agent as user-role messages. Ordinary progress notices are
+persisted and streamed to the conversation timeline without starting an Agent turn or entering
+the provider's context. Plan approval, final acceptance, blocked or permission states, and failed
+merges still prompt the main Agent. The app collects background notices for the same collaboration
+conversation into one **Collaboration progress** card. The card sits at the latest notice, shows the current update and expands
 into its stage history. Retries and rework stay in that card; a new collaboration conversation
 gets a new card. Ordinary user messages and Agent replies keep their positions. Reloading or
 loading older history rebuilds the card from the persisted notices.

@@ -51,6 +51,28 @@ function shellPollingRows(count = 12, intervalMs = 5000): AgentTimelineRow[] {
   return rows;
 }
 
+test("display-only progress does not interrupt collection of an operation's result", () => {
+  const noticeId = "chat-notice:progress";
+  const notice = {
+    type: "user_message" as const,
+    clientMessageId: noticeId,
+    text: `[paseo-director-chat:${noticeId}]\nCollaboration progress update.\n{"message":"Reviewing"}`,
+  };
+  const messages = inspectMessages(
+    [
+      { type: "user_message", clientMessageId: "operation", text: "Review" },
+      { type: "assistant_message", text: "Checking code" },
+      notice,
+      { type: "assistant_message", text: "Approved" },
+    ],
+    "operation",
+  );
+  assert.deepEqual(messages, { seen: true, interrupted: false, output: "Checking code\nApproved" });
+  const rows = shellPollingRows();
+  rows.splice(2, 0, { seq: 100, timestamp: rows[1].timestamp, item: notice });
+  assert.equal(hasRepeatedShellCalls(rows, "operation"), true);
+});
+
 describe("repeated shell results", () => {
   test("completed Pi bash results without an exit code still detect the captured polling loop", () => {
     const mapper = new PiHistoryMapper("pi");

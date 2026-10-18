@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 import { realpath } from "node:fs/promises";
 import type { AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 import type { Conversation } from "@getpaseo/protocol/collaboration/conversation";
+import { readCollaborationNotice } from "@getpaseo/protocol/collaboration/presentation";
 import {
   operationLabel,
   operationRole,
@@ -125,7 +126,9 @@ export function inspectMessages(items: AgentTimelineItem[], operationId: string)
   );
   if (start < 0) return { seen: false, output: "", interrupted: false };
   const later = items.slice(start + 1);
-  const nextUser = later.findIndex((item) => item.type === "user_message");
+  const nextUser = later.findIndex(
+    (item) => item.type === "user_message" && !isProgressNotice(item),
+  );
   let output = "",
     previousId: string | undefined,
     separated = false;
@@ -146,6 +149,12 @@ export function inspectMessages(items: AgentTimelineItem[], operationId: string)
     separated = false;
   }
   return { seen: true, interrupted: nextUser >= 0, output };
+}
+
+function isProgressNotice(item: AgentTimelineItem): boolean {
+  if (item.type !== "user_message") return false;
+  const id = item.clientMessageId ?? item.messageId;
+  return !!id && id.startsWith("chat-notice:") && !!readCollaborationNotice(id, item.text);
 }
 
 function completedShellResult(item: AgentTimelineItem): string | null {
@@ -184,7 +193,8 @@ export function hasRepeatedShellCalls(
   if (
     current.some(
       ({ item }) =>
-        item.type === "user_message" || (item.type === "tool_call" && item.status === "running"),
+        (item.type === "user_message" && !isProgressNotice(item)) ||
+        (item.type === "tool_call" && item.status === "running"),
     )
   )
     return false;
@@ -435,6 +445,21 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
     const record = await this.host.agentStorage.get(agentId);
     if (!record || record.archivedAt) return { text: "", truncated: false, missing: true };
     return handoffTimelineEvidence(await this.conversationHistory(agentId), operationId);
+  }
+  async appendNotice(agentId: string, messageId: string, text: string) {
+    await this.load(agentId);
+    const rows = await this.host.agentManager.getTimelineRows(agentId);
+    const seen = rows.some(
+      ({ item }) =>
+        item.type === "user_message" &&
+        (item.clientMessageId === messageId || item.messageId === messageId),
+    );
+    if (seen) return;
+    await this.host.agentManager.appendTimelineItem(agentId, {
+      type: "user_message",
+      clientMessageId: messageId,
+      text,
+    });
   }
   async send(agentId: string, operationId: string, prompt: string) {
     const agent = await this.load(agentId);

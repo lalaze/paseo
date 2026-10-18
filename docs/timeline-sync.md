@@ -10,6 +10,10 @@ then replaces the previous tool state or merges into the current text item. Inte
 are never retained for history or catch-up. Provider history is the durable transcript authority
 and rebuilds the projection when an agent resumes.
 
+Collaboration progress notices belong to the host, so they are restored from collaboration
+records alongside provider history. They never enter the provider's context. Keep their original
+timestamps when rebuilding the timeline so stage history survives a daemon restart or agent reload.
+
 The invariants are:
 
 > A continuously subscribed client applies every committed row in order. Opening or resuming an

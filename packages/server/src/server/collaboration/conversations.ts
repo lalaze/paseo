@@ -42,6 +42,8 @@ export interface ConversationGateway {
   appendConversationLink(agentId: string, conversationId: string): Promise<void>;
   inspect(agentId: string, messageId: string, since?: number): Promise<AgentSnapshot>;
   send(agentId: string, messageId: string, text: string): Promise<void>;
+  /** Idempotently persists and broadcasts a notice without sending it to the provider. */
+  appendNotice(agentId: string, messageId: string, text: string): Promise<void>;
   workspaceForDirectory?(cwd: string): Promise<string>;
 }
 const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 24);
@@ -834,11 +836,20 @@ export class Conversations {
     if (key !== c.noticeKey) {
       const changesRequested = !!confirmation && run.finalReview?.decision === "changes_requested";
       const mergeFailed = run.control === "running" && run.delivery?.status === "failed";
+      const needsAgent =
+        !!confirmation ||
+        mergeFailed ||
+        run.control === "needs_attention" ||
+        run.control === "waiting_permission";
+      const delivery = needsAgent ? "prompt" : "timeline";
+      const instruction = needsAgent
+        ? noticeInstruction(confirmation?.kind, changesRequested, mergeFailed)
+        : "Collaboration progress update. No Agent response is required.";
       const id = `chat-notice:${c.id}:${key}:${c.notices.length}`;
-      const text = `[paseo-director-chat:${id}]\n${noticeInstruction(confirmation?.kind, changesRequested, mergeFailed)}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: changesRequested ? run.finalReview : undefined, ...(execution ? { execution } : {}) })}`;
+      const text = `[paseo-director-chat:${id}]\n${instruction}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: changesRequested ? run.finalReview : undefined, ...(execution ? { execution } : {}) })}`;
       // Coalesce unsent intermediate updates; keep sending/sent IDs for recovery.
       c.notices = c.notices.filter((n) => n.state !== "pending");
-      c.notices.push({ id, key, text, state: "pending", createdAt: Date.now() });
+      c.notices.push({ id, key, text, delivery, state: "pending", createdAt: Date.now() });
       c.noticeKey = key;
       c.confirmation = confirmation ? { ...confirmation, noticeId: id } : undefined;
       this.store.saveConversation(c);
@@ -847,6 +858,17 @@ export class Conversations {
   }
   private async deliverNotice(c: Conversation) {
     for (const notice of c.notices.filter((n) => n.state !== "sent")) {
+      if (notice.delivery === "timeline") {
+        notice.state = "sending";
+        this.store.saveConversation(c);
+        await this.gateway.appendNotice(c.agentId!, notice.id, notice.text);
+        notice.state = "sent";
+        c.error = undefined;
+        this.store.saveConversation(c);
+        continue;
+      }
+      // COMPAT(collaborationNoticeDelivery): added in v0.11.1, remove after 2027-04-18 once pending pre-timeline notices are retired.
+      // Notices without a delivery mode retain their original prompt acknowledgment semantics.
       const state = await this.gateway.inspect(c.agentId!, notice.id, notice.createdAt);
       if (state.seen) {
         notice.state = "sent";

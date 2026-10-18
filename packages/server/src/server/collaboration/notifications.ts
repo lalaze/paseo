@@ -10,10 +10,19 @@ export function muteCollaborationNotification(input: {
   conversations: Conversation[];
 }): boolean {
   if (input.reason !== "finished") return false;
-  const message = input.timeline.findLast((item) => item.type === "user_message");
+  const conversation = input.conversations.find((entry) => entry.agentId === input.agentId);
+  const timelineNoticeIds = new Set(
+    conversation?.notices
+      .filter((notice) => notice.delivery === "timeline")
+      .map((notice) => notice.id),
+  );
+  const message = input.timeline.findLast(
+    (item) =>
+      item.type === "user_message" &&
+      !timelineNoticeIds.has(item.clientMessageId ?? item.messageId ?? ""),
+  );
   if (!message || message.type !== "user_message") return false;
   const id = message.clientMessageId ?? message.messageId;
-  const conversation = input.conversations.find((entry) => entry.agentId === input.agentId);
   if (!conversation)
     return input.runs.some((run) =>
       run.operations.some(

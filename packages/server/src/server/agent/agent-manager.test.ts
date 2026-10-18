@@ -692,6 +692,62 @@ test("uses an injected timeline store without making it a production requirement
   }
 });
 
+test("host display entries retain their position across provider history hydration and refresh", async (t) => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-host-history-"));
+  const notice: AgentTimelineItem = {
+    type: "user_message",
+    clientMessageId: "host-progress",
+    text: "Implementation complete",
+  };
+  class HistorySession extends TestAgentSession {
+    override async *streamHistory(): AsyncGenerator<AgentStreamEvent> {
+      yield {
+        type: "timeline",
+        provider: "codex",
+        timestamp: "2026-10-18T11:00:00Z",
+        item: { type: "user_message", text: "Implement the feature" },
+      };
+      yield {
+        type: "timeline",
+        provider: "codex",
+        timestamp: "2026-10-18T11:02:00Z",
+        item: { type: "assistant_message", text: "Review passed" },
+      };
+    }
+  }
+  const client = new (class extends TestAgentClient {
+    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
+      return new HistorySession(config);
+    }
+    override async resumeSession(): Promise<AgentSession> {
+      return new HistorySession({ provider: "codex", cwd: workdir });
+    }
+  })();
+  const manager = new AgentManager({
+    clients: { codex: client },
+    getHostTimeline: () => [{ item: notice, timestamp: "2026-10-18T11:00:00.500Z" }],
+    logger,
+  });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  t.onTestFinished(async () => {
+    await manager.closeAgent(agent.id);
+    rmSync(workdir, { recursive: true, force: true });
+  });
+  const expected = [
+    { type: "user_message", text: "Implement the feature" },
+    notice,
+    { type: "assistant_message", text: "Review passed" },
+  ];
+  await manager.reloadAgentSession(agent.id, undefined, { rehydrateFromDisk: true });
+  await manager.hydrateTimelineFromProvider(agent.id);
+  expect(manager.getTimeline(agent.id)).toEqual(expected);
+  await manager.hydrateTimelineFromProvider(agent.id, { force: true });
+  expect(manager.getTimeline(agent.id)).toEqual(expected);
+  expect(manager.hasInFlightRun(agent.id)).toBe(false);
+});
+
 test("refreshing an agent replaces the injected timeline store instead of appending a second copy", async () => {
   const workdir = mkdtempSync(join(tmpdir(), "agent-manager-timeline-rehydrate-"));
   const store = new RecordingTimelineStore();

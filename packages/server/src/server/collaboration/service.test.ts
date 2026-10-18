@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { DaemonClient } from "../test-utils/daemon-client.js";
-import { readCollaborationPrompt } from "@getpaseo/protocol/collaboration/presentation";
+import {
+  readCollaborationNotice,
+  readCollaborationPrompt,
+} from "@getpaseo/protocol/collaboration/presentation";
 import { finalAcceptance, SettingsSchema } from "@getpaseo/protocol/collaboration/schema";
 import { PARENT_AGENT_ID_LABEL } from "@getpaseo/protocol/agent-labels";
 import { getAgentProviderDefinition } from "@getpaseo/protocol/provider-manifest";
@@ -40,6 +43,7 @@ class NativeToolClient implements AgentClient {
   readonly configs = new Map<string, AgentSessionConfig>();
   readonly workerResults: unknown[] = [];
   readonly reviewResults: unknown[] = [];
+  readonly prompts: { agentId: string; text: string }[] = [];
   constructor(private readonly reviewIndependently = false) {}
   isAvailable() {
     return this.inner.isAvailable();
@@ -66,6 +70,7 @@ class NativeToolClient implements AgentClient {
                 .map((block) => block.text)
                 .join("");
         const operation = readCollaborationPrompt(text);
+        this.prompts.push({ agentId: context!.agentId!, text });
         if (operation?.stage === "final" && this.reviewIndependently) {
           const start = text.indexOf("\n\n{") + 2;
           const end = text.indexOf("\n\nCurrent operationId=", start);
@@ -192,6 +197,17 @@ test.for(["full", "execute_review"] as const)(
       title: "Existing main",
       modeId: "auto",
     });
+    const streamedNotices = new Set<string>();
+    const unsubscribe = daemon.daemon.agentManager.subscribe(
+      (event) => {
+        if (event.type !== "agent_stream" || event.agentId !== main.id) return;
+        if (event.event.type !== "timeline" || event.event.item.type !== "user_message") return;
+        const id = event.event.item.clientMessageId;
+        if (id?.startsWith("chat-notice:")) streamedNotices.add(id);
+      },
+      { agentId: main.id, replayState: false },
+    );
+    t.onTestFinished(unsubscribe);
     const opened = await client.collaborationCommand("conversation.open", {
       mode,
       requestId: "native-test",
@@ -306,6 +322,24 @@ test.for(["full", "execute_review"] as const)(
       )
       .toBe("sent");
     await expect.poll(() => daemon.daemon.agentManager.hasInFlightRun(main.id)).toBe(false);
+    const progress = reader
+      .conversations()[0]
+      .notices.filter((notice) => notice.delivery === "timeline" && notice.state === "sent");
+    expect(progress.length).toBeGreaterThan(0);
+    const timeline = await daemon.daemon.agentManager.getTimelineRows(main.id);
+    for (const notice of progress) {
+      expect(readCollaborationNotice(notice.id, notice.text)).toBeDefined();
+      expect(streamedNotices.has(notice.id)).toBe(true);
+      expect(
+        timeline.filter(
+          ({ item }) => item.type === "user_message" && item.clientMessageId === notice.id,
+        ),
+      ).toHaveLength(1);
+      expect(provider.prompts.some((prompt) => prompt.text.includes(notice.id))).toBe(false);
+    }
+    expect(provider.prompts.some((prompt) => prompt.text.includes(confirmation.noticeId))).toBe(
+      true,
+    );
     await client.sendMessage(main.id, "验收通过", { messageId: "accept-native-result" });
     expect(
       await tools.executeTool("control_task", {
@@ -347,6 +381,18 @@ test.for(["full", "execute_review"] as const)(
       await exec("git", ["stash", "apply", "--index", stash], { cwd: target });
       expect(await readFile(join(target, "personal.txt"), "utf8")).toBe("Preserve user work\n");
     }
+    await expect.poll(() => daemon.daemon.agentManager.hasInFlightRun(main.id)).toBe(false);
+    await daemon.daemon.agentManager.reloadAgentSession(main.id, undefined, {
+      rehydrateFromDisk: true,
+    });
+    await daemon.daemon.agentManager.hydrateTimelineFromProvider(main.id);
+    const replay = await daemon.daemon.agentManager.getTimelineRows(main.id);
+    for (const notice of progress)
+      expect(
+        replay.filter(
+          ({ item }) => item.type === "user_message" && item.clientMessageId === notice.id,
+        ),
+      ).toHaveLength(1);
   },
   60000,
 );
