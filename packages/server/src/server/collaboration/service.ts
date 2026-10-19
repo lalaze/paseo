@@ -248,8 +248,14 @@ export class CollaborationService {
       case "conversation.open": {
         const request = openSchema.parse(input);
         if (request.settings) request.settings.rolePrompts = store.rolePrompts();
-        await conversations.open(request);
-        break;
+        const opened = await conversations.open(request);
+        this.wake();
+        const state = this.status();
+        const entry = state.conversations.find((candidate) => candidate.id === opened.id);
+        // A retry can reuse a different reviewer Agent and an older creation request. Correlate
+        // this reply with the caller's request without rewriting the persisted creation identity.
+        if (entry) entry.requestId = request.requestId;
+        return state;
       }
       case "conversation.resync":
         await conversations.resync(z.object({ id: z.string() }).parse(input).id);

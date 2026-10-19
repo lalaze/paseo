@@ -741,3 +741,64 @@ test("inline collaboration models use task defaults and prompts saved without ag
   });
   expect(repeated.conversations[0].settings).toEqual(opened.conversations[0].settings);
 });
+
+test("reopening from the original chat after restoring a different reviewer remains discoverable by the current request", async (t) => {
+  const repo = await mkdtemp(join(tmpdir(), "collaboration-open-retry-"));
+  t.onTestFinished(() => rm(repo, { recursive: true, force: true }));
+  const provider = new NativeToolClient();
+  const daemon = await createTestPaseoDaemon({ agentClients: { codex: provider } });
+  t.onTestFinished(() => daemon.close());
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  t.onTestFinished(() => client.close());
+  await client.connect();
+  const original = await client.createAgent({
+    provider: "codex",
+    model: "gpt-5.4-mini",
+    cwd: repo,
+  });
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "reviewer", label: "Reviewer", provider: "codex/gpt-5.4", transport: "mcp" }],
+    directorProfileId: "reviewer",
+    workerProfileId: "reviewer",
+    reviewerProfileId: "reviewer",
+    reviewerAsLead: true,
+  });
+  const input = {
+    requestId: "first-enable",
+    agentId: original.id,
+    workspaceId: original.workspaceId,
+    mode: "execute_review",
+    settings,
+  };
+  const first = await client.collaborationCommand("conversation.open", input);
+  const conversation = first.conversations.find((entry) => entry.requestId === input.requestId)!;
+  expect(conversation.agentId).not.toBe(original.id);
+  expect(
+    await provider.catalogs.get(conversation.agentId!)!.executeTool("get_conversation_status", {}),
+  ).not.toHaveProperty("isError", true);
+  await expect
+    .poll(() => daemon.daemon.agentManager.hasInFlightRun(conversation.agentId!))
+    .toBe(false);
+  await client.archiveAgent(conversation.agentId!);
+  await client.sendMessage(conversation.agentId!, "继续", { messageId: "restore-reviewer" });
+  await expect
+    .poll(() => daemon.daemon.agentManager.hasInFlightRun(conversation.agentId!))
+    .toBe(false);
+  const restored = await client.fetchAgent(conversation.agentId!);
+  expect(restored!.agent.archivedAt).toBeNull();
+  const retryRequestId = "retry-after-restore";
+  const retried = await client.collaborationCommand("conversation.open", {
+    ...input,
+    requestId: retryRequestId,
+  });
+  // This is the existing app's lookup, including its fallback for an unchanged main Agent.
+  const selected = retried.conversations.find(
+    (entry) => entry.requestId === retryRequestId || entry.agentId === original.id,
+  );
+  expect(selected?.id).toBe(conversation.id);
+  expect(selected?.agentId).toBe(restored!.agent.id);
+  expect(retried.conversations).toHaveLength(1);
+  const status = await client.collaborationCommand("status");
+  expect(status.conversations[0].requestId).toBe(input.requestId);
+  expect(status.conversations[0].run).toBeUndefined();
+}, 60000);
