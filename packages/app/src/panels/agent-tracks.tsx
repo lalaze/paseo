@@ -13,6 +13,7 @@ import {
   type ArchiveFinishedStatus,
   useArchiveSubagent,
   useDetachSubagent,
+  useSubagentOpensInSheet,
   type SubagentRow,
 } from "@/subagents";
 import { SubagentsTrack } from "@/subagents/track";
@@ -56,7 +57,7 @@ export const AgentTracks = memo(function AgentTracks({
   onArchiveFinished: () => void;
   hasPluginComposerPills: boolean;
 }): ReactElement | null {
-  const { tabId, openTab, workspaceId: displayWorkspaceId } = usePaneContext();
+  const { tabId, workspaceId: displayWorkspaceId } = usePaneContext();
   const hasWorkspaceDiffStat = useWorkspaceHasDiffStat(serverId, agentWorkspaceId);
   const isCompact = useIsCompactFormFactor();
   const canSplit = supportsDesktopPaneSplits() && !isCompact;
@@ -75,21 +76,17 @@ export const AgentTracks = memo(function AgentTracks({
   const handleOpenSubagent = useOpenSubagent({ serverId });
   const handleOpenProviderSubagent = useCallback(
     (parentAgentId: string, subagentId: string) => {
-      if (canSplit && displayWorkspaceKey) {
-        openPreferredWorkspaceTarget({
-          isCompact,
-          workspaceKey: displayWorkspaceKey,
-          target: { kind: "provider_subagent", parentAgentId, subagentId },
-          source: "subagents",
-          preferences: openInSidePane,
-          parentTabId: tabId,
-        });
-        return;
-      }
-      openTab({ kind: "provider_subagent", parentAgentId, subagentId });
+      openPreferredWorkspaceTarget({
+        workspaceKey: displayWorkspaceKey,
+        target: { kind: "provider_subagent", parentAgentId, subagentId },
+        source: "subagents",
+        preferences: openInSidePane,
+        parentTabId: tabId,
+      });
     },
-    [canSplit, displayWorkspaceKey, isCompact, openInSidePane, openTab, tabId],
+    [displayWorkspaceKey, openInSidePane, tabId],
   );
+  const opensInSheet = useSubagentOpensInSheet(displayWorkspaceKey);
   const handleOpenChanges = useCallback(() => {
     const plan = planAgentChangesOpen({
       serverId,
@@ -136,6 +133,7 @@ export const AgentTracks = memo(function AgentTracks({
         rows={subagentRows}
         onOpenSubagent={handleOpenSubagent}
         onOpenProviderSubagent={handleOpenProviderSubagent}
+        opensInSheet={opensInSheet}
         onArchiveSubagent={archiveSubagent}
         onArchiveFinished={onArchiveFinished}
         archiveFinishedStatus={archiveFinishedStatus}

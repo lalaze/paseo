@@ -5,8 +5,7 @@ import * as Sharing from "expo-sharing";
 import type { HostProfile } from "@/types/host-connection";
 import { buildDaemonWebSocketUrl } from "@/utils/daemon-endpoints";
 import { openExternalUrl } from "@/utils/open-external-url";
-import { getIsElectron, isWeb } from "@/constants/platform";
-import { downloadSshFile } from "@/desktop/daemon/file-download";
+import { isWeb } from "@/constants/platform";
 import { i18n } from "@/i18n/i18next";
 
 interface DownloadProgress {
@@ -15,6 +14,16 @@ interface DownloadProgress {
   totalBytes: number;
   speed: number;
   eta: number;
+}
+
+// The session path holds the file in memory two to three times over (client chunks, the
+// concatenated result, then the Blob or native write). Lift once the client streams chunks to disk.
+export const MAX_SESSION_DOWNLOAD_BYTES = 64 * 1024 * 1024;
+
+export interface DownloadedBytes {
+  bytes: Uint8Array;
+  fileName: string;
+  mimeType: string | null;
 }
 
 export interface Download {
@@ -38,13 +47,18 @@ interface DownloadState {
     fileName: string;
     path: string;
     daemonProfile: HostProfile | undefined;
+    /** Connection the host runtime is using right now; `null` while disconnected. */
     activeConnectionId: string | null;
     requestFileDownloadToken: (path: string) => Promise<{
       token: string | null;
       fileName: string | null;
       mimeType: string | null;
+      size: number | null;
       error: string | null;
     }>;
+    /** Reads the whole file over the session socket; used when no direct HTTP endpoint is active. */
+    readFile: (path: string, maxBytes: number) => Promise<{ bytes: Uint8Array; size: number }>;
+    saveFile?: typeof saveDownloadedBytes;
   }) => Promise<void>;
 
   updateProgress: (id: string, progress: DownloadProgress) => void;
@@ -70,6 +84,8 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
     daemonProfile,
     activeConnectionId,
     requestFileDownloadToken,
+    readFile,
+    saveFile = saveDownloadedBytes,
   }) => {
     const id = generateDownloadId();
     const download: Download = {
@@ -93,38 +109,37 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
       }
 
       const resolvedFileName = tokenResponse.fileName ?? fileName;
-      const downloadStartTime = Date.now();
-      const reportProgress = (bytesWritten: number, totalBytes: number) => {
-        if (totalBytes <= 0) return;
-        const elapsed = (Date.now() - downloadStartTime) / 1000;
-        const speed = elapsed > 0 ? bytesWritten / elapsed : 0;
-        get().updateProgress(id, {
-          percent: bytesWritten / totalBytes,
-          bytesWritten,
-          totalBytes,
-          speed,
-          eta: speed > 0 ? (totalBytes - bytesWritten) / speed : 0,
-        });
-      };
-      const activeConnection = daemonProfile?.connections.find(
-        (connection) => connection.id === activeConnectionId,
-      );
-      if (getIsElectron() && activeConnection?.type === "remoteSsh") {
-        const result = await downloadSshFile({
-          downloadId: id,
-          connection: activeConnection,
-          token: tokenResponse.token,
-          fileName: resolvedFileName,
-          onProgress: reportProgress,
-        });
-        if (result === "cancelled") {
-          throw new Error(i18n.t("downloads.cancelled"));
+      const downloadTarget = resolveDaemonDownloadTarget(daemonProfile, activeConnectionId);
+      if (!downloadTarget) {
+        // Relay, SSH, socket and pipe hosts have no HTTP endpoint: read the file over the
+        // session socket that is already connected (#543).
+        if (
+          typeof tokenResponse.size === "number" &&
+          tokenResponse.size > MAX_SESSION_DOWNLOAD_BYTES
+        ) {
+          throw new Error(
+            i18n.t("composer.errors.fileTooLarge", { fileName: resolvedFileName, size: "64 MB" }),
+          );
         }
+        const { bytes, size } = await readFile(path, MAX_SESSION_DOWNLOAD_BYTES);
+        // A daemon without a binary channel answers `encoding: "none"` for a binary file: no
+        // content, real size. Never save that as a complete download.
+        if (bytes.byteLength !== size) {
+          throw new Error(
+            `File transfer incomplete: expected ${size} bytes, received ${bytes.byteLength}.`,
+          );
+        }
+        const savedUri = await saveFile({
+          bytes,
+          fileName: resolvedFileName,
+          mimeType: tokenResponse.mimeType,
+        });
         get().completeDownload(id);
+        if (savedUri !== null) {
+          await shareSavedFile(savedUri, tokenResponse.mimeType, resolvedFileName);
+        }
         return;
       }
-
-      const downloadTarget = resolveDaemonDownloadTarget(daemonProfile);
       if (!downloadTarget.baseUrl) {
         throw new Error(i18n.t("downloads.hostUnavailable"));
       }
@@ -141,6 +156,7 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
         return;
       }
 
+      const downloadStartTime = Date.now();
       const targetFile = resolveDownloadTargetFile(resolvedFileName);
       const downloadResumable = LegacyFileSystem.createDownloadResumable(
         downloadUrl,
@@ -149,7 +165,26 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
           ? { headers: { Authorization: downloadTarget.authHeader } }
           : undefined,
         (data) => {
-          reportProgress(data.totalBytesWritten, data.totalBytesExpectedToWrite);
+          const now = Date.now();
+          const { totalBytesWritten, totalBytesExpectedToWrite } = data;
+
+          if (totalBytesExpectedToWrite <= 0) {
+            return;
+          }
+
+          const percent = totalBytesWritten / totalBytesExpectedToWrite;
+          const elapsed = (now - downloadStartTime) / 1000;
+          const speed = elapsed > 0 ? totalBytesWritten / elapsed : 0;
+          const remaining = totalBytesExpectedToWrite - totalBytesWritten;
+          const eta = speed > 0 ? remaining / speed : 0;
+
+          get().updateProgress(id, {
+            percent,
+            bytesWritten: totalBytesWritten,
+            totalBytes: totalBytesExpectedToWrite,
+            speed,
+            eta,
+          });
         },
       );
 
@@ -160,16 +195,14 @@ export const useDownloadStore = create<DownloadState>()((set, get) => ({
 
       get().completeDownload(id);
 
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(result.uri, {
-          mimeType: tokenResponse.mimeType ?? undefined,
-          dialogTitle: resolvedFileName
-            ? i18n.t("downloads.shareFileNamed", { fileName: resolvedFileName })
-            : i18n.t("downloads.shareFile"),
-        });
-      }
+      await shareSavedFile(result.uri, tokenResponse.mimeType, resolvedFileName);
     } catch (error) {
       const message = error instanceof Error ? error.message : i18n.t("downloads.failed");
+      if (isWeb) {
+        console.warn("[DownloadStore] Download failed:", message);
+        get().failDownload(id, message);
+        return;
+      }
       get().failDownload(id, message);
     }
   },
@@ -253,10 +286,18 @@ interface DownloadTarget {
   authCredentials: { username: string; password: string } | null;
 }
 
-function resolveDaemonDownloadTarget(daemon?: HostProfile): DownloadTarget {
-  const connection = daemon?.connections.find((conn) => conn.type === "directTcp") ?? null;
-  if (!connection) {
-    return { baseUrl: null, authHeader: null, authCredentials: null };
+/**
+ * The HTTP download route is only reachable over a direct TCP connection. Returns `null` when
+ * the connection in use is anything else (relay, SSH, socket, pipe, or none yet), so the caller
+ * reads the file over the session socket instead.
+ */
+function resolveDaemonDownloadTarget(
+  daemon: HostProfile | undefined,
+  activeConnectionId: string | null,
+): DownloadTarget | null {
+  const connection = daemon?.connections.find((conn) => conn.id === activeConnectionId);
+  if (connection?.type !== "directTcp") {
+    return null;
   }
 
   let parsed: URL;
@@ -306,6 +347,47 @@ function buildDownloadUrl(
     url.password = authCredentials.password;
   }
   return url.toString();
+}
+
+/**
+ * Saves bytes read over the session. Web and Electron hand them to the browser's download
+ * manager and return `null`; native writes the file and returns its URI for the share sheet.
+ */
+async function saveDownloadedBytes({
+  bytes,
+  fileName,
+  mimeType,
+}: DownloadedBytes): Promise<string | null> {
+  if (isWeb) {
+    const buffer = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(buffer).set(bytes);
+    const url = URL.createObjectURL(
+      new Blob([buffer], { type: mimeType ?? "application/octet-stream" }),
+    );
+    triggerBrowserDownload(url, fileName);
+    // The browser may still be reading the blob while its save prompt is open.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return null;
+  }
+  // Resolve and write in one tick so two downloads of the same name cannot pick the same path.
+  const targetFile = resolveDownloadTargetFile(fileName);
+  targetFile.write(bytes);
+  return targetFile.uri;
+}
+
+async function shareSavedFile(
+  uri: string,
+  mimeType: string | null,
+  fileName: string,
+): Promise<void> {
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri, {
+      mimeType: mimeType ?? undefined,
+      dialogTitle: fileName
+        ? i18n.t("downloads.shareFileNamed", { fileName })
+        : i18n.t("downloads.shareFile"),
+    });
+  }
 }
 
 function triggerBrowserDownload(url: string, fileName: string) {

@@ -1,7 +1,7 @@
 import type { ExplorerDirectory, ExplorerEntry } from "@/stores/session-store";
 import type { SortOption } from "@/stores/panel-store/state";
 import { parentExplorerPath } from "@/utils/explorer-paths";
-import { filterVisibleExplorerEntries } from "./visibility";
+import { filterVisibleExplorerEntries, isHiddenExplorerPath } from "./visibility";
 
 export const MAX_AUTO_EXPANDED_DIRECTORY_DEPTH = 5;
 
@@ -246,4 +246,25 @@ export function reorderExplorerEntries(
   const targetIndex = reordered.indexOf(target);
   reordered.splice(targetIndex + (position === "after" ? 1 : 0), 0, source);
   return reordered;
+}
+
+/** Load and expand the path to a directory selected outside the tree. */
+export async function revealExplorerDirectory(input: {
+  directoryPath: string;
+  requestDirectoryListing: (path: string) => Promise<ExplorerDirectory | null>;
+  expandPaths: (paths: string[]) => void;
+  showHiddenFiles: () => void;
+}): Promise<void> {
+  if (isHiddenExplorerPath(input.directoryPath)) input.showHiddenFiles();
+  const paths = ["."];
+  if (input.directoryPath !== ".") {
+    const segments = input.directoryPath.split("/").filter(Boolean);
+    for (let length = 1; length <= segments.length; length += 1) {
+      paths.push(segments.slice(0, length).join("/"));
+    }
+  }
+  for (const path of paths) {
+    if (!(await input.requestDirectoryListing(path))) return;
+  }
+  input.expandPaths(paths);
 }

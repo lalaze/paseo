@@ -37,6 +37,7 @@ import { buildImageBackgroundTheme } from "./background-theme";
 import { BingBackground } from "./bing/background";
 import { BingWallpaperContext, useBingWallpaperController } from "./bing/use-wallpaper";
 import { NavigationThemeProvider } from "@/navigation/theme-provider";
+import { AppearanceSystemBars } from "./system-bars";
 
 interface ContributedThemes {
   options: PluginThemeOption[];
@@ -152,6 +153,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
   return (
     <ContributedThemesContext.Provider value={value}>
+      <AppearanceSystemBars />
       <BingWallpaperContext.Provider value={bing}>
         <SkinBackground disabled={bing.enabled} />
         <BingBackground

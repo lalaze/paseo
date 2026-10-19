@@ -12,8 +12,9 @@ interface UseFileDownloadParams {
 /**
  * Returns a stable callback that downloads a single workspace file by its
  * workspace-relative path. Shared by the file explorer tree and the git diff
- * pane so both surfaces download through the same host token + download-store
- * pipeline instead of duplicating the plumbing.
+ * pane so both surfaces download through the same download-store pipeline instead
+ * of duplicating the plumbing: the HTTP token download over a direct TCP connection,
+ * the session socket over anything else.
  */
 export function useFileDownload({
   serverId,
@@ -30,7 +31,7 @@ export function useFileDownload({
     () => workspaceId?.trim() || normalizedWorkspaceRoot,
     [normalizedWorkspaceRoot, workspaceId],
   );
-  const { requestFileDownloadToken } = useFileExplorerActions({
+  const { requestFileDownloadToken, requestFileBytes } = useFileExplorerActions({
     serverId,
     workspaceId,
     workspaceRoot: normalizedWorkspaceRoot,
@@ -50,8 +51,16 @@ export function useFileDownload({
         daemonProfile,
         activeConnectionId: getHostRuntimeStore().getSnapshot(serverId)?.activeConnectionId ?? null,
         requestFileDownloadToken: (targetPath) => requestFileDownloadToken(targetPath),
+        readFile: requestFileBytes,
       });
     },
-    [daemonProfile, requestFileDownloadToken, serverId, startDownload, workspaceScopeId],
+    [
+      daemonProfile,
+      requestFileBytes,
+      requestFileDownloadToken,
+      serverId,
+      startDownload,
+      workspaceScopeId,
+    ],
   );
 }

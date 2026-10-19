@@ -177,7 +177,6 @@ function openSubagentTab(input: {
     throw new Error(`Expected a preferred open, got ${plan.kind}`);
   }
   return openPreferredWorkspaceTarget({
-    isCompact: false,
     workspaceKey: plan.workspaceKey,
     target: { kind: "agent", agentId: input.subagentId },
     source: "subagents",
@@ -413,7 +412,6 @@ describe("workspace subagents integration", () => {
     reconcileFor(MAIN_WORKSPACE_KEY, WORKSPACE_ID);
 
     const tabId = openPreferredWorkspaceTarget({
-      isCompact: false,
       workspaceKey: MAIN_WORKSPACE_KEY,
       target: { kind: "provider_subagent", parentAgentId: "worker-agent", subagentId: "task-1" },
       source: "subagents",

@@ -1,161 +1,265 @@
-// @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { defaultHostAppearance } from "@/hosts/appearance";
-import type { HostProfile } from "@/types/host-connection";
-import { useDownloadStore } from "./download-store";
+import { i18n } from "@/i18n/i18next";
+import {
+  MAX_SESSION_DOWNLOAD_BYTES,
+  useDownloadStore,
+  type Download,
+  type DownloadedBytes,
+} from "@/stores/download-store";
+import type {
+  DirectTcpHostConnection,
+  HostProfile,
+  RelayHostConnection,
+} from "@/types/host-connection";
 
-const desktop = vi.hoisted(() => ({
-  invoke: vi.fn(),
-  listen: vi.fn(),
-  unlisten: vi.fn(),
-}));
+const FILE_BYTES = new TextEncoder().encode("relay download payload");
+const FILE_PATH = "reports/données été.bin";
+const FILE_NAME = "données été.bin";
+const MIME_TYPE = "application/octet-stream";
 
-// File-system and Electron APIs are platform boundaries; the download store is real.
-vi.mock("expo-file-system", () => ({ File: vi.fn(), Paths: {} }));
-vi.mock("expo-file-system/legacy", () => ({}));
-vi.mock("expo-sharing", () => ({}));
-vi.mock("@/constants/platform", () => ({ isWeb: true, getIsElectron: () => true }));
-vi.mock("@/desktop/host", () => ({
-  getDesktopHost: () => ({ invoke: desktop.invoke, events: { on: desktop.listen } }),
-}));
-vi.mock("@/i18n/i18next", () => ({ i18n: { t: (key: string) => key } }));
-
-const sshHost: HostProfile = {
-  serverId: "remote-host",
-  label: "Remote host",
-  appearance: defaultHostAppearance(),
-  lifecycle: {},
-  connections: [
-    { id: "ssh", type: "remoteSsh", host: "build-box", sshPort: 2222, daemonPort: 7777 },
-  ],
-  preferredConnectionId: "ssh",
-  createdAt: "2026-09-23T00:00:00Z",
-  updatedAt: "2026-09-23T00:00:00Z",
+const relayConnection: RelayHostConnection = {
+  id: "relay:relay.paseo.sh:443",
+  type: "relay",
+  relayEndpoint: "relay.paseo.sh:443",
+  daemonPublicKeyB64: "cHVibGljLWtleQ==",
 };
 
-function downloadParams(daemonProfile = sshHost) {
+// The #3753 shape: the relay hostname stored as a directTcp entry that nothing can reach.
+const staleTcpConnection: DirectTcpHostConnection = {
+  id: "direct:relay.paseo.sh:443",
+  type: "directTcp",
+  endpoint: "relay.paseo.sh:443",
+};
+
+const localTcpConnection: DirectTcpHostConnection = {
+  id: "direct:localhost:6767",
+  type: "directTcp",
+  endpoint: "localhost:6767",
+};
+
+function profileWith(connections: HostProfile["connections"]): HostProfile {
   return {
-    serverId: sshHost.serverId,
-    scopeId: "workspace",
-    fileName: "audio.mp3",
-    path: "music/audio.mp3",
-    daemonProfile,
-    activeConnectionId: "ssh",
-    requestFileDownloadToken: async () => ({
-      token: "download-token",
-      fileName: "audio.mp3",
-      mimeType: "audio/mpeg",
-      error: null,
-    }),
+    serverId: "srv_remote",
+    label: "Remote",
+    appearance: defaultHostAppearance(),
+    lifecycle: {},
+    connections,
+    preferredConnectionId: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
   };
 }
 
-describe("workspace downloads", () => {
+function createTokenRequest(size: number | null = FILE_BYTES.byteLength) {
+  const requested: string[] = [];
+  return {
+    requested,
+    request: async (path: string) => {
+      requested.push(path);
+      return { token: "tok", fileName: FILE_NAME, mimeType: MIME_TYPE, size, error: null };
+    },
+  };
+}
+
+function createFileReader(read: () => Promise<{ bytes: Uint8Array; size: number }>) {
+  const requested: string[] = [];
+  return {
+    requested,
+    read: async (path: string) => {
+      requested.push(path);
+      return read();
+    },
+  };
+}
+
+function createFileSaver() {
+  const savedFiles: DownloadedBytes[] = [];
+  return {
+    savedFiles,
+    save: async (file: DownloadedBytes) => {
+      savedFiles.push(file);
+      return null;
+    },
+  };
+}
+
+interface StartInput {
+  profile: HostProfile;
+  activeConnectionId: string | null;
+  token?: ReturnType<typeof createTokenRequest>;
+  reader?: ReturnType<typeof createFileReader>;
+  saver?: ReturnType<typeof createFileSaver>;
+}
+
+async function startDownload(input: StartInput): Promise<Download | undefined> {
+  const token = input.token ?? createTokenRequest();
+  const reader =
+    input.reader ??
+    createFileReader(async () => ({ bytes: FILE_BYTES, size: FILE_BYTES.byteLength }));
+  const saver = input.saver ?? createFileSaver();
+  await useDownloadStore.getState().startDownload({
+    serverId: "srv_remote",
+    scopeId: "workspace-1",
+    fileName: FILE_NAME,
+    path: FILE_PATH,
+    daemonProfile: input.profile,
+    activeConnectionId: input.activeConnectionId,
+    requestFileDownloadToken: token.request,
+    readFile: reader.read,
+    saveFile: saver.save,
+  });
+  const { activeDownloadId, downloads } = useDownloadStore.getState();
+  return activeDownloadId ? downloads.get(activeDownloadId) : undefined;
+}
+
+describe("download store transport selection", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     useDownloadStore.setState({ downloads: new Map(), activeDownloadId: null });
-    desktop.listen.mockResolvedValue(desktop.unlisten);
-    desktop.invoke.mockResolvedValue("completed");
   });
 
-  it("downloads from an SSH-only host without requiring a direct TCP address", async () => {
-    await useDownloadStore.getState().startDownload(downloadParams());
+  it("downloads over the session when the active connection is the relay", async () => {
+    const token = createTokenRequest();
+    const reader = createFileReader(async () => ({
+      bytes: FILE_BYTES,
+      size: FILE_BYTES.byteLength,
+    }));
+    const saver = createFileSaver();
 
-    expect([...useDownloadStore.getState().downloads.values()]).toEqual([
-      expect.objectContaining({ fileName: "audio.mp3", status: "complete" }),
+    const download = await startDownload({
+      profile: profileWith([relayConnection]),
+      activeConnectionId: relayConnection.id,
+      token,
+      reader,
+      saver,
+    });
+
+    expect(download).toMatchObject({ fileName: FILE_NAME, status: "complete" });
+    expect(token.requested).toEqual([FILE_PATH]);
+    expect(reader.requested).toEqual([FILE_PATH]);
+    expect(saver.savedFiles).toEqual([
+      { bytes: FILE_BYTES, fileName: FILE_NAME, mimeType: MIME_TYPE },
     ]);
-    expect(desktop.invoke).toHaveBeenCalledWith("download_ssh_file", {
-      downloadId: expect.any(String),
-      target: { transportType: "ssh", host: "build-box", sshPort: 2222, daemonPort: 7777 },
-      token: "download-token",
-      fileName: "audio.mp3",
-    });
-    expect(desktop.unlisten).toHaveBeenCalledOnce();
   });
 
-  it("uses the active SSH connection even when the host also has a direct TCP address", async () => {
-    await useDownloadStore.getState().startDownload(
-      downloadParams({
-        ...sshHost,
-        connections: [
-          { id: "tcp", type: "directTcp", endpoint: "unreachable.example:6767" },
-          ...sshHost.connections,
-        ],
-      }),
-    );
-
-    expect(desktop.invoke).toHaveBeenCalledWith("download_ssh_file", expect.any(Object));
-    expect([...useDownloadStore.getState().downloads.values()][0]?.status).toBe("complete");
+  it("bounds the session read even when the token reports a smaller file", async () => {
+    const readRequests: Array<{ path: string; maxBytes: number }> = [];
+    const saver = createFileSaver();
+    await useDownloadStore.getState().startDownload({
+      serverId: "srv_remote",
+      scopeId: "workspace-1",
+      fileName: FILE_NAME,
+      path: FILE_PATH,
+      daemonProfile: profileWith([relayConnection]),
+      activeConnectionId: relayConnection.id,
+      requestFileDownloadToken: createTokenRequest(1).request,
+      readFile: async (path: string, maxBytes: number) => {
+        readRequests.push({ path, maxBytes });
+        return { bytes: FILE_BYTES, size: FILE_BYTES.byteLength };
+      },
+      saveFile: saver.save,
+    });
+    expect(readRequests).toEqual([{ path: FILE_PATH, maxBytes: MAX_SESSION_DOWNLOAD_BYTES }]);
+    expect(saver.savedFiles).toEqual([
+      { bytes: FILE_BYTES, fileName: FILE_NAME, mimeType: MIME_TYPE },
+    ]);
   });
 
-  it("shows progress and waits for the native download to finish before reporting success", async () => {
-    let onProgress: (payload: unknown) => void = () => {};
-    desktop.listen.mockImplementation(async (_event, listener) => {
-      onProgress = listener;
-      return desktop.unlisten;
-    });
-    let complete = (_result: string) => {};
-    const completion = new Promise<string>((resolve) => {
-      complete = resolve;
-    });
-    desktop.invoke.mockReturnValue(completion);
-    const downloading = useDownloadStore.getState().startDownload(downloadParams());
-    await vi.waitFor(() => expect(desktop.invoke).toHaveBeenCalledOnce());
-    const downloadId = useDownloadStore.getState().activeDownloadId;
+  it("ignores a directTcp entry that is not the active connection", async () => {
+    const reader = createFileReader(async () => ({
+      bytes: FILE_BYTES,
+      size: FILE_BYTES.byteLength,
+    }));
+    const saver = createFileSaver();
 
-    onProgress({ downloadId: "other-download", bytesWritten: 80, totalBytes: 100 });
-    expect([...useDownloadStore.getState().downloads.values()][0]?.progress).toBeUndefined();
-    onProgress({ downloadId, bytesWritten: 40, totalBytes: 100 });
-    expect([...useDownloadStore.getState().downloads.values()][0]).toMatchObject({
-      status: "downloading",
-      progress: { bytesWritten: 40, totalBytes: 100, percent: 0.4 },
+    const download = await startDownload({
+      profile: profileWith([staleTcpConnection, relayConnection]),
+      activeConnectionId: relayConnection.id,
+      reader,
+      saver,
     });
 
-    complete("completed");
-    await downloading;
-    expect([...useDownloadStore.getState().downloads.values()][0]?.status).toBe("complete");
-    expect(desktop.unlisten).toHaveBeenCalledOnce();
+    expect(download).toMatchObject({ status: "complete" });
+    expect(reader.requested).toEqual([FILE_PATH]);
+    expect(saver.savedFiles).toHaveLength(1);
   });
 
-  it("reports cancellation and releases the progress listener", async () => {
-    desktop.invoke.mockResolvedValue("cancelled");
-    await useDownloadStore.getState().startDownload(downloadParams());
+  it("keeps the HTTP token download when the active connection is directTcp", async () => {
+    const reader = createFileReader(async () => ({
+      bytes: FILE_BYTES,
+      size: FILE_BYTES.byteLength,
+    }));
+    const saver = createFileSaver();
 
-    expect([...useDownloadStore.getState().downloads.values()][0]).toMatchObject({
+    const download = await startDownload({
+      profile: profileWith([localTcpConnection, relayConnection]),
+      activeConnectionId: localTcpConnection.id,
+      reader,
+      saver,
+    });
+
+    expect(download).toMatchObject({ status: "complete" });
+    expect(reader.requested).toEqual([]);
+    expect(saver.savedFiles).toEqual([]);
+  });
+
+  it("fails the download and saves nothing when the session read fails", async () => {
+    const reader = createFileReader(async () => {
+      throw new Error("Connection lost");
+    });
+    const saver = createFileSaver();
+
+    const download = await startDownload({
+      profile: profileWith([relayConnection]),
+      activeConnectionId: relayConnection.id,
+      reader,
+      saver,
+    });
+
+    expect(download).toMatchObject({ status: "error", message: "Connection lost" });
+    expect(saver.savedFiles).toEqual([]);
+  });
+
+  it("refuses a file over the session size limit before reading it", async () => {
+    const token = createTokenRequest(MAX_SESSION_DOWNLOAD_BYTES + 1);
+    const reader = createFileReader(async () => ({
+      bytes: FILE_BYTES,
+      size: FILE_BYTES.byteLength,
+    }));
+    const saver = createFileSaver();
+
+    const download = await startDownload({
+      profile: profileWith([relayConnection]),
+      activeConnectionId: relayConnection.id,
+      token,
+      reader,
+      saver,
+    });
+
+    expect(download).toMatchObject({
       status: "error",
-      message: "downloads.cancelled",
+      message: i18n.t("composer.errors.fileTooLarge", { fileName: FILE_NAME, size: "64 MB" }),
     });
-    expect(desktop.unlisten).toHaveBeenCalledOnce();
+    expect(download?.message).toContain("64 MB");
+    expect(reader.requested).toEqual([]);
+    expect(saver.savedFiles).toEqual([]);
   });
 
-  it("reports an SSH failure and releases the progress listener", async () => {
-    desktop.invoke.mockRejectedValue(new Error("SSH file download was interrupted."));
-    await useDownloadStore.getState().startDownload(downloadParams());
+  it("fails instead of saving an empty file when the daemon returns no content", async () => {
+    const reader = createFileReader(async () => ({ bytes: new Uint8Array(), size: 6 }));
+    const saver = createFileSaver();
 
-    expect([...useDownloadStore.getState().downloads.values()][0]).toMatchObject({
+    const download = await startDownload({
+      profile: profileWith([relayConnection]),
+      activeConnectionId: relayConnection.id,
+      reader,
+      saver,
+    });
+
+    expect(download).toMatchObject({
       status: "error",
-      message: "SSH file download was interrupted.",
+      message: "File transfer incomplete: expected 6 bytes, received 0.",
     });
-    expect(desktop.unlisten).toHaveBeenCalledOnce();
-  });
-
-  it("keeps direct TCP downloads on their existing HTTP path", async () => {
-    let clickedUrl: string | null = null;
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, "click")
-      .mockImplementation(function (this: HTMLAnchorElement) {
-        clickedUrl = this.href;
-      });
-    const params = downloadParams({
-      ...sshHost,
-      connections: [{ id: "tcp", type: "directTcp", endpoint: "download.example:6767" }],
-    });
-    await useDownloadStore.getState().startDownload({ ...params, activeConnectionId: "tcp" });
-
-    expect(desktop.invoke).not.toHaveBeenCalled();
-    expect(click).toHaveBeenCalledOnce();
-    expect(clickedUrl).toBe("http://download.example:6767/api/files/download?token=download-token");
-    expect([...useDownloadStore.getState().downloads.values()][0]?.status).toBe("complete");
-    click.mockRestore();
+    expect(saver.savedFiles).toEqual([]);
   });
 });

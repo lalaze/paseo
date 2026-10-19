@@ -339,7 +339,6 @@ export class CollaborationGateway implements AgentGateway, ConversationGateway {
       unattended,
       thinking: profile.thinkingOptionId,
       labels,
-      background: true,
       notifyOnFinish: false,
       callerAgentId: parent,
     });

@@ -37,7 +37,6 @@ export function useOpenSubagent(input: { serverId: string }): (subagentId: strin
 
       if (plan.kind === "preferred") {
         openPreferredWorkspaceTarget({
-          isCompact,
           workspaceKey: plan.workspaceKey,
           target,
           source: "subagents",
@@ -49,7 +48,6 @@ export function useOpenSubagent(input: { serverId: string }): (subagentId: strin
       }
       if (plan.kind === "location") {
         openWorkspaceTargetAtLocation({
-          isCompact,
           workspaceKey: plan.workspaceKey,
           target,
           location: "main",
@@ -60,6 +58,6 @@ export function useOpenSubagent(input: { serverId: string }): (subagentId: strin
       }
       openTab(target);
     },
-    [canSplit, displayWorkspaceId, input.serverId, isCompact, openInSidePane, openTab, tabId],
+    [canSplit, displayWorkspaceId, input.serverId, openInSidePane, openTab, tabId],
   );
 }

@@ -12,7 +12,7 @@ import {
   createBottomSheetVisibilityTracker,
 } from "./visibility-tracker";
 import { BottomSheetScope } from "@/components/ui/bottom-sheet-scope";
-import { SheetBackdrop } from "./sheet-backdrop";
+import { SheetBackdrop, type SheetBackdropPress } from "./sheet-backdrop";
 
 type GorhomBottomSheetModalMethods = ElementRef<typeof GorhomBottomSheetModal>;
 
@@ -41,6 +41,13 @@ type IsolatedBottomSheetModalProps = Omit<
   "enableDismissOnClose" | "stackBehavior" | "children" | "backdropComponent"
 > & {
   /**
+   * Whether closing (drag, backdrop, Back) also dismisses, which unmounts the content. Default
+   * true: the owner hears `onDismiss` and drops its state. Pass `false` for a sheet whose close the
+   * owner may veto: it parks at index -1 with its content mounted, the owner hears `onChange(-1)`,
+   * and either snaps it back or unmounts it, which dismisses it from the stack.
+   */
+  enableDismissOnClose?: boolean;
+  /**
    * Nodes only. Gorhom also accepts a render function, but nothing here uses it and a bridge
    * would have to reach around it.
    */
@@ -58,6 +65,15 @@ type IsolatedBottomSheetModalProps = Omit<
 };
 
 export type IsolatedBottomSheetModalRef = GorhomBottomSheetModalMethods;
+
+function backdropPressBehavior(
+  backdropDismissible: boolean,
+  enableDismissOnClose: boolean,
+): SheetBackdropPress {
+  if (!backdropDismissible) return "none";
+  if (!enableDismissOnClose) return "close";
+  return "dismiss";
+}
 
 export const IsolatedBottomSheetModal = forwardRef<
   IsolatedBottomSheetModalRef,
@@ -86,6 +102,7 @@ export const IsolatedBottomSheetModal = forwardRef<
     contextBridge,
     backdropOpacity,
     backdropDismissible = true,
+    enableDismissOnClose = true,
     ...bottomSheetProps
   } = props;
   const renderBackdrop = useCallback(
@@ -93,16 +110,16 @@ export const IsolatedBottomSheetModal = forwardRef<
       <SheetBackdrop
         {...backdropProps}
         opacity={backdropOpacity}
-        dismissible={backdropDismissible}
+        pressBehavior={backdropPressBehavior(backdropDismissible, enableDismissOnClose)}
       />
     ),
-    [backdropOpacity, backdropDismissible],
+    [backdropDismissible, backdropOpacity, enableDismissOnClose],
   );
   const modal = (
     <GorhomBottomSheetModal
       {...bottomSheetProps}
       ref={modalRef}
-      enableDismissOnClose
+      enableDismissOnClose={enableDismissOnClose}
       stackBehavior={presentation}
       backdropComponent={backdropOpacity === undefined ? undefined : renderBackdrop}
     >
@@ -158,3 +175,7 @@ export function useIsolatedBottomSheetVisibility({
     handleSheetDismiss,
   };
 }
+
+export { SheetVisibleFrame } from "./visible-frame";
+export { systemBackPress } from "./back-press";
+export { SheetHostScope } from "./host-scope";
