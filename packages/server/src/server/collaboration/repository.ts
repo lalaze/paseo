@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, open, realpath, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, realpath, rm, writeFile } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { join, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -421,6 +421,27 @@ export class GitRepository implements Repository {
     ]);
     // Keep the tree reachable even if Git prunes loose objects later.
     await this.git(run.cwd, ["update-ref", `refs/paseo-director/${run.id}/${id}`, tree]);
+    const previous = run.operations?.findLast(
+      (op) => op.state === "done" && op.reviewArtifact,
+    )?.reviewArtifact;
+    let delta: Evidence["delta"];
+    if (previous) {
+      const deltaPath = join(directory, `${previous.id}-${id}.patch`);
+      await this.gitToFile(run.cwd, ["diff", "--binary", previous.tree, tree, "--"], deltaPath);
+      const deltaNames = await this.gitOutput(run.cwd, [
+        "diff",
+        "--name-only",
+        "-z",
+        previous.tree,
+        tree,
+        "--",
+      ]);
+      delta = {
+        baseArtifactId: previous.id,
+        diffPath: deltaPath,
+        changedFiles: deltaNames.split("\0").filter(Boolean),
+      };
+    }
     return {
       id,
       tree,
@@ -428,11 +449,12 @@ export class GitRepository implements Repository {
       changedFiles: names.split("\0").filter(Boolean),
       diff: await readPreview(diffPath, 48000),
       capturedAt: Date.now(),
+      ...(delta ? { delta } : {}),
     };
   }
-  async discard(evidence: Evidence) {
-    // Patches and pinned trees stay: reviews keep citing their artifact ids.
-    await Promise.all(evidence.checks.map((check) => unlink(check.logPath).catch(() => {})));
+  async discard(_evidence: Evidence) {
+    // Operation-scoped context files keep citing patches, pinned trees and verification logs.
+    // Retain all evidence for the run's lifetime, including after a rework or retry.
   }
   async verify(run: Run, signal: AbortSignal): Promise<Evidence> {
     if (signal.aborted) throw new Error("验证已中止");

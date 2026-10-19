@@ -1535,3 +1535,62 @@ test("a quota block is shown to the main chat and only the latest user message c
   );
   assert.equal(run.tasks[0]?.profileId, "worker");
 });
+
+test("status stays small with large historical prompts and exposes current context only on demand", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "compact",
+    workspaceId: "workspace",
+    goal: "实现功能",
+  });
+  await h.chats.start(c.id, {
+    sourceMessageId: (await h.chats.status(c.id)).latestUserMessage!.id,
+    goal: "实现功能",
+  });
+  await h.engine.tick();
+  const run = h.store.get(h.chats.summary(c.id).runId!);
+  const current = run.operations.find((op) => op.id === run.activeOperationId)!;
+  current.prompt = "CURRENT_CONTEXT".repeat(5000);
+  for (let i = 0; i < 8; i++)
+    run.operations.unshift({
+      ...current,
+      id: `old-${i}`,
+      state: "done",
+      prompt: "OLD_CONTEXT".repeat(12000),
+      response: { evidence: "OLD_RESULT".repeat(10000) },
+    });
+  h.store.save(run);
+  const status = await h.chats.status(c.id);
+  assert.ok(JSON.stringify(run).length > 1_000_000);
+  assert.ok(JSON.stringify(status).length < 6000);
+  assert.equal(status.operation!.id, current.id);
+  assert.equal(JSON.stringify(status).includes("CURRENT_CONTEXT"), false);
+  assert.equal(JSON.stringify(status).includes("OLD_RESULT"), false);
+  assert.equal((await h.chats.status(c.id, { detail: "operation" })).details, current.prompt);
+  const history = await h.chats.status(c.id, { detail: "history", limit: 2 });
+  assert.deepEqual(JSON.parse(JSON.stringify(history.details)), {
+    items: run.operations.slice(0, 2).map(({ id, kind, profileId, agentId, state, createdAt }) => ({
+      id,
+      kind,
+      profileId,
+      agentId,
+      state,
+      createdAt,
+    })),
+    total: 9,
+    nextOffset: 2,
+  });
+  const old = await h.chats.status(c.id, { detail: "history", operationId: "old-0" });
+  assert.deepEqual(old.details, {
+    id: "old-0",
+    kind: current.kind,
+    taskId: current.taskId,
+    profileId: current.profileId,
+    agentId: current.agentId,
+    state: "done",
+    createdAt: current.createdAt,
+    completedAt: undefined,
+    response: { evidence: "OLD_RESULT".repeat(10000) },
+  });
+  assert.equal(h.store.get(run.id).operations.length, 9);
+});

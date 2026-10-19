@@ -254,7 +254,23 @@ test.for(["full", "execute_review"] as const)(
         timeout: 15000,
       })
       .toBe("done");
+    await expect
+      .poll(
+        () => current()?.operations.find((op) => op.kind === "execute")?.usage?.[0]?.inputTokens,
+      )
+      .toBe(1);
+    const usageStatus = JSON.parse(
+      (await tools.executeTool("get_conversation_status", { detail: "usage" })).content[0].text!,
+    );
+    expect(
+      usageStatus.details.items.find((op: { kind: string }) => op.kind === "execute"),
+    ).toMatchObject({ role: "execution", round: 1, usage: [{ inputTokens: 1, outputTokens: 1 }] });
     const execution = current().operations.find((op) => op.kind === "execute")!;
+    expect(execution.prompt).not.toContain("schema below");
+    const compact = JSON.parse(
+      (await tools.executeTool("get_conversation_status", {})).content[0].text!,
+    );
+    expect(compact.run).not.toHaveProperty("operations");
     const child = daemon.daemon.agentManager.getAgent(execution.agentId!)!;
     expect(child.labels[PARENT_AGENT_ID_LABEL]).toBe(main.id);
     expect(child.workspaceId).toBe(main.workspaceId);

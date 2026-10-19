@@ -29,7 +29,9 @@ function processAlive(pid: number): boolean {
 export class Store {
   private db: DatabaseSync;
   private owner = randomUUID();
+  readonly root: string;
   constructor(path: string, lock = true) {
+    this.root = dirname(path);
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
     this.db.exec(

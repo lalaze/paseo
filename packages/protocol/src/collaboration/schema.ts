@@ -176,6 +176,8 @@ export interface Evidence {
   checks: { label: string; exitCode: number | null; logPath: string; output: string }[];
   passed: boolean;
   capturedAt: number;
+  /** Changes since the preceding review snapshot, including deleted and untracked files. */
+  delta?: { baseArtifactId: string; diffPath: string; changedFiles: string[] };
   verificationStatus?: "not_configured" | "passed" | "failed";
 }
 export interface Operation {
@@ -194,6 +196,17 @@ export interface Operation {
   response?: unknown;
   responseHash?: string;
   formatRetries: number;
+  /** Immutable review baseline; kept when rework clears the current evidence. */
+  reviewArtifact?: { id: string; tree: string };
+  /** Provider-reported usage per turn; absent metrics are unknown, never zero estimates. */
+  usage?: {
+    turnId: string;
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    outputTokens?: number;
+    totalCostUsd?: number;
+  }[];
+  usageTurnIds?: string[];
   /** New unified reviews cover both plan and task criteria; absent on legacy operations. */
   reviewScope?: "all_tasks";
   /** Model frozen for this operation. Absent means the logical profile's model. */

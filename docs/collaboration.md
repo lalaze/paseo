@@ -85,8 +85,8 @@ starts; create another conversation to change them.
 Tasks execute serially in dependency order within one workspace. Each worker profile keeps one
 session for the whole run: the next task, a retry and a revised requirement continue in it, so the
 environment, scripts and data it built carry over. A session that has been archived or has failed
-is replaced with a fresh one at the next step. Every worker also receives the results of the tasks
-completed before it. A turn that ends without submitting a result is asked to report in the same
+is replaced with a fresh one at the next step. Workers receive summaries of completed dependencies; full reports and the plan remain available
+through operation-scoped evidence files. A turn that ends without submitting a result is asked to report in the same
 session, up to twice, before the run needs attention. The launch dialog's
 [Isolation](glossary.md) choice decides where the task runs. Local creates a `director/<run-id>`
 branch in the source checkout while retaining staged, unstaged and untracked changes, so it must
@@ -141,6 +141,24 @@ without starting another round. To fix an omission or change the result, describ
 conversation. The main Agent requests changes on the existing task, retaining its goal, workspace,
 branch and role sessions. The next round goes through execution, review and your acceptance again;
 the previous acceptance does not authorize merging the new changes.
+
+## Context and usage
+
+Status tools return compact progress. Request the current operation, plan, reports, review or
+paged history only when needed. A progress check must not replay old prompts or repository diffs.
+Read the reports and review explicitly before giving the acceptance report.
+
+Review prompts reference complete patches, reports, workflow records and verification logs on the
+host. Keep these files for the task's lifetime: later reviews can cite them after rework. A re-review
+starts with a patch against the preceding reviewed snapshot and its findings, then checks the
+complete current result against all acceptance criteria. A small incremental patch does not narrow
+the review's scope.
+
+Request `detail=usage` from either status tool for operation, role, model and round attribution.
+Usage entries retain the provider's terminal-turn reports, including input, cached input, output
+and USD cost when supplied. Missing fields mean unknown. Providers differ in whether their reports
+cover the last request, a turn or a cumulative session; these records are not a normalized billing
+total. Historical operations without reports cannot be backfilled from prompt length.
 
 ## Conversation timeline
 

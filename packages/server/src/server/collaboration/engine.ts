@@ -33,6 +33,7 @@ import {
 } from "@getpaseo/protocol/collaboration/schema";
 import type { Repository } from "./repository.js";
 import { Store } from "./store.js";
+import { writeContextFiles } from "./model-context.js";
 import { buildPrompt, CONTINUED_SESSION_NOTE, responseSchema } from "./prompts.js";
 import {
   classifyProviderFailure,
@@ -41,6 +42,7 @@ import {
   providerFailureEvidence,
 } from "./provider-failure.js";
 import { rememberAttempt, renderHandoffPackage, sameExecutionModel } from "./handoff.js";
+import type { AgentUsage } from "@getpaseo/protocol/agent-types";
 
 export { isTransientProviderError } from "./provider-failure.js";
 
@@ -284,6 +286,47 @@ export class Engine {
   private current(run: Run) {
     return run.operations.find((o) => o.id === run.activeOperationId);
   }
+  /** Bind provider turns before submission advances the scheduler; terminal events can arrive later. */
+  async recordUsage(agentId: string, event: { type: string; turnId?: string; usage?: AgentUsage }) {
+    if (!event.turnId) return;
+    const turnId = event.turnId;
+    const owner = this.store
+      .all()
+      .find((run) => run.operations.some((op) => op.agentId === agentId));
+    if (!owner) return;
+    await this.locked(owner.id, async () => {
+      const run = this.store.get(owner.id);
+      if (
+        event.type === "turn_started" &&
+        run.operations.some((op) => op.agentId === agentId && op.usageTurnIds?.includes(turnId))
+      )
+        return;
+      const op =
+        event.type === "turn_started"
+          ? this.current(run)
+          : run.operations.find(
+              (candidate) =>
+                candidate.agentId === agentId && candidate.usageTurnIds?.includes(turnId),
+            );
+      if (!op || op.agentId !== agentId) return;
+      if (event.type === "turn_started") {
+        if (!["sending", "sent"].includes(op.state)) return;
+        op.usageTurnIds = [...new Set([...(op.usageTurnIds ?? []), turnId])];
+      } else {
+        if (!event.usage) return;
+        const { inputTokens, cachedInputTokens, outputTokens, totalCostUsd } = event.usage;
+        if (
+          [inputTokens, cachedInputTokens, outputTokens, totalCostUsd].every(
+            (value) => value === undefined,
+          )
+        )
+          return;
+        const usage = { turnId, inputTokens, cachedInputTokens, outputTokens, totalCostUsd };
+        op.usage = [...(op.usage ?? []).filter((entry) => entry.turnId !== turnId), usage];
+      }
+      this.save(run);
+    });
+  }
   private actor(run: Run, op: Operation): string {
     const role = operationRole(run.settings, op.kind);
     if (role === "worker") return op.taskId!;
@@ -331,10 +374,18 @@ export class Engine {
       agentId,
       createdAt: this.now(),
       formatRetries,
-      prompt: buildPrompt(run, kind, id, taskId, { agentId, handoff }),
+      prompt: buildPrompt(run, kind, id, taskId, {
+        agentId,
+        handoff,
+        files: writeContextFiles(this.store.root, run, id),
+      }),
     };
     if (kind === "execute") op.executionModel = this.executionModelFor(run, profileId);
     if (kind === "final") op.reviewScope = "all_tasks";
+    let evidence: Evidence | undefined;
+    if (kind === "final") evidence = run.finalEvidence;
+    if (kind === "review") evidence = task?.evidence;
+    if (evidence) op.reviewArtifact = { id: evidence.id, tree: evidence.tree };
     run.operations.push(op);
     run.activeOperationId = id;
     const { actor, action, detail } = this.describe(run, op);

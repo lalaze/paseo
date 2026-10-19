@@ -21,6 +21,7 @@ import {
 import type { SwitchExecutionModelToolInput } from "@getpaseo/protocol/collaboration/rpc";
 import { CONFIRMATION_REPLY, noticeInstruction } from "./prompts.js";
 import type { Store } from "./store.js";
+import { operationSummary, runStatus, statusDetails, type StatusOptions } from "./model-context.js";
 import type { Engine, AgentSnapshot } from "./engine.js";
 
 export interface ConversationGateway {
@@ -503,7 +504,7 @@ export class Conversations {
         latest?.type === "user_message" ? { id: messageId(latest)!, text: latest.text } : undefined,
     };
   }
-  async status(id: string) {
+  async status(id: string, options: StatusOptions = {}) {
     return this.locked(id, async () => {
       const c = this.activeConversation(id);
       c.toolsConnectedAt ??= Date.now();
@@ -516,8 +517,10 @@ export class Conversations {
       const execution = run ? executionView(run) : undefined;
       return {
         ...summary,
+        run: run ? runStatus(run) : undefined,
+        details: run ? statusDetails(run, options, c.agentId) : undefined,
         latestUserMessage: latest,
-        operation: operation && operation.agentId === c.agentId ? operation : undefined,
+        operation: operation ? operationSummary(operation) : undefined,
         ...(execution ? { execution } : {}),
         toolsAvailable: true,
         confirmationInstructions:

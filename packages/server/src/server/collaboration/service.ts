@@ -29,7 +29,7 @@ import { GitRepository } from "./repository.js";
 import { CollaborationGateway, type CollaborationHost } from "./gateway.js";
 import type { PaseoToolDefinition } from "../agent/tools/types.js";
 import type { ImportedTimelineEntry } from "../agent/agent-sdk-types.js";
-import { workflowEvidence } from "./workflow-evidence.js";
+import { StatusOptionsSchema, runStatus, statusDetails } from "./model-context.js";
 
 const openSchema = z.object({
   requestId: z.string().min(1),
@@ -122,6 +122,25 @@ export class CollaborationService {
     this.runtime = { store, engine, conversations };
     this.unsubscribe = this.host.agentManager.subscribe(
       (event) => {
+        if (
+          event.type === "agent_stream" &&
+          ["turn_started", "turn_completed", "turn_failed", "turn_canceled"].includes(
+            event.event.type,
+          )
+        ) {
+          const stream = event.event;
+          if (
+            stream.type === "turn_started" ||
+            stream.type === "turn_completed" ||
+            stream.type === "turn_failed" ||
+            stream.type === "turn_canceled"
+          )
+            void engine
+              .recordUsage(event.agentId, stream)
+              .catch((error) =>
+                this.host.logger.error({ err: error }, "Collaboration usage recording failed"),
+              );
+        }
         if (
           event.type === "agent_state" ||
           (event.type === "agent_stream" &&
@@ -334,11 +353,11 @@ export class CollaborationService {
     return [
       define(
         "get_conversation_status",
-        "Read the current collaboration task, operation context and latest real user message. The user must enable collaboration first.",
-        z.object({}),
-        async () => {
+        "Read compact collaboration progress and the latest real user message. Request detail=operation only to recover the current instructions; plan, results, review, history and usage are available on demand. History, results and usage support offset/limit; detail=history with operationId reads one historical result. The user must enable collaboration first.",
+        StatusOptionsSchema,
+        async (input) => {
           const c = chat();
-          return c.conversations.status(c.id);
+          return c.conversations.status(c.id, StatusOptionsSchema.parse(input));
         },
       ),
       define(
@@ -450,9 +469,9 @@ export class CollaborationService {
       ),
       define(
         "get_run_status",
-        "Read the collaboration task that owns the current session.",
-        z.object({}),
-        async () => {
+        "Read compact progress for this session. Request plan, results, review, history or usage in detail only as needed; lists support offset/limit.",
+        StatusOptionsSchema,
+        async (input) => {
           const { store } = this.start();
           const run = store
             .all()
@@ -464,8 +483,8 @@ export class CollaborationService {
             );
           if (!run) throw new Error("当前会话不属于协作任务");
           return {
-            ...summarize(run),
-            workflowEvidence: workflowEvidence(run),
+            ...runStatus(run),
+            details: statusDetails(run, StatusOptionsSchema.parse(input), agentId),
             operationId: run.activeOperationId,
             tasks: run.tasks.map((candidateTask) => ({
               id: candidateTask.spec.id,

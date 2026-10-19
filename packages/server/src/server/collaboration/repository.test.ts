@@ -694,3 +694,41 @@ test("verification timeout and cancellation terminate the subprocess", async () 
   assert.equal(timeout.exitCode, null);
   assert.match(timeout.output, /超时/);
 });
+
+test("re-review patch compares immutable review snapshots and retains verification logs", async (t) => {
+  const { repository, workspace, run } = await acceptedRepositoryFixture(t);
+  const first = run.finalEvidence!;
+  run.operations.push({
+    id: "review-1",
+    kind: "final",
+    profileId: "lead",
+    state: "done",
+    prompt: "",
+    createdAt: 1,
+    formatRetries: 0,
+    reviewArtifact: { id: first.id, tree: first.tree },
+  });
+  await writeFile(join(workspace.cwd, "app.txt"), "second round\n");
+  await rm(join(workspace.cwd, "new.txt"));
+  await writeFile(join(workspace.cwd, "added.txt"), "added during rework\n");
+  const second = await repository.capture(run);
+  assert.equal(second.delta!.baseArtifactId, first.id);
+  assert.deepEqual(second.delta!.changedFiles, ["added.txt", "app.txt", "new.txt"]);
+  const expected = (
+    await exec("git", ["diff", "--binary", first.tree, second.tree, "--"], { cwd: workspace.cwd })
+  ).stdout;
+  assert.equal(await readFile(second.delta!.diffPath, "utf8"), expected);
+  assert.match(expected, /-accepted/);
+  assert.match(expected, /deleted file mode/);
+  run.settings.verificationCommands = [
+    {
+      label: "check",
+      command: process.execPath,
+      args: ["-e", "console.log('retained log')"],
+      timeoutMs: 1000,
+    },
+  ];
+  const verified = await repository.verify(run, new AbortController().signal);
+  await repository.discard(verified);
+  assert.match(await readFile(verified.checks[0].logPath, "utf8"), /retained log/);
+});
