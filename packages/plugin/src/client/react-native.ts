@@ -54,6 +54,15 @@ export interface ToastApi {
 }
 
 export declare const Icon: ComponentType<PluginIconProps>;
+export interface WebFrameProps {
+  url: string;
+  title: string;
+  onLoad?: () => void;
+  onError?: (message: string) => void;
+}
+
+/** An isolated website, using an iframe on web and a WebView on native. */
+export declare const WebFrame: ComponentType<WebFrameProps>;
 export declare const Modal: ModalComponent;
 export declare function useToast(): ToastApi;
 export declare function useRevealedText(text: string, phase: "streaming" | "complete"): string;

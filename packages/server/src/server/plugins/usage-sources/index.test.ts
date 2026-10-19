@@ -14,6 +14,74 @@ function source(input: {
   };
 }
 
+test("enabling a source rediscovers usage for an unchanged agent session", async () => {
+  let enabled = false;
+  const registry = new UsageSourceRegistry(Date.now, 300_000, undefined, {
+    hasAgent: () => true,
+    usageSession: () => ({ provider: "claude", env: {}, sessionKey: "launch" }),
+  });
+  registry.register({
+    ...source({ id: "claude", discover: async () => [{ key: "one", input: {} }] }),
+    isEnabled: () => enabled,
+  });
+  expect(await registry.listReports({ agentId: "agent" })).toEqual([]);
+  enabled = true;
+  expect((await registry.listReports({ agentId: "agent" })).map((entry) => entry.id)).toEqual([
+    "claude:one",
+  ]);
+});
+
+test("disabling a source drops in-flight updates and retained session reports without affecting peers", async () => {
+  let enabled = true;
+  let fetched = () => {};
+  let finish = (_report: unknown) => {};
+  const started = new Promise<void>((resolve) => {
+    fetched = resolve;
+  });
+  const response = new Promise<unknown>((resolve) => {
+    finish = resolve;
+  });
+  let fetches = 0;
+  const registry = new UsageSourceRegistry(Date.now, 300_000, undefined, {
+    hasAgent: () => true,
+    usageSession: () => ({ provider: "claude", env: {}, sessionKey: "launch" }),
+  });
+  registry.register({
+    ...source({
+      id: "claude",
+      discover: async () => [{ key: "one", input: {} }],
+      fetch: async () => {
+        fetches++;
+        fetched();
+        return response;
+      },
+    }),
+    isEnabled: () => enabled,
+  });
+  const updates: string[] = [];
+  const pending = registry.listReports({
+    agentId: "agent",
+    onReport: (entry) => updates.push(entry.id),
+  });
+  await started;
+  enabled = false;
+  finish({ status: "available", windows: [] });
+  expect(await pending).toEqual([]);
+  expect(updates).toEqual([]);
+  expect(await registry.listReports({ agentId: "agent", forceRefresh: true })).toEqual([]);
+  expect(await registry.listReports({ reportIds: ["claude:one"], forceRefresh: true })).toEqual([]);
+  registry.register(
+    source({ id: "standalone", discover: async () => [{ key: "one", input: {} }] }),
+  );
+  expect((await registry.listReports()).map((entry) => entry.id)).toEqual(["standalone:one"]);
+  expect(fetches).toBe(1);
+  enabled = true;
+  expect((await registry.listReports({ agentId: "agent" })).map((entry) => entry.id)).toEqual([
+    "claude:one",
+    "standalone:one",
+  ]);
+});
+
 test("discovery preserves account IDs and updates input after token rotation", async () => {
   const registry = new UsageSourceRegistry();
   let token = "old";

@@ -586,6 +586,7 @@ export class PluginService {
           id: source.id,
           label: source.label,
           icon: source.icon,
+          isEnabled: () => this.configStore.get().providers[source.id]?.enabled !== false,
           discover: async (scope) => {
             const result = await this.runtime.discoverUsage(pluginId, source.id, scope);
             if (!Array.isArray(result))

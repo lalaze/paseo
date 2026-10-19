@@ -15,6 +15,7 @@ export interface UsageSource {
   id: string;
   label: string;
   icon?: string;
+  isEnabled?(): boolean;
   discover(scope: UsageScope): Promise<unknown>;
   fetch(input: unknown): Promise<unknown>;
 }
@@ -46,6 +47,7 @@ interface AgentReports {
   provider: string;
   model?: string;
   sessionKey: string;
+  sources: UsageSource[];
   reports: Map<string, KnownReport>;
 }
 
@@ -100,18 +102,20 @@ export class UsageSourceRegistry {
       this.mergeKnown();
       ids = [...this.known.keys()];
     }
-    return Promise.all(
+    const entries = await Promise.all(
       [...new Set(ids)].flatMap((id) => {
         const known = reports.get(id);
-        if (!known) return [];
+        if (!known || known.source.isEnabled?.() === false) return [];
         return [
           this.fetchId(id, known, options.forceRefresh).then((entry) => {
+            if (known.source.isEnabled?.() === false) return null;
             options.onReport?.(entry);
             return entry;
           }),
         ];
       }),
     );
+    return entries.filter((entry) => entry !== null);
   }
 
   private pruneAgents(): void {
@@ -126,23 +130,32 @@ export class UsageSourceRegistry {
     const session = this.agents.usageSession(agentId);
     if (!session) return [];
     const previous = this.byAgent.get(agentId);
+    const sources = this.enabledSources();
+    const sameSources =
+      previous?.sources.length === sources.length &&
+      sources.every((source, index) => source === previous.sources[index]);
     const sameScope =
       previous?.sessionKey === session.sessionKey &&
       previous.provider === session.provider &&
-      previous.model === session.model;
+      previous.model === session.model &&
+      sameSources;
     if (sameScope) return [...previous.reports.keys()];
-    const reports = await this.discover({
-      kind: "session",
-      provider: session.provider,
-      model: session.model,
-      env: session.env,
-    });
+    const reports = await this.discover(
+      {
+        kind: "session",
+        provider: session.provider,
+        model: session.model,
+        env: session.env,
+      },
+      sources,
+    );
     // A query that finishes after a resume must not publish the previous launch's mapping.
     if (this.agents.usageSession(agentId)?.sessionKey !== session.sessionKey) return [];
     this.byAgent.set(agentId, {
       sessionKey: session.sessionKey,
       provider: session.provider,
       model: session.model,
+      sources,
       reports,
     });
     this.mergeKnown();
@@ -170,9 +183,16 @@ export class UsageSourceRegistry {
     }
   }
 
-  private async discover(scope: UsageScope): Promise<Map<string, KnownReport>> {
+  private enabledSources(): UsageSource[] {
+    return [...this.sources.values()].filter((source) => source.isEnabled?.() !== false);
+  }
+
+  private async discover(
+    scope: UsageScope,
+    sources = this.enabledSources(),
+  ): Promise<Map<string, KnownReport>> {
     const discovered = await Promise.all(
-      [...this.sources.values()].map(async (source) => {
+      sources.map(async (source) => {
         const reports = new Map<string, KnownReport>();
         try {
           const accounts = z

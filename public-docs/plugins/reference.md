@@ -178,6 +178,21 @@ The scaffold's `tsconfig.json` omits the DOM library. Keep DOM globals out of cr
 components; do not add `/// <reference lib="dom" />` or `"DOM"` to `lib`.
 `layout.platform` carries the same value as React Native's `Platform.OS` for rendering decisions.
 
+### Embed an existing Web application
+
+`WebFrame` from `@getpaseo/plugin/client/react-native` takes `url`, `title`, optional `onLoad`,
+and optional `onError(message)`. It fills the available space with a sandboxed iframe in browsers,
+an isolated guest WebView in Electron, and a WebView on native. This API requires a client build
+that includes `WebFrame`.
+
+Use a separate HTTP(S) origin from Paseo. The page must permit embedding, be reachable from
+the client device, and use HTTPS when Paseo uses HTTPS. Cookies remain subject to the browser's
+same-site and third-party-cookie rules. This component does not tunnel requests through the
+daemon or relay. Browser iframe load events cannot distinguish every network or HTTP error;
+provide a reconnect action and an external link alongside the frame.
+
+See [Magpie](https://github.com/lalaze/paseo-plugins/tree/main/magpie) for a host-side authenticated proxy and an original-page integration.
+
 ### Play audio
 
 Call `client.playAudio({ base64, mimeType }): Promise<void>` to play an audio file on the

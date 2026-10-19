@@ -498,7 +498,7 @@ SVG or URL.
 
 Register a usage source from `index.server.ts` with `server.registerUsageSource()`. Import `UsageSourceRegistration` and normalization helpers from `@getpaseo/plugin/server/usage`. The plugin owns account discovery, harness labels, and credential-store reads; the daemon owns account grouping and the fetch cache. Agent popovers use only the agent's own login. The host-wide Usage modal falls back across an account's logins; any success shows usage only, and all failures show every login's labeled error and remedy. Follow the [usage source discovery contract](../public-docs/plugins/reference.md#usage-sources). The resolved launch environment crosses into the trusted, unsandboxed plugin subprocess for session discovery. Usage queries never run lifecycle hooks. Inputs are validated in the plugin process and remain daemon-side. `icon` uses the same sanitized SVG file rules as provider icons.
 
-The daemon calls discovery for `usage.list_reports`; the client gates this RPC on `server_info.features.usageSources`. The old `provider.usage.list` RPC maps discovered reports for older clients.
+The daemon calls discovery for `usage.list_reports`; the client gates this RPC on `server_info.features.usageSources`. A usage source whose ID matches a provider follows that provider's enablement: disabling the provider skips discovery and report queries, including cached and forced refreshes. The old `provider.usage.list` RPC maps discovered reports for older clients.
 
 ## Contribute sidebar items
 

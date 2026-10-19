@@ -1,7 +1,7 @@
 {
   "serverFiles": {
     "dist/server/server/plugins/builtin/index.js": "9144f7bc24590e2c342a8acbb3da1084c26baaf4ad7de9bfe6c22e9b61b076bf",
-    "dist/server/server/plugins/usage-sources/index.js": "ae5a76cc09915628b5f746547ce1b49647e046e5e2160634d5b3ee75455ad697",
+    "dist/server/server/plugins/usage-sources/index.js": "a9b289fa05673ef5f3a7ef36356b4bbbed131e592a33fdf259c94d3808883c91",
     "dist/server/builtin-plugins/kimi-usage-source/server/usage.ts": "3ad4c8136d2c334066efdfd3a805efe6aeb783ecffcb84e142c47c6cd2f3d7e1",
     "dist/server/builtin-plugins/kimi-usage-source/shared/input.ts": "6cb78455e1c55761fe052ef0df9a327a14dc21998a933ce66c704731ba96e595"
   },

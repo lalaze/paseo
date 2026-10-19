@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,6 +11,74 @@ const fixtureRoot = fileURLToPath(new URL("./test-fixtures/", import.meta.url));
 const subprocessDirectory = fileURLToPath(
   new URL("./test-fixtures/usage-source-directory/", import.meta.url),
 );
+
+test("disabled providers skip usage discovery and cached or forced report refreshes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "usage-disabled-provider-"));
+  const calls = path.join(root, "calls.txt");
+  const directory = path.join(root, "usage-fixture");
+  await mkdir(directory);
+  await writeFile(calls, "");
+  await writeFile(
+    path.join(directory, "paseo-plugin.json"),
+    JSON.stringify({ id: "usage-fixture", requirements: { paseo: ">=0.9.2" } }),
+  );
+  await writeFile(
+    path.join(directory, "index.server.ts"),
+    `import { appendFile } from "node:fs/promises";
+import { z } from "zod";
+export default function contribute(server) {
+  server.registerUsageSource({
+    id: "claude", label: "Claude", input: z.object({}),
+    discover: async () => {
+      await appendFile(${JSON.stringify(calls)}, "discover\\n");
+      return [{ key: "one", input: {} }];
+    },
+    fetch: async () => {
+      await appendFile(${JSON.stringify(calls)}, "fetch\\n");
+      return { status: "available", windows: [] };
+    },
+  });
+  return () => {};
+}`,
+  );
+  const daemon = await createTestPaseoDaemon({
+    daemonVersion: "0.9.2",
+    pluginsEnabled: false,
+    providerOverrides: { claude: { enabled: false } },
+    builtinPlugins: new BuiltinPluginLoader(root, ["usage-fixture"]),
+  });
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  try {
+    await client.connect();
+    expect((await client.listUsageReports({ forceRefresh: true })).reports).toEqual([]);
+    expect(await readFile(calls, "utf8")).toBe("");
+
+    await client.patchDaemonConfig({ providers: { claude: { enabled: true } } });
+    expect((await client.listUsageReports()).reports.map((entry) => entry.id)).toEqual([
+      "claude:one",
+    ]);
+    expect(await readFile(calls, "utf8")).toBe("discover\nfetch\n");
+
+    await client.patchDaemonConfig({ providers: { claude: { enabled: false } } });
+    expect((await client.listUsageReports({ reportIds: ["claude:one"] })).reports).toEqual([]);
+    expect(
+      (await client.listUsageReports({ reportIds: ["claude:one"], forceRefresh: true })).reports,
+    ).toEqual([]);
+    expect((await client.listUsageReports({ forceRefresh: true })).reports).toEqual([]);
+    expect((await client.listProviderUsage()).providers).toEqual([]);
+    expect(await readFile(calls, "utf8")).toBe("discover\nfetch\n");
+
+    await client.patchDaemonConfig({ providers: { claude: { enabled: true } } });
+    expect(
+      (await client.listUsageReports({ forceRefresh: true })).reports.map((entry) => entry.id),
+    ).toEqual(["claude:one"]);
+    expect(await readFile(calls, "utf8")).toBe("discover\nfetch\ndiscover\nfetch\n");
+  } finally {
+    await client.close();
+    await daemon.close();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test("lists built-in and subprocess usage; validates input and isolates fetch errors", async () => {
   const daemon = await createTestPaseoDaemon({
@@ -288,7 +356,6 @@ export default function contribute(server) {
 }, 60_000);
 
 test("a killed discovery subprocess logs kimi once and produces no provider card", async () => {
-  const { readFile } = await import("node:fs/promises");
   const { default: pino } = await import("pino");
   const root = await mkdtemp(path.join(os.tmpdir(), "usage-crash-"));
   const log = path.join(root, "daemon.log");
