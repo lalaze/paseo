@@ -123,6 +123,22 @@ describe("sidebar view store", () => {
     });
   });
 
+  it("preserves label grouping and filters during version migration", () => {
+    expect(
+      migrateSidebarViewState({
+        groupMode: "label",
+        hostFilters: ["host-a"],
+        labelFilter: { labels: ["Backend"] },
+      }),
+    ).toMatchObject({
+      groupMode: "label",
+      hostFilters: ["host-a"],
+      labelFilter: { labels: ["backend"] },
+    });
+    useSidebarViewStore.getState().setGroupMode("label");
+    expect(useSidebarViewStore.getState().groupMode).toBe("label");
+  });
+
   it("clears only the label facet", () => {
     useSidebarViewStore.setState({
       groupMode: "status",

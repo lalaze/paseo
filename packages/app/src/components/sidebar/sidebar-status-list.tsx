@@ -38,6 +38,7 @@ import {
   CircleCheck,
   CircleDot,
   CircleX,
+  Tag,
 } from "lucide-react-native";
 import { useToast } from "@/contexts/toast-context";
 import { WorkspaceRenameModal } from "@/components/workspace-rename-modal";
@@ -106,6 +107,7 @@ const ThemedCircleAlert = withUnistyles(CircleAlert);
 const ThemedCircleCheck = withUnistyles(CircleCheck);
 const ThemedCircleDot = withUnistyles(CircleDot);
 const ThemedCircleX = withUnistyles(CircleX);
+const ThemedTag = withUnistyles(Tag);
 const EMPTY_SHORTCUT_INDEX = new Map<string, number>();
 
 function statusWorkspaceKeyExtractor(workspace: SidebarWorkspaceEntry): string {
@@ -473,6 +475,7 @@ function StatusGroupLeadingVisual({
   showChevron: boolean;
 }) {
   if (!showChevron) {
+    if (leading.kind === "label") return <ThemedTag uniProps={mutedGroupIconProps} />;
     return <StatusGroupIcon bucket={leading.bucket} />;
   }
   if (collapsed) {

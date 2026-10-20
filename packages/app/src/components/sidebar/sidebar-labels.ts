@@ -1,4 +1,8 @@
-import { workspaceLabelKey } from "@getpaseo/protocol/workspace-labels";
+import type { TFunction } from "i18next";
+import {
+  normalizeWorkspaceLabelName,
+  workspaceLabelKey,
+} from "@getpaseo/protocol/workspace-labels";
 import type { SidebarWorkspaceEntry } from "@/hooks/use-sidebar-workspaces-list";
 import { SIDEBAR_UNLABELLED_LABEL_KEY, type SidebarLabelFilter } from "@/stores/sidebar-view-store";
 import type { StatusBucket, StatusGroup } from "@/hooks/sidebar-status-view-model";
@@ -7,7 +11,51 @@ export interface SidebarWorkspaceGroup {
   key: string;
   label: string;
   rows: SidebarWorkspaceEntry[];
-  leading: { kind: "status"; bucket: StatusBucket };
+  leading: { kind: "status"; bucket: StatusBucket } | { kind: "label" };
+}
+
+export function labelWorkspaceGroups(
+  workspaces: readonly SidebarWorkspaceEntry[],
+  t: TFunction,
+): SidebarWorkspaceGroup[] {
+  const groups = new Map<string, SidebarWorkspaceGroup>();
+  for (const workspace of workspaces) {
+    const labels = new Map<string, string>();
+    for (const name of workspace.labels ?? []) {
+      const key = workspaceLabelKey(name);
+      if (key) labels.set(key, normalizeWorkspaceLabelName(name));
+    }
+    if (labels.size === 0)
+      labels.set(SIDEBAR_UNLABELLED_LABEL_KEY, t("workspaceLabels.unlabelled"));
+
+    for (const [key, label] of labels) {
+      let group = groups.get(key);
+      if (!group) {
+        group = { key: `label:${key}`, label, rows: [], leading: { kind: "label" } };
+        groups.set(key, group);
+      }
+      group.rows.push(workspace);
+    }
+  }
+
+  const labelled = [...groups.entries()].filter(([key]) => key !== SIDEBAR_UNLABELLED_LABEL_KEY);
+  labelled.sort(([a], [b]) => a.localeCompare(b));
+  const ordered = labelled.map(([, group]) => group);
+  const unlabelled = groups.get(SIDEBAR_UNLABELLED_LABEL_KEY);
+  if (unlabelled) ordered.push(unlabelled);
+  for (const group of ordered) group.rows.sort(compareLabelRows);
+  return ordered;
+}
+
+function compareLabelRows(a: SidebarWorkspaceEntry, b: SidebarWorkspaceEntry): number {
+  const runningFirst = Number(b.statusBucket === "running") - Number(a.statusBucket === "running");
+  const activity = (b.statusEnteredAt?.getTime() ?? 0) - (a.statusEnteredAt?.getTime() ?? 0);
+  return (
+    runningFirst ||
+    activity ||
+    a.name.localeCompare(b.name) ||
+    a.workspaceKey.localeCompare(b.workspaceKey)
+  );
 }
 
 export function statusWorkspaceGroups(groups: readonly StatusGroup[]): SidebarWorkspaceGroup[] {

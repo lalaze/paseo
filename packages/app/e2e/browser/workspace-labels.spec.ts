@@ -4,6 +4,7 @@ import { getServerId } from "../support/helpers/server-id";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
 import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
+import { seedRunningMockAgentWorkspace } from "../support/helpers/mock-agent";
 
 interface SessionEnvelope {
   type?: string;
@@ -143,6 +144,76 @@ async function createLabel(
 
 test.describe("Workspace labels", () => {
   test.describe.configure({ timeout: 180_000 });
+
+  test("groups by labels with running workspaces first and restores the choice after reload", async ({
+    page,
+  }, testInfo) => {
+    const running = await seedRunningMockAgentWorkspace({
+      repoPrefix: "labels-group-running-",
+      title: "Running workspace",
+      initialPrompt: "stay busy",
+      model: "one-minute-stream",
+    });
+    const done = await seedWorkspace({ repoPrefix: "labels-group-done-" });
+    const unlabelled = await seedWorkspace({ repoPrefix: "labels-group-unlabelled-" });
+    try {
+      await running.client.setWorkspaceLabel({
+        workspaceId: running.workspaceId,
+        label: { name: "Backend", color: "red" },
+        assigned: true,
+      });
+      await done.client.setWorkspaceLabel({
+        workspaceId: done.workspaceId,
+        label: { name: "Backend", color: "red" },
+        assigned: true,
+      });
+      await done.client.setWorkspaceLabel({
+        workspaceId: done.workspaceId,
+        label: { name: "Urgent", color: "red" },
+        assigned: true,
+      });
+      await gotoAppShell(page);
+      await waitForSidebarHydration(page);
+      await page.getByTestId("sidebar-display-preferences-menu").click();
+      await page.getByTestId("sidebar-display-grouping").click();
+      await page.getByTestId("sidebar-grouping-label").click();
+
+      const backend = page.getByTestId("sidebar-status-group-rows-label:backend");
+      const backendRows = backend.locator('[data-testid^="sidebar-workspace-row-"]');
+      await expect(backendRows).toHaveCount(2);
+      await expect(backendRows.nth(0)).toHaveAttribute(
+        "data-testid",
+        `sidebar-workspace-row-${getServerId()}:${running.workspaceId}`,
+      );
+      await expect(backendRows.nth(1)).toHaveAttribute(
+        "data-testid",
+        `sidebar-workspace-row-${getServerId()}:${done.workspaceId}`,
+      );
+      await expect(
+        page
+          .getByTestId("sidebar-status-group-rows-label:urgent")
+          .getByTestId(`sidebar-workspace-row-${getServerId()}:${done.workspaceId}`),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByTestId("sidebar-status-group-rows-label:")
+          .getByTestId(`sidebar-workspace-row-${getServerId()}:${unlabelled.workspaceId}`),
+      ).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath("label-grouping.png") });
+
+      await page.reload();
+      await expect(backend).toBeVisible();
+      await page.getByTestId("sidebar-status-group-label:backend").click();
+      await expect(backend).toBeHidden();
+      await expect(page.getByTestId("sidebar-status-group-rows-label:urgent")).toBeVisible();
+      await page.getByTestId("sidebar-status-group-label:backend").click();
+      await expect(backend).toBeVisible();
+    } finally {
+      await running.cleanup();
+      await done.cleanup();
+      await unlabelled.cleanup();
+    }
+  });
 
   test("keeps label filters reachable when no workspaces match", async ({ page }) => {
     const seeded = await seedWorkspace({ repoPrefix: "workspace-labels-no-matches-" });
