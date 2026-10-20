@@ -15,6 +15,13 @@ describe("resolveProviderIconName", () => {
     expect(resolveProviderIconName("minimax")).toEqual({ kind: "builtin", id: "minimax" });
   });
 
+  it("uses the DeepSeek mark for the DeepSeek Harness ACP provider", () => {
+    expect(resolveProviderIconName("deepseek-harness")).toEqual({
+      kind: "builtin",
+      id: "deepseek-harness",
+    });
+  });
+
   it("returns the catalog identifier for ACP catalog provider ids that ship an icon", () => {
     expect(resolveProviderIconName("amp-acp")).toEqual({ kind: "catalog", id: "amp-acp" });
     expect(resolveProviderIconName("devin")).toEqual({ kind: "catalog", id: "devin" });

@@ -1,11 +1,14 @@
 import { useCallback, useMemo } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronRight, Users } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { CollaborationMessage, CollaborationMessageControls } from "./message";
 import { CollaborationHandoffAction } from "./execution-switch-sheet";
 import type { CollaborationProgressGroup } from "./progress";
+import { collaborationProgressStatus } from "./message-summary";
+import { Button } from "@/components/ui/button";
+import { PressHighlight } from "@/components/ui/press-highlight";
 
 const ThemedUsers = withUnistyles(Users, (theme) => ({ color: theme.colors.foregroundMuted }));
 const ThemedChevron = withUnistyles(ChevronRight, (theme) => ({
@@ -32,9 +35,10 @@ export function CollaborationProgressCard({
   );
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const latest = group.entries[group.entries.length - 1]!;
+  const status = collaborationProgressStatus(latest.summary);
   return (
     <View style={styles.card} testID="collaboration-progress-card">
-      <Pressable
+      <PressHighlight
         accessibilityRole="button"
         accessibilityLabel={t("collaboration.message.progressTitle")}
         accessibilityState={accessibilityState}
@@ -50,14 +54,20 @@ export function CollaborationProgressCard({
         <View style={expanded ? styles.chevronExpanded : undefined}>
           <ThemedChevron size={16} />
         </View>
-      </Pressable>
+      </PressHighlight>
       <View style={styles.current} testID="collaboration-progress-current">
-        <Text style={styles.stage}>{t(`collaboration.message.${latest.summary.stage}`)}</Text>
+        <Text style={styles.stage}>
+          {t(`collaboration.message.${latest.summary.stage}`)}
+          {status ? ` · ${t(`collaboration.history.status.${status}`)}` : ""}
+        </Text>
         {latest.summary.text ? (
-          <Text style={styles.summary} selectable>
-            {latest.summary.text}
+          <Text style={styles.summary} selectable numberOfLines={4}>
+            {latest.summary.text.split(/\n\s*\n/u)[0]}
           </Text>
         ) : null}
+        <Button onPress={toggle} variant="ghost" size="xs" style={styles.detailsButton}>
+          {t(expanded ? "collaboration.history.collapse" : "collaboration.history.expand")}
+        </Button>
       </View>
       {expanded ? (
         <View style={styles.history} testID="collaboration-progress-history">
@@ -115,6 +125,7 @@ const styles = StyleSheet.create((theme) => ({
   count: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   chevronExpanded: { transform: [{ rotate: "90deg" }] },
   current: { gap: theme.spacing[1] },
+  detailsButton: { alignSelf: "flex-start" },
   stage: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
   summary: { color: theme.colors.foreground, fontSize: theme.fontSize.sm },
   history: {

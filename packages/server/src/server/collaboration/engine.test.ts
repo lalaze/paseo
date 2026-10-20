@@ -20,6 +20,79 @@ import { buildPrompt } from "./prompts.js";
 import type { AgentTimelineRow } from "../agent/agent-timeline-store-types.js";
 import { PiHistoryMapper } from "../agent/providers/pi/history-mapper.js";
 
+test("retry delivers diagnostic feedback after restart and retains it for review", async (t) => {
+  const h = await harness(reviewerSettings(), "execute_review");
+  t.onTestFinished(() => h.cleanup());
+  await h.until("execute");
+  await h.complete({ ...result, status: "blocked", summary: "Six service tests still fail" });
+  const feedback = "Only abort the barrier on failure; verify the reimbursement flow.";
+  await h.engine.control(h.id, "retry", undefined, { feedback });
+  await h.restart();
+  const next = await h.until("execute");
+  assert.match(next.prompt, /Only abort the barrier on failure/);
+  await h.complete(result);
+  const final = await h.until("final");
+  assert.match(final.prompt, /Only abort the barrier on failure/);
+});
+
+test("implementation blockers receive diagnostic review and carry findings into rework", async (t) => {
+  const h = await harness(reviewerSettings());
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  await h.complete(plan);
+  const worker = await h.until("execute");
+  await h.complete({
+    ...result,
+    status: "blocked",
+    blocker: "implementation",
+    summary: "Six service tests still fail",
+    issues: ["Concurrent update aborts the barrier on success"],
+  });
+  assert.equal(h.run().control, "running");
+  assert.equal(h.run().tasks[0].status, "reviewing");
+  const diagnostic = await h.until("review");
+  assert.match(diagnostic.prompt, /Diagnostic review/);
+  assert.match(diagnostic.prompt, /Six service tests still fail/);
+  await h.complete(review(false, "changes_requested"));
+  const rework = await h.until("execute");
+  assert.equal(rework.agentId, worker.agentId);
+  assert.match(rework.prompt, /增加空值处理/);
+  await h.complete(result);
+  await h.until("final");
+});
+
+test("diagnostic review cannot approve an incomplete implementation", async (t) => {
+  const h = await harness(reviewerSettings());
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  await h.complete(plan);
+  await h.until("execute");
+  await h.complete({ ...result, status: "blocked", blocker: "implementation" });
+  await h.until("review");
+  await h.complete(review());
+  assert.equal(h.run().control, "needs_attention");
+  assert.equal(h.run().tasks[0].status, "reviewing");
+  assert.equal(h.run().userAcceptance, undefined);
+  assert.match(h.run().message, /不能批准成果/);
+});
+
+test.each([undefined, "external", "user"])(
+  "a %s blocker preserves the stopped task for explicit recovery",
+  async (blocker) => {
+    const h = await harness(reviewerSettings(), "execute_review");
+    try {
+      await h.until("execute");
+      await h.complete({ ...result, status: "blocked", blocker });
+      assert.equal(h.run().control, "needs_attention");
+      const sent = h.agents.sent.length;
+      await h.engine.tick();
+      assert.equal(h.agents.sent.length, sent);
+    } finally {
+      h.cleanup();
+    }
+  },
+);
+
 function shellPollingRows(count = 12, intervalMs = 5000): AgentTimelineRow[] {
   const startedAt = Date.parse("2026-10-15T06:28:00Z");
   const rows: AgentTimelineRow[] = [

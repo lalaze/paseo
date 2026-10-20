@@ -54,6 +54,8 @@ export function readCollaborationPrompt(raw: string) {
 
 const NoticeSchema = z.object({
   message: z.string(),
+  phase: z.string().optional(),
+  control: z.string().optional(),
   plan: PlanSchema.optional(),
   confirmation: z
     .object({
@@ -74,6 +76,8 @@ export function readCollaborationNotice(id: string, raw: string) {
     return {
       instruction: raw.slice(marker.length, start).trim(),
       message: data.message,
+      phase: data.phase,
+      control: data.control,
       confirmation: data.confirmation?.kind,
       reply: data.confirmation?.reply,
       plan: data.plan ?? persistedNoticePlan(data.confirmation),

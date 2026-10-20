@@ -846,7 +846,12 @@ export class Conversations {
         run.control === "waiting_permission";
       const delivery = needsAgent ? "prompt" : "timeline";
       const instruction = needsAgent
-        ? noticeInstruction(confirmation?.kind, changesRequested, mergeFailed)
+        ? noticeInstruction(
+            confirmation?.kind,
+            changesRequested,
+            mergeFailed,
+            run.control === "needs_attention",
+          )
         : "Collaboration progress update. No Agent response is required.";
       const id = `chat-notice:${c.id}:${key}:${c.notices.length}`;
       const text = `[paseo-director-chat:${id}]\n${instruction}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: changesRequested ? run.finalReview : undefined, ...(execution ? { execution } : {}) })}`;

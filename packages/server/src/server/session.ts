@@ -8285,12 +8285,14 @@ export class Session {
         },
         "agent.session.send_agent_message",
       );
-      const send = async () => {
+      const sendPrompt = async (continuation?: string) => {
         const result = await sendPromptToAgent({
           agentManager: this.agentManager,
           agentStorage: this.agentStorage,
           agentId,
-          prompt,
+          prompt: continuation
+            ? buildAgentPrompt(continuation, msg.images, msg.attachments)
+            : prompt,
           source: msg.sourceAgentId
             ? { kind: "agent-message", agentId: msg.sourceAgentId }
             : undefined,
@@ -8306,6 +8308,13 @@ export class Session {
             this.delivery.requestSignal,
           );
         }
+      };
+      const send = async () => {
+        if (
+          await this.collaborationService?.continueExecutionMessage(agentId, msg.text, sendPrompt)
+        )
+          return;
+        await sendPrompt();
       };
       if (msg.messageId) {
         await this.messageReceipts.send({

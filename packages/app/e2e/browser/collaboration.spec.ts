@@ -36,9 +36,14 @@ for (const viewport of [
     const client = await connectDaemonClient<DaemonClient>({
       clientIdPrefix: "collaboration-progress",
     });
-    async function sendNotice(conversation: string, sequence: number, message: string) {
+    async function sendNotice(
+      conversation: string,
+      sequence: number,
+      message: string,
+      state: { phase?: string; control?: string } = {},
+    ) {
       const id = `chat-notice:${conversation}:digest:${sequence}`;
-      const text = `[paseo-director-chat:${id}]\n后台状态通知。\n${JSON.stringify({ message })}`;
+      const text = `[paseo-director-chat:${id}]\n后台状态通知。\n${JSON.stringify({ message, ...state })}`;
       await client.sendMessage(session.agentId, text, { messageId: id });
       await session.client.waitForAgentUpsert(
         session.agentId,
@@ -81,6 +86,21 @@ for (const viewport of [
       );
       await first.getByTestId("collaboration-progress-toggle").click();
       await expect(first.getByTestId("collaboration-stage")).toHaveCount(2);
+      const evidence = "Detailed evidence: the queued reimbursement reminder still sends twice.";
+      await sendNotice("first-round", 2, `Six service tests still fail.\n\n${evidence}`, {
+        phase: "executing",
+        control: "needs_attention",
+      });
+      const current = first.getByTestId("collaboration-progress-current");
+      await expect(current).toContainText("Collaboration · implementation");
+      await expect(current).toContainText("Needs attention");
+      await expect(current).not.toContainText(evidence);
+      await first.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`blocked-preview-${viewport.name}.png`) });
+      const stage = first.getByTestId("collaboration-stage").last();
+      await stage.click();
+      await expect(first.getByText(evidence, { exact: false }).last()).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath(`blocked-${viewport.name}.png`) });
       await sendNotice("second-round", 0, "Another collaboration task");
       await expect(cards).toHaveCount(2);
       await expect(cards.last()).toContainText("Another collaboration task");

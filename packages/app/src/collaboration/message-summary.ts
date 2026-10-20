@@ -37,6 +37,8 @@ export type CollaborationNoticeExecution = z.infer<typeof NoticeExecutionSchema>
 
 export interface CollaborationMessageSummary {
   stage: CollaborationMessageStage;
+  phase?: string;
+  control?: string;
   /** Empty when the stage label says everything. */
   text: string;
   /** What the main Agent was told, without the scheduler marker or JSON context. */
@@ -80,7 +82,7 @@ export function collaborationMessageSummary(
   if (id.startsWith("chat-notice:")) {
     const notice = readCollaborationNotice(id, item.text);
     if (!notice) return;
-    let stage: CollaborationMessageStage = "progress";
+    let stage = noticeStage(notice.phase);
     if (notice.confirmation === "plan") stage = "approval";
     if (notice.confirmation === "final") stage = "acceptance";
     const execution = readNoticeExecution(item.text);
@@ -89,6 +91,8 @@ export function collaborationMessageSummary(
       text: notice.message,
       instructions: joinParagraphs(notice.instruction, notice.reply),
       acceptance: [],
+      ...(notice.phase ? { phase: notice.phase } : {}),
+      ...(notice.control ? { control: notice.control } : {}),
       ...(notice.plan ? { plan: notice.plan } : {}),
       ...(execution ? { execution } : {}),
     };
@@ -112,4 +116,41 @@ export function collaborationMessageSummary(
 
 function joinParagraphs(...parts: (string | undefined)[]) {
   return parts.filter(Boolean).join("\n\n");
+}
+
+function noticeStage(phase?: string): CollaborationMessageStage {
+  switch (phase) {
+    case "planning":
+      return "plan";
+    case "executing":
+      return "execute";
+    case "reviewing":
+      return "review";
+    case "final_review":
+      return "final";
+    case "awaiting_acceptance":
+      return "acceptance";
+    default:
+      return "progress";
+  }
+}
+
+export function collaborationProgressStatus(summary: CollaborationMessageSummary) {
+  if (summary.control === "canceled") return "canceled";
+  if (summary.phase === "completed") return "completed";
+  if (summary.phase === "awaiting_acceptance") return "awaitingAcceptance";
+  switch (summary.control) {
+    case "running":
+      return "running";
+    case "paused":
+      return "paused";
+    case "needs_attention":
+      return "needsAttention";
+    case "waiting_permission":
+      return "waitingPermission";
+    case "canceling":
+      return "canceling";
+    default:
+      return undefined;
+  }
 }

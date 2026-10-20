@@ -122,6 +122,176 @@ test("quota without a fallback keeps the task and offers a manual switch", async
   assert.equal(h.agents.created.length, created);
 });
 
+test("continuing a manually changed worker reclaims its task after an automatic retry", async (t) => {
+  const { h, worker } = await executing();
+  t.onTestFinished(() => h.cleanup());
+  fail(h.agents, worker.agentId!, "503 no_healthy_account");
+  await h.engine.tick();
+  h.elapse(31000);
+  await h.engine.tick();
+  const replacement = await h.until("execute");
+  assert.notEqual(replacement.agentId, worker.agentId);
+  fail(h.agents, replacement.agentId!, "503 no_healthy_account");
+  const model = { provider: "vendor-b/manual-model", thinkingOptionId: "high" };
+  let delivered = "";
+  const handled = await h.engine.continueExecutionSession(
+    h.id,
+    worker.agentId!,
+    model,
+    "你继续",
+    async (prompt) => {
+      delivered = prompt;
+      // Dispatch must already own the new operation, while the scheduler cannot advance it.
+      assert.equal(h.op()?.agentId, worker.agentId);
+      assert.equal(h.op()?.state, "sending");
+      h.agents.states.set(worker.agentId!, { status: "running", seen: true, output: "" });
+    },
+  );
+  assert.equal(handled, true);
+  const resumed = h.op()!;
+  assert.notEqual(resumed.id, worker.id);
+  assert.notEqual(resumed.id, replacement.id);
+  assert.equal(resumed.agentId, worker.agentId);
+  assert.deepEqual(resumed.executionModel, model);
+  assert.deepEqual(h.run().executionModels?.worker, model);
+  assert.equal(h.run().autoRetry, undefined);
+  assert.equal(h.run().control, "running");
+  assert.match(delivered, new RegExp(`Current operationId=${resumed.id}`));
+  assert.match(delivered, /你继续/);
+  assert.ok(h.agents.stopped.includes(replacement.agentId!));
+  await assert.rejects(h.engine.submit(h.id, "task-1", worker.id, result), /已经结束/);
+  assert.deepEqual(await h.engine.submit(h.id, "task-1", resumed.id, result), {
+    accepted: true,
+  });
+  await h.complete(result);
+  assert.equal(h.run().tasks[0].status, "executed");
+});
+
+test.each([
+  "为什么失败了？先不要继续执行。",
+  "为什么失败了？",
+  "先不要继续执行",
+  "可以继续吗？",
+  "continue?",
+  "Do not continue; explain the failure first.",
+])("a blocked worker message %s does not authorize continuation", async (text) => {
+  const { h, worker } = await executing();
+  try {
+    await h.complete({
+      ...result,
+      status: "blocked",
+      blocker: "external",
+      summary: "Missing deployment credentials",
+    });
+    const stopped = h.run();
+    assert.equal(stopped.control, "needs_attention");
+    let sends = 0;
+    for (const provider of ["vendor-b/model-b", "vendor-b/manual-model"]) {
+      assert.equal(
+        await h.engine.continueExecutionSession(
+          h.id,
+          worker.agentId!,
+          { provider },
+          text,
+          async () => {
+            sends++;
+          },
+        ),
+        false,
+      );
+      assert.deepEqual(h.run(), stopped);
+    }
+    assert.equal(sends, 0);
+    assert.deepEqual(h.agents.stopped, []);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test.each([
+  "继续",
+  "你继续",
+  "继续完成",
+  "请继续执行任务。",
+  "continue",
+  "Please resume the task!",
+])("an explicit %s after a manual model change resumes a quota-blocked worker", async (text) => {
+  const { h, worker } = await executing();
+  try {
+    fail(h.agents, worker.agentId!, QUOTA);
+    await h.engine.tick();
+    const sends: string[] = [];
+    assert.equal(
+      await h.engine.continueExecutionSession(
+        h.id,
+        worker.agentId!,
+        { provider: "vendor-b/manual-model" },
+        text,
+        async (prompt) => {
+          sends.push(prompt);
+        },
+      ),
+      true,
+    );
+    assert.equal(sends.length, 1);
+    assert.equal(h.op()?.agentId, worker.agentId);
+    assert.equal(h.run().executionRelay, undefined);
+    assert.equal(h.run().control, "running");
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("a failed replacement stop preserves ownership and refuses the old worker message", async (t) => {
+  const { h, worker } = await executing();
+  t.onTestFinished(() => h.cleanup());
+  fail(h.agents, worker.agentId!, "503 no_healthy_account");
+  await h.engine.tick();
+  h.elapse(31000);
+  await h.engine.tick();
+  const replacement = await h.until("execute");
+  h.agents.stopError = "cannot stop";
+  let sends = 0;
+  await assert.rejects(
+    h.engine.continueExecutionSession(
+      h.id,
+      worker.agentId!,
+      { provider: "vendor-b/manual-model" },
+      "继续",
+      async () => {
+        sends++;
+      },
+    ),
+    /替代执行会话未能停止/,
+  );
+  assert.equal(sends, 0);
+  assert.equal(h.run().activeOperationId, replacement.id);
+  assert.equal(h.op()?.agentId, replacement.agentId);
+});
+
+test("pausing collaboration prevents a manually changed worker from resuming it", async (t) => {
+  const { h, worker } = await executing();
+  t.onTestFinished(() => h.cleanup());
+  fail(h.agents, worker.agentId!, QUOTA);
+  await h.engine.tick();
+  await h.engine.control(h.id, "pause");
+  let sends = 0;
+  await assert.rejects(
+    h.engine.continueExecutionSession(
+      h.id,
+      worker.agentId!,
+      { provider: "vendor-b/manual-model" },
+      "继续",
+      async () => {
+        sends++;
+      },
+    ),
+    /已暂停或取消/,
+  );
+  assert.equal(sends, 0);
+  assert.equal(h.run().activeOperationId, worker.id);
+});
+
 test("an ordered fallback continues the same task and a later task reuses that model", async (t) => {
   const h = await harness(fallbacks());
   t.onTestFinished(() => h.cleanup());

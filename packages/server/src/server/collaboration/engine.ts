@@ -769,6 +769,8 @@ export class Engine {
       (!op || (op.kind === "review" && ["pending", "ready"].includes(op.state)))
     ) {
       const task = run.tasks.find((candidateTask) => candidateTask.status === "reviewing");
+      if (task?.result?.status === "blocked" && task.result.blocker === "implementation")
+        return false;
       if (!task || task.result?.status !== "ready_for_review")
         throw new Error("缺少已执行的任务成果，无法继续后续任务");
       task.status = "executed";
@@ -948,6 +950,13 @@ export class Engine {
   ) {
     if (op.kind === "final" && (!run.tasks.length || !run.tasks.every(executionComplete)))
       throw new Error("仍有任务未执行完成，不能批准成果");
+    if (
+      run.tasks.some(
+        (task) =>
+          (op.kind === "final" || task.spec.id === op.taskId) && task.result?.status === "blocked",
+      )
+    )
+      throw new Error("执行尚未完成，诊断审核必须给出返工要求或明确的外部阻碍，不能批准成果");
     if (run.settings.verificationCommands.length && !evidence.passed)
       throw new Error("用户指定的额外检查未通过，不能批准成果");
     if (
@@ -969,14 +978,20 @@ export class Engine {
         task = run.tasks.find((candidateEntry) => candidateEntry.spec.id === op.taskId)!;
       task.result = result;
       if (result.status === "blocked") {
-        this.hold(run, `执行受阻：${result.summary}`);
-        return;
+        if (result.blocker !== "implementation") {
+          this.hold(run, `执行受阻：${result.summary}`);
+          return;
+        }
+        task.status = "reviewing";
+        run.phase = "reviewing";
+        this.event(run, "实现尚未完成，交给审核 AI 诊断并给出返工要求");
+      } else {
+        if (run.executionAttempts) delete run.executionAttempts[task.profileId];
+        run.executionRelay = undefined;
+        task.status = "executed";
+        run.phase = "executing";
+        this.event(run, `执行完成：${task.spec.title}；全部任务完成后统一审核`);
       }
-      if (run.executionAttempts) delete run.executionAttempts[task.profileId];
-      run.executionRelay = undefined;
-      task.status = "executed";
-      run.phase = "executing";
-      this.event(run, `执行完成：${task.spec.title}；全部任务完成后统一审核`);
     } else {
       const review = ReviewSchema.parse(value),
         task = run.tasks.find((candidateEntry) => candidateEntry.spec.id === op.taskId);
@@ -1059,6 +1074,93 @@ export class Engine {
     run.finalReview = undefined;
     run.phase = "executing";
     this.event(run, `需要返工：${[...ids].join("、")}`);
+  }
+  /** A human can resume an older worker tab after changing its model outside the relay picker. */
+  async continueExecutionSession(
+    runId: string,
+    agentId: string,
+    model: ExecutionModel,
+    text: string,
+    send: (prompt: string) => Promise<void>,
+  ): Promise<boolean> {
+    // Match a whole continuation command; questions and negations must remain ordinary messages.
+    const continuation =
+      /^(?:(?:请|你)?继续(?:执行|完成)?(?:任务|工作)?|(?:please\s+)?(?:continue|resume)(?:\s+(?:the\s+)?(?:task|work))?)[。.!！]*$/iu.test(
+        text.trim(),
+      );
+    if (!continuation) return false;
+    return this.locked(runId, async () => {
+      const run = this.store.get(runId);
+      const source = run.operations.findLast(
+        (operation) => operation.kind === "execute" && operation.agentId === agentId,
+      );
+      if (!source || run.phase === "completed" || run.phase === "awaiting_acceptance") return false;
+      const current = this.current(run);
+      this.assertExecutionContinuation(run, source, current);
+      const previousModel =
+        current.executionModel ?? this.executionModelFor(run, current.profileId);
+      if (
+        current.agentId === agentId &&
+        sameExecutionModel(previousModel, model) &&
+        !run.autoRetry?.at &&
+        !run.executionRelay &&
+        run.control !== "needs_attention"
+      )
+        return false;
+      await this.repository.assertBranch(run);
+      const sourceState = await this.agents.inspect(agentId, source.id, source.createdAt);
+      if (sourceState.status === "missing" || !sessionSettled(sourceState))
+        throw new Error("所选执行会话仍在运行或等待权限，请处理后再继续");
+      if (current.agentId !== agentId && !(await this.confirmStopped(run, current)))
+        throw new Error("替代执行会话未能停止，未恢复旧会话；进度已保留");
+      // Cancellation and pause can be persisted while stop is awaiting the provider.
+      const latest = this.store.get(runId);
+      if (["paused", "canceled", "canceling"].includes(latest.control))
+        throw new Error("协作已暂停或取消，未恢复旧会话");
+      current.state = "abandoned";
+      run.autoRetry = undefined;
+      run.executionRelay = undefined;
+      run.executionModels = { ...run.executionModels, [current.profileId]: model };
+      run.tasks.find((task) => task.spec.id === current.taskId)!.agentId = agentId;
+      run.control = "running";
+      this.renewBudget(run);
+      this.enqueue(run, "execute", current.taskId);
+      const next = this.current(run)!;
+      this.bindAgent(run, next, agentId);
+      next.prompt += `\nUser continuation for this operation:\n${text}`;
+      next.state = "sending";
+      next.sentAt = this.now();
+      this.save(run);
+      try {
+        // The caller retains the user's message ID and attachments. Dispatch stays under the
+        // run lock so an automatic retry cannot replace the operation between binding and send.
+        await send(next.prompt);
+        next.state = "sent";
+        next.deliveryConfirmedAt = this.now();
+        this.event(run, `已恢复所选执行会话，使用 ${model.provider} 继续同一任务`);
+        this.save(run);
+      } catch (error) {
+        this.hold(run, `恢复执行会话发送失败，进度已保留：${String(error)}`);
+        throw error;
+      }
+      return true;
+    });
+  }
+  private assertExecutionContinuation(
+    run: Run,
+    source: Operation,
+    current: Operation | undefined,
+  ): asserts current is Operation {
+    if (
+      run.phase !== "executing" ||
+      current?.kind !== "execute" ||
+      current.taskId !== source.taskId ||
+      source.superseded ||
+      current.response !== undefined
+    )
+      throw new Error("此执行会话的步骤已被替换，请回到主对话继续当前协作任务");
+    if (["paused", "canceled", "canceling"].includes(run.control))
+      throw new Error("协作已暂停或取消，请先在主对话恢复任务");
   }
   async submit(runId: string, actor: string, operationId: string, payload: unknown) {
     return this.locked(runId, async () => {
@@ -1831,7 +1933,7 @@ export class Engine {
     }
     return { ok: true as const, operationId: next?.id };
   }
-  private async retryRun(run: Run) {
+  private async retryRun(run: Run, feedback?: string) {
     if (run.control !== "needs_attention") throw new Error("仅受阻任务可以重试");
     const op = this.current(run);
     if (op?.agentId && op.agentId !== run.chat?.mainAgentId) {
@@ -1843,6 +1945,7 @@ export class Engine {
     run.autoRetry = undefined;
     run.executionRelay = undefined;
     this.renewBudget(run);
+    if (feedback?.trim()) this.addNote(run, feedback);
     return this.retryCurrent(run, "用户检查后重试当前步骤");
   }
   private async retryCurrent(run: Run, message: string) {
@@ -1976,7 +2079,7 @@ export class Engine {
           this.event(run, "继续执行");
         }
         if (action === "retry") {
-          if (await this.retryRun(run)) return { ok: true };
+          if (await this.retryRun(run, final.feedback)) return { ok: true };
         }
         if (action === "revise") await this.reviseRun(run, goal);
         if (action === "note") this.addNote(run, final.feedback);

@@ -44,6 +44,7 @@ class NativeToolClient implements AgentClient {
   readonly workerResults: unknown[] = [];
   readonly reviewResults: unknown[] = [];
   readonly prompts: { agentId: string; text: string }[] = [];
+  holdWorkerResults = false;
   constructor(private readonly reviewIndependently = false) {}
   isAvailable() {
     return this.inner.isAvailable();
@@ -103,7 +104,7 @@ class NativeToolClient implements AgentClient {
               },
             );
         }
-        if (operation?.stage === "execute") {
+        if (operation?.stage === "execute" && !this.holdWorkerResults) {
           void context!
             .paseoTools!.executeTool("submit_result", {
               operationId: operation.operationId,
@@ -135,6 +136,92 @@ class NativeToolClient implements AgentClient {
   }
 }
 const exec = promisify(execFile);
+
+test("a child model selection followed by continue submits through the current collaboration operation", async (t) => {
+  const repo = await mkdtemp(join(tmpdir(), "collaboration-model-selection-"));
+  t.onTestFinished(() => rm(repo, { recursive: true, force: true }));
+  await exec("git", ["init", repo]);
+  await exec(
+    "git",
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    ],
+    { cwd: repo },
+  );
+  const provider = new NativeToolClient();
+  provider.holdWorkerResults = true;
+  const daemon = await createTestPaseoDaemon({ agentClients: { codex: provider } });
+  t.onTestFinished(() => daemon.close());
+  const client = new DaemonClient({ url: `ws://127.0.0.1:${daemon.port}/ws` });
+  t.onTestFinished(() => client.close());
+  await client.connect();
+  const main = await client.createAgent({ provider: "codex", model: "gpt-5.4-mini", cwd: repo });
+  const settings = SettingsSchema.parse({
+    profiles: [{ id: "native", label: "Codex", provider: "codex/gpt-5.4-mini" }],
+    directorProfileId: "native",
+    workerProfileId: "native",
+    reviewerProfileId: "native",
+    reviewerAsLead: true,
+  });
+  await client.collaborationCommand("conversation.open", {
+    requestId: "manual-model",
+    agentId: main.id,
+    workspaceId: main.workspaceId,
+    mode: "execute_review",
+    goal: "实现功能",
+    settings,
+  });
+  const tools = provider.catalogs.get(main.id)!;
+  const status = await tools.executeTool("get_conversation_status", {});
+  const context = JSON.parse(status.content[0].text);
+  expect(
+    await tools.executeTool("start_task", {
+      sourceMessageId: context.latestUserMessage.id,
+      goal: "实现功能",
+    }),
+  ).not.toHaveProperty("isError", true);
+  const reader = new Store(join(daemon.paseoHome, "director", "director.sqlite"), false);
+  t.onTestFinished(() => reader.close());
+  const current = () => reader.all()[0];
+  await expect.poll(() => current()?.operations.at(-1)?.state, { timeout: 15000 }).toBe("sent");
+  const original = current().operations.at(-1)!;
+  await expect.poll(() => daemon.daemon.agentManager.hasInFlightRun(original.agentId!)).toBe(false);
+  await client.setAgentModel(original.agentId!, "gpt-5.4");
+  const question = "为什么失败了？先不要继续执行。";
+  await client.sendMessage(original.agentId!, question, { messageId: "manual-question" });
+  await expect.poll(() => daemon.daemon.agentManager.hasInFlightRun(original.agentId!)).toBe(false);
+  expect(provider.prompts.at(-1)).toEqual({ agentId: original.agentId, text: question });
+  expect(current().operations.at(-1)?.id).toBe(original.id);
+  provider.holdWorkerResults = false;
+  await client.sendMessage(original.agentId!, "你继续", { messageId: "manual-continue" });
+  await expect.poll(() => provider.workerResults.length, { timeout: 15000 }).toBe(1);
+  expect(provider.workerResults[0]).toMatchObject({
+    content: [{ type: "text", text: JSON.stringify({ accepted: true }) }],
+  });
+  const resumed = current().operations.findLast((op) => op.kind === "execute")!;
+  expect(resumed.id).not.toBe(original.id);
+  expect(resumed.agentId).toBe(original.agentId);
+  expect(resumed.executionModel?.provider).toBe("codex/gpt-5.4");
+  expect(provider.prompts.at(-1)?.text).toContain(`Current operationId=${resumed.id}`);
+  expect(provider.prompts.at(-1)?.text).toContain("你继续");
+  const executions = current()
+    .operations.filter((op) => op.kind === "execute")
+    .map((op) => op.id);
+  await client.sendMessage(original.agentId!, "你继续", { messageId: "manual-continue" });
+  expect(provider.workerResults).toHaveLength(1);
+  expect(
+    current()
+      .operations.filter((op) => op.kind === "execute")
+      .map((op) => op.id),
+  ).toEqual(executions);
+});
 
 test.for(["full", "execute_review"] as const)(
   "native collaboration (%s) keeps the main conversation, dispatches child agents, and waits for human acceptance",

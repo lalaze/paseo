@@ -116,6 +116,48 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
   return { dir, store, gateway, repo, engine, chats };
 }
 
+test("stopped notices require truthful recovery and retry feedback reaches the worker once", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "blocked-feedback",
+    workspaceId: "workspace",
+    fresh: true,
+    mode: "execute_review",
+    settings: reviewerSettings(),
+  });
+  h.gateway.user(c.agentId!, "goal", "修复报销提醒");
+  await h.chats.start(c.id, { sourceMessageId: "goal", goal: "修复报销提醒" });
+  const worker = await advanceTo(h, c.id, "execute");
+  h.gateway.states.set(worker.agentId!, {
+    status: "idle",
+    seen: true,
+    output: JSON.stringify({ ...result, status: "blocked", issues: ["Six tests fail"] }),
+  });
+  await h.engine.tick();
+  h.gateway.idle(c.agentId!);
+  await h.chats.tick();
+  const notice = h.store.conversation(c.id).notices.at(-1)!;
+  const parsed = readCollaborationNotice(notice.id, notice.text)!;
+  assert.equal(parsed.control, "needs_attention");
+  assert.match(parsed.instruction, /has stopped and is not running/);
+  assert.match(parsed.instruction, /retry with concrete diagnostic feedback/);
+  assert.match(parsed.instruction, /fresh status showing running/);
+  h.gateway.user(c.agentId!, "continue", "继续");
+  const input = {
+    action: "retry" as const,
+    sourceMessageId: "continue",
+    feedback: "Only abort the barrier on failure",
+  };
+  await h.chats.control(c.id, input);
+  await h.chats.control(c.id, input);
+  const next = await advanceTo(h, c.id, "execute");
+  assert.match(next.prompt, /Only abort the barrier on failure/);
+  assert.deepEqual(
+    h.chats.summary(c.id).run!.notes?.map((note) => note.text),
+    [input.feedback],
+  );
+});
+
 test("blank native conversations don't prepare a branch; duplicate creation is idempotent", async (t) => {
   const h = await fixture(t);
   const first = await h.chats.open({ requestId: "new", workspaceId: "workspace", fresh: true });

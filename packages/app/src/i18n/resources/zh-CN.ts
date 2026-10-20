@@ -145,7 +145,7 @@ export const zhCN: TranslationResources = {
     checks: "验证命令（每行一条）",
     message: {
       progressTitle: "协作进度",
-      updates: "{{count}} 条进度",
+      updates: "{{count}} 条记录",
       plan: "协作 · 设计",
       execute: "协作 · 执行",
       review: "协作 · 审核",

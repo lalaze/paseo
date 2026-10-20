@@ -129,6 +129,8 @@ export const PlanSchema = z.object({
 });
 export const ResultSchema = z.object({
   status: z.enum(["ready_for_review", "blocked"]),
+  /** Implementation failures need diagnosis; external constraints and decisions need attention. */
+  blocker: z.enum(["implementation", "external", "user"]).optional(),
   summary: Text,
   tests: z.array(Text).max(30),
   issues: z.array(Text).max(30),

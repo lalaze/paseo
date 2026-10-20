@@ -8,6 +8,7 @@ import { AntigravityIcon } from "@/components/icons/antigravity-icon";
 import { ClaudeIcon } from "@/components/icons/claude-icon";
 import { CodexIcon } from "@/components/icons/codex-icon";
 import { CopilotIcon } from "@/components/icons/copilot-icon";
+import { DeepSeekIcon } from "@/components/icons/deepseek-icon";
 import { KiroIcon } from "@/components/icons/kiro-icon";
 import { MiniMaxIcon } from "@/components/icons/minimax-icon";
 import { OpenCodeIcon } from "@/components/icons/opencode-icon";
@@ -29,6 +30,7 @@ const BUILTIN_PROVIDER_ICONS: Record<string, ProviderIconComponent> = {
   claude: ClaudeIcon as unknown as ProviderIconComponent,
   codex: CodexIcon as unknown as ProviderIconComponent,
   copilot: CopilotIcon as unknown as ProviderIconComponent,
+  "deepseek-harness": DeepSeekIcon,
   kiro: KiroIcon as unknown as ProviderIconComponent,
   minimax: MiniMaxIcon as unknown as ProviderIconComponent,
   omp: OmpIcon as unknown as ProviderIconComponent,

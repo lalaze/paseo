@@ -77,6 +77,33 @@ export class CollaborationService {
   isActive() {
     return this.runtime !== null;
   }
+  async continueExecutionMessage(
+    agentId: string,
+    text: string,
+    send: (prompt: string) => Promise<void>,
+  ): Promise<boolean> {
+    if (!this.runtime) return false;
+    const agent = this.host.agentManager.getAgent(agentId);
+    const record = agent ?? (await this.host.agentStorage.get(agentId));
+    if (record?.labels?.["director-role"] !== "worker") return false;
+    const run = this.runtime.store
+      .all()
+      .find((candidate) => candidate.id === record.labels?.["director-run"]);
+    if (!run) return false;
+    const model = record.config?.model;
+    if (!model) throw new Error("执行会话未配置模型，请先选择模型再继续");
+    return this.runtime.engine.continueExecutionSession(
+      run.id,
+      agentId,
+      {
+        provider: `${record.provider}/${model}`,
+        thinkingOptionId: record.config?.thinkingOptionId ?? undefined,
+        featureValues: record.config?.featureValues ?? undefined,
+      },
+      text,
+      send,
+    );
+  }
   timelineNotices(agentId: string): ImportedTimelineEntry[] {
     const conversations = this.runtime?.store.conversations() ?? [];
     return conversations

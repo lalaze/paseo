@@ -1,10 +1,49 @@
 import { test, expect } from "vitest";
 import { ENABLE_COLLABORATION_MESSAGE } from "@getpaseo/protocol/collaboration/conversation";
-import { collaborationMessageSummary } from "./message-summary";
+import { collaborationMessageSummary, collaborationProgressStatus } from "./message-summary";
 import { collaborationPlanMarkdown } from "./plan-markdown";
 import { collaborationPermissionPlan } from "./permission-plan";
 
 const operationId = "0f8b3c1e-2a4d-4b6f-8c9e-1d2f3a4b5c6d";
+
+test("progress retains the actual execution stage and stopped state", () => {
+  const id = "chat-notice:chat-1:blocked:0";
+  const summary = collaborationMessageSummary({
+    clientMessageId: id,
+    text: notice(id, "Stopped", {
+      message: "Six tests fail",
+      phase: "executing",
+      control: "needs_attention",
+    }),
+  });
+  expect(summary?.stage).toBe("execute");
+  expect(summary?.phase).toBe("executing");
+  expect(summary?.control).toBe("needs_attention");
+  expect(collaborationProgressStatus(summary!)).toBe("needsAttention");
+});
+
+test("acceptance and completion take precedence over a paused control", () => {
+  expect(
+    collaborationProgressStatus({
+      stage: "acceptance",
+      phase: "awaiting_acceptance",
+      control: "paused",
+      text: "",
+      instructions: "",
+      acceptance: [],
+    }),
+  ).toBe("awaitingAcceptance");
+  expect(
+    collaborationProgressStatus({
+      stage: "progress",
+      phase: "completed",
+      control: "paused",
+      text: "",
+      instructions: "",
+      acceptance: [],
+    }),
+  ).toBe("completed");
+});
 
 function prompt(instruction: string, context: object) {
   return `[paseo-director:${operationId}]\n${instruction}\n\n${JSON.stringify(context, null, 2)}\n\n本轮 operationId=${operationId}。如果有 submit_result 工具，调用它。\n{}`;
@@ -208,6 +247,8 @@ test("acceptance notices show the status message and the reply options, not the 
   });
   expect(summary).toEqual({
     stage: "acceptance",
+    phase: "awaiting_acceptance",
+    control: "paused",
     text: "审核 AI统一审核通过，等待你验收或提出修改意见",
     instructions: "AI 审核已通过，等待用户验收（状态通知，不是用户指令）。\n\n单独回复“验收通过”",
     acceptance: [],
@@ -223,7 +264,13 @@ test("notices persisted by older hosts still render as progress and plan approva
       clientMessageId: id,
       text: notice(id, legacy, { goal: "g", phase: "executing", message: "执行任务 task-1" }),
     }),
-  ).toEqual({ stage: "progress", text: "执行任务 task-1", instructions: legacy, acceptance: [] });
+  ).toEqual({
+    stage: "execute",
+    phase: "executing",
+    text: "执行任务 task-1",
+    instructions: legacy,
+    acceptance: [],
+  });
   const approval = collaborationMessageSummary({
     clientMessageId: id,
     text: notice(id, legacy, {
@@ -261,7 +308,7 @@ test("a quota notice exposes execution, and a malformed one stays readable", () 
       execution,
     }),
   });
-  expect(summary?.stage).toBe("progress");
+  expect(summary?.stage).toBe("execute");
   expect(summary?.execution).toEqual(execution);
   expect(summary?.text).toBe("额度已用尽");
   const plain = collaborationMessageSummary({
@@ -269,7 +316,8 @@ test("a quota notice exposes execution, and a malformed one stays readable", () 
     text: notice(id, "继续执行。", { message: "执行任务 task-1", phase: "executing" }),
   });
   expect(plain).toEqual({
-    stage: "progress",
+    stage: "execute",
+    phase: "executing",
     text: "执行任务 task-1",
     instructions: "继续执行。",
     acceptance: [],

@@ -85,7 +85,8 @@ starts; create another conversation to change them.
 Tasks execute serially in dependency order within one workspace. Each worker profile keeps one
 session for the whole run: the next task, a retry and a revised requirement continue in it, so the
 environment, scripts and data it built carry over. A session that has been archived or has failed
-is replaced with a fresh one at the next step. Workers receive summaries of completed dependencies; full reports and the plan remain available
+is replaced with a fresh one at the next step. Workers receive summaries of completed dependencies
+and earlier work on their execution profile; full reports and the plan remain available
 through operation-scoped evidence files. A turn that ends without submitting a result is asked to report in the same
 session, up to twice, before the run needs attention. The launch dialog's
 [Isolation](glossary.md) choice decides where the task runs. Local creates a `director/<run-id>`
@@ -99,6 +100,15 @@ request checkout refuses until you run its setup. A retry reuses that worktree w
 still `director/<run-id>`, and checks a leftover branch out again, keeping its tip as the review
 base, when the worktree is gone. Worktrees already stored under the collaboration data directory
 are reused. A repository must have an initial commit and no unresolved merge conflicts.
+
+An implementation that cannot converge on code or test failures reports an implementation blocker.
+The host sends that incomplete result to diagnostic review, which must return concrete rework
+findings or an external blocker; it cannot approve unfinished work. This is the exception to
+reviewing only after all tasks finish. Diagnosis and rework share the remaining time budget.
+External blockers and decisions outside the approved scope stop for attention. Older reports
+without a blocker category also stop, so an unknown constraint never triggers automatic rework.
+Retry feedback is saved with the task's notes and reaches later implementation and review steps,
+including after a host restart.
 
 When planning is on, plan approval is optional. Final user acceptance is required even after the AI approves the
 result. When review requests changes, the affected tasks and their dependents run again, followed
@@ -171,6 +181,11 @@ into its stage history. Retries and rework stay in that card; a new collaboratio
 gets a new card. Ordinary user messages and Agent replies keep their positions. Reloading or
 loading older history rebuilds the card from the persisted notices.
 
+The card shows the execution stage and control state separately. Its preview is bounded;
+expand the history for complete reports. A stopped task's reply must name the blocker and next
+action. The main Agent may diagnose and retry work already in scope, but claims it has resumed
+only after a successful control and a fresh running status.
+
 Stage rows expand to show the instructions the Agent received, never the marker or JSON context.
 Plan snapshots, approval and acceptance actions, and the current model handoff stay visible
 outside the collapsed history. The card carries the status, so the Agent's reply must not restate
@@ -236,6 +251,15 @@ for that execution profile, the host tries them in order, skipping a provider it
 this chain and any model the host cannot run. Later implementation steps and rework use the model
 that took over. The original role instructions stay with the logical execution profile. Pause and
 cancel still win over a switch. Planning and review do not hand off on quota.
+
+You can also change a worker's model beside its composer and send a standalone continuation command
+there, such as `继续`, `你继续`, `继续完成`, `continue` or `resume`. Questions, negations and other
+messages do not resume collaboration or reset its time budget. Send additional requirements as a
+separate message or add a note from the main conversation. The host
+reclaims that same task for the selected session, stops any replacement started by automatic retry,
+and sends the current task context with a fresh operation ID. Later steps use the selected model.
+If the replacement cannot stop, or the task has moved on, the message fails visibly instead of
+starting another worker. Resume a paused task from the main conversation first.
 
 Pause stops subsequent dispatch; the current turn can finish. Cancel ends the run immediately from
 any unfinished state and retains the branch and files. It then interrupts the active role session

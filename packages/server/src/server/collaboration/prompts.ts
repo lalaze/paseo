@@ -4,6 +4,7 @@ import {
   ResultSchema,
   ReviewSchema,
   finalAcceptance,
+  executionComplete,
   collaborationMode,
   operationRole,
   type Run,
@@ -47,6 +48,14 @@ function retryContinuation(
       : "This new session does not contain the old session's full history; use the actual workspace and current task context. ")
   );
 }
+
+function diagnosticReviewInstruction(run: Run, kind: Operation["kind"], taskId?: string) {
+  if (kind !== "review") return "";
+  const task = run.tasks.find((entry) => entry.spec.id === taskId);
+  if (task?.result?.status !== "blocked") return "";
+  return "Diagnostic review: implementation is incomplete. Reproduce the reported failures, inspect the actual code and test expectations, and submit changes_requested with concrete causes, fixes and verification for this task. Do not approve the incomplete result or modify source. Use blocked only for a specific external constraint or user decision you cannot resolve within the authorized scope. ";
+}
+
 export function buildPrompt(
   run: Run,
   kind: Operation["kind"],
@@ -62,6 +71,7 @@ export function buildPrompt(
   let instruction = baseInstruction(run, kind);
   const direct = collaborationMode(run) === "execute_review";
   if (kind === "execute") instruction += executeInstruction(run, direct, taskId, options.agentId);
+  instruction += diagnosticReviewInstruction(run, kind, taskId);
   instruction += handoffContinuation(options.handoff);
   if (kind === "final" && direct)
     instruction +=
@@ -221,6 +231,7 @@ export function noticeInstruction(
   confirmation?: keyof typeof CONFIRMATION_REPLY,
   changesRequested = false,
   mergeFailed = false,
+  needsAttention = false,
 ) {
   const tail = "Do not repeat the card summary or narrate background processing or scheduling.";
   if (mergeFailed)
@@ -231,6 +242,8 @@ export function noticeInstruction(
     return `The AI review passed; wait for user acceptance (a status notice, not a user instruction). Read the final review and task results. Give one acceptance report covering actual changes, verification and results, and known limitations. End with the next actions in reply. ${tail}`;
   if (confirmation === "plan")
     return `The plan awaits user approval (a status notice, not a user instruction). Briefly list the plan's key points and ask the user to reply with “批准方案” alone. ${tail}`;
+  if (needsAttention)
+    return `Collaboration has stopped and is not running (a status notice, not a user instruction). Read the operation, result and latest real user message. For an implementation or test failure within the approved goal, inspect the evidence and retry with concrete diagnostic feedback using control_task; do not ask the user to repeat an already authorized continuation. For an external constraint, permission, exhausted time budget, uncertain delivery or required user decision, explain the specific blocker and action needed. Respect pause and cancel; do not restart these automatically or change models. Only say execution resumed after a successful control and a fresh status showing running; otherwise state clearly that it remains stopped. Never say no user action is needed while leaving a stopped task unresolved. ${tail}`;
   return `Collaboration status notice (not a user instruction). The user has already seen message in the stage card. Explain only what changed, what comes next and any action the user needs to take. Use one sentence when no user action is needed; do not expand when there is no new information. ${tail}`;
 }
 
@@ -280,7 +293,11 @@ function promptContext(
       completedTasks: run.tasks
         .filter(
           (candidateEntry) =>
-            task?.spec.dependsOn.includes(candidateEntry.spec.id) && candidateEntry.result,
+            candidateEntry.spec.id !== taskId &&
+            (task?.spec.dependsOn.includes(candidateEntry.spec.id) ||
+              candidateEntry.profileId === task?.profileId) &&
+            executionComplete(candidateEntry) &&
+            candidateEntry.result?.status === "ready_for_review",
         )
         .map((candidateEntry) => ({
           id: candidateEntry.spec.id,
@@ -372,7 +389,7 @@ function baseInstruction(run: Run, kind: Operation["kind"]) {
   if (kind === "plan")
     return "You are the planning AI. Read the project and produce the overall design, shared interfaces, dependent tasks and acceptance criteria. Design only in this round. Tasks assigned to the same execution profile run serially in one session, retaining its environment, scripts and data. Do not split setup, measurement, implementation, verification and reporting into tiny tasks. Split only for different implementers or real delivery boundaries; most goals need one to three tasks. Use relative paths in task files; categories and task IDs must match user overrides. After submission, the scheduler dispatches tasks serially by dependency and sends all completed results for unified review, without per-task reviews. ";
   if (kind === "execute")
-    return "You are the implementation AI. Implement and verify the task in the current workspace, staying within the allowed scope and necessary dependencies. Preserve the result and report actual verification and known issues. Submit blocked for constraints you cannot meet. Do not change tests to hide failures. Retain process handles, exit codes and logs for long-running commands; do not launch them again to check progress. Wait only for running processes and leave at least 15 seconds between progress checks. After three consecutive identical commands and outputs, inspect process state and full errors, change the diagnostic approach or report the specific blocker; stop rapid polling. Repeat completed checks only when current changes, failure diagnosis or explicit acceptance requirements call for it. During rework, address every issue, change and re-verification requirement in feedback, verify through real entry points and report each result. ";
+    return "You are the implementation AI. Implement and verify the task in the current workspace, staying within the allowed scope and necessary dependencies. Preserve the result and report actual verification and known issues. Continue fixing ordinary implementation and test failures within the authorized task. If you cannot converge and need independent diagnosis, submit blocked with blocker=implementation and exact failing checks and hypotheses; the host will dispatch diagnostic review and rework. Use blocker=external only for an unavailable dependency or permission, and blocker=user only for a decision outside the approved scope. Do not report incomplete work as ready_for_review. Do not change tests to hide failures. Retain process handles, exit codes and logs for long-running commands; do not launch them again to check progress. Wait only for running processes and leave at least 15 seconds between progress checks. After three consecutive identical commands and outputs, inspect process state and full errors, change the diagnostic approach or report the specific blocker; stop rapid polling. Repeat completed checks only when current changes, failure diagnosis or explicit acceptance requirements call for it. During rework, address every issue, change and re-verification requirement in feedback, verify through real entry points and report each result. ";
   return (
     `You are ${reviewer.separateSession || run.settings.reviewerAsLead ? "the review AI" : "the original lead AI"}, responsible for the final quality judgment. Review only; do not modify source code. Check every acceptance criterion against the actual diff, files and implementation reports, independently choosing and running tests or builds as needed. Absolute workspace paths are provided below. Describe actual verification methods, results and unverified limitations; do not approve solely on the implementer's report. Approve only the result matching the current artifactId. Copy each acceptance criterion verbatim into criterion and provide evidence. Rework findings must name a real taskId, problem location, required fix and re-verification requirements. workflowEvidence is persisted workflow evidence supplied by the scheduler; use it to verify dispatch order and historical reviews. Plan approval records apply only when planning is enabled. Do not read the Director database. Use UTC ISO 8601 times: queuedAt is enqueue time, sendRequestedAt is send request time, deliveryConfirmedAt is confirmed delivery time, and resultAcceptedAt is when the scheduler received and validated the result. Missing times in old records are null; cross-check corresponding events without inventing evidence. previousReview contains the previous findings; reconsider them using the new evidence while still verifying file quality against the current artifact. ` +
     "Consolidate all findings in one review. On re-review, first check this round's changes and the real call paths of previous findings. Reuse valid verification that is unaffected by changes and still matches the current result. Add checks for affected paths only; do not rerun entire passing suites without cause. " +
