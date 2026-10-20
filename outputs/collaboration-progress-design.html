@@ -1,0 +1,537 @@
+<div id="paseo-collab-design" class="viz-dotted-background" aria-label="Paseo 协作常驻卡设计">
+  <style>
+    #paseo-collab-design {
+      padding: 20px 0;
+    }
+    #paseo-collab-design .paseo {
+      --p-bg: light-dark(#ffffff, #202322);
+      --p-panel: light-dark(#f8f9f8, #272b29);
+      --p-line: light-dark(#e2e6e3, #3d4540);
+      --p-fg: light-dark(#222725, #e6ebe7);
+      --p-muted: light-dark(#727b75, #a8b0aa);
+      --p-accent: light-dark(#177347, #a6ddbb);
+      --p-on-accent: light-dark(#ffffff, #173323);
+      --p-soft: light-dark(#e8f3ec, #283c30);
+      --p-warn: light-dark(#95601d, #e1be7b);
+      --p-danger: light-dark(#b03d3d, #f1a29b);
+      color: var(--p-fg);
+      background: transparent;
+      font:
+        14px/1.5 -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "PingFang SC",
+        sans-serif;
+      width: 100%;
+      max-width: 716px;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    #paseo-collab-design .paseo.phone {
+      max-width: 370px;
+    }
+    #paseo-collab-design .paseo * {
+      box-sizing: border-box;
+    }
+    #paseo-collab-design .paseo button {
+      font: inherit;
+    }
+    #paseo-collab-design .paseo button {
+      cursor: var(--cursor-interaction, pointer);
+    }
+    #paseo-collab-design .paseo button:focus-visible {
+      outline: 2px solid var(--p-accent);
+      outline-offset: 3px;
+    }
+    #paseo-collab-design .muted {
+      color: var(--p-muted);
+    }
+    #paseo-collab-design .small {
+      font-size: 12px;
+    }
+    #paseo-collab-design .space {
+      flex: 1;
+    }
+    #paseo-collab-design .icon {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+    }
+    #paseo-collab-design .docking {
+      flex: 0 0 auto;
+    }
+    #paseo-collab-design .dock {
+      background: var(--p-panel);
+      border: 1px solid var(--p-line);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    #paseo-collab-design .dock-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px 4px;
+    }
+    #paseo-collab-design .dock-head strong {
+      font-weight: 500;
+    }
+    #paseo-collab-design .state-mark {
+      width: 7px;
+      height: 7px;
+      background: var(--p-accent);
+      border-radius: 50%;
+      flex: 0 0 auto;
+    }
+    #paseo-collab-design .dock[data-tone="warning"] .state-mark {
+      background: var(--p-warn);
+    }
+    #paseo-collab-design .dock[data-tone="muted"] .state-mark {
+      background: var(--p-muted);
+    }
+    #paseo-collab-design .count {
+      color: var(--p-muted);
+      font-size: 12px;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    #paseo-collab-design .p-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 0;
+      border-radius: 6px;
+      padding: 4px 7px;
+      min-height: 28px;
+      color: var(--p-muted);
+      background: transparent;
+      white-space: nowrap;
+    }
+    #paseo-collab-design .p-button:hover {
+      background: var(--p-soft);
+      color: var(--p-fg);
+    }
+    #paseo-collab-design .p-button.primary {
+      background: var(--p-accent);
+      color: var(--p-on-accent);
+      padding: 5px 10px;
+    }
+    #paseo-collab-design .dock-sub {
+      padding: 0 12px 9px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    #paseo-collab-design .activity {
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #paseo-collab-design .stepper {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px 10px;
+      color: var(--p-muted);
+      font-size: 12px;
+    }
+    #paseo-collab-design .step {
+      white-space: nowrap;
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+    }
+    #paseo-collab-design .step.is-current {
+      color: var(--p-fg);
+      font-weight: 500;
+    }
+    #paseo-collab-design .step.is-done .step-mark {
+      color: var(--p-accent);
+    }
+    #paseo-collab-design .step-mark {
+      width: 13px;
+      text-align: center;
+    }
+    #paseo-collab-design .connector {
+      flex: 1;
+      height: 1px;
+      background: var(--p-line);
+    }
+    #paseo-collab-design .detail {
+      border-top: 1px solid var(--p-line);
+      padding: 12px;
+    }
+    #paseo-collab-design .detail[hidden],
+    #paseo-collab-design [hidden] {
+      display: none !important;
+    }
+    #paseo-collab-design .detail-title {
+      color: var(--p-muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    #paseo-collab-design .task {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 0;
+    }
+    #paseo-collab-design .task .task-mark {
+      width: 16px;
+      color: var(--p-muted);
+    }
+    #paseo-collab-design .task.done .task-mark {
+      color: var(--p-accent);
+    }
+    #paseo-collab-design .task .task-name {
+      flex: 1;
+      min-width: 0;
+    }
+    #paseo-collab-design .detail-foot {
+      border-top: 1px solid var(--p-line);
+      margin-top: 8px;
+      padding-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #paseo-collab-design .decision {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 0 12px 11px;
+      flex-wrap: wrap;
+    }
+    #paseo-collab-design .dock.is-complete .dock-head {
+      padding-bottom: 10px;
+    }
+    #paseo-collab-design .phone .stepper {
+      gap: 5px;
+    }
+    @media (pointer: coarse) {
+      #paseo-collab-design .p-button {
+        min-height: 44px;
+        min-width: 44px;
+      }
+    }
+  </style>
+  <section class="paseo" aria-label="现有输入框上方的协作卡">
+    <div class="docking">
+      <aside class="dock" aria-label="协作进度" aria-live="polite" data-tone="normal">
+        <div class="dock-head">
+          <i class="icon" data-lucide="users" aria-hidden="true"></i>
+          <span class="state-mark" aria-hidden="true"></span>
+          <strong data-slot="status">协作 · 执行中</strong>
+          <span class="space"></span>
+          <span class="count" data-slot="count">2/3 项完成</span>
+          <button
+            class="p-button"
+            type="button"
+            data-action="expand"
+            aria-label="展开协作详情"
+            aria-expanded="false"
+            aria-controls="paseo-collab-detail"
+          >
+            <i class="icon" data-lucide="chevron-up" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="dock-sub">
+          <span class="activity" data-slot="activity">Codex · 验证断线重连后的消息去重</span
+          ><button class="p-button" type="button" data-action="pause">暂停</button>
+        </div>
+        <div class="stepper" aria-label="协作阶段"></div>
+        <div class="decision" hidden></div>
+        <div class="detail" id="paseo-collab-detail" hidden>
+          <div class="detail-title" data-slot="detail-title">实施任务</div>
+          <div data-slot="tasks"></div>
+          <div class="detail-foot">
+            <span class="muted small" data-slot="evidence">审查者 Claude · 执行者 Codex</span>
+            <span class="space"></span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+  <script>
+    (() => {
+      const root = document.getElementById("paseo-collab-design");
+      const app = root.querySelector(".paseo");
+      const dock = root.querySelector(".dock");
+      const detail = root.querySelector(".detail");
+      const decision = root.querySelector(".decision");
+      const state = {
+        phase: "executing",
+        expanded: false,
+        phone: false,
+        planFirst: true,
+        choosingModel: false,
+        requestChanges: false,
+      };
+      const phases = [
+        "planning",
+        "executing",
+        "reviewing",
+        "reworking",
+        "blocked",
+        "acceptance",
+        "paused",
+        "offline",
+        "completed",
+      ];
+      const meta = {
+        planning: {
+          title: "方案待确认",
+          count: "3 项任务",
+          activity: "方案已准备好，等待你批准",
+          step: "planning",
+          tone: "warning",
+        },
+        executing: {
+          title: "执行中",
+          count: "2/3 项完成",
+          activity: "Codex · 验证断线重连后的消息去重",
+          step: "executing",
+          tone: "normal",
+        },
+        reviewing: {
+          title: "审查中",
+          count: "3/3 项完成",
+          activity: "Claude · 检查重试、恢复连接与消息去重",
+          step: "reviewing",
+          tone: "normal",
+        },
+        reworking: {
+          title: "返工 · 第 2 轮",
+          count: "2/3 项完成",
+          activity: "Codex · 修复审查发现的并发重试问题",
+          step: "executing",
+          tone: "normal",
+        },
+        blocked: {
+          title: "需要你处理",
+          count: "2/3 项完成",
+          activity: "执行模型额度已用尽，当前成果已保留",
+          step: "executing",
+          tone: "warning",
+        },
+        acceptance: {
+          title: "待你验收",
+          count: "验收 5/5",
+          activity: "审查通过 · 3 个文件 · 检查已通过",
+          step: "acceptance",
+          tone: "warning",
+        },
+        paused: {
+          title: "已暂停",
+          count: "2/3 项完成",
+          activity: "后续派发已暂停 · 进度已保留",
+          step: "executing",
+          tone: "muted",
+        },
+        offline: {
+          title: "连接已断开",
+          count: "上次 2/3 项",
+          activity: "上次确认：执行中 · 尚未恢复主机连接",
+          step: "executing",
+          tone: "muted",
+        },
+        completed: {
+          title: "已合并到 main",
+          count: "3 项任务完成",
+          activity: "消息重试与断线恢复已修复",
+          step: "completed",
+          tone: "normal",
+        },
+      };
+      function slot(name) {
+        return root.querySelector('[data-slot="' + name + '"]');
+      }
+      function restore(snapshot) {
+        if (!snapshot || typeof snapshot !== "object") return;
+        const model = snapshot.modelContent || {};
+        const ui = snapshot.privateContent || {};
+        if (phases.includes(model.phase)) state.phase = model.phase;
+        for (const key of ["expanded", "phone", "planFirst"])
+          if (typeof ui[key] === "boolean") state[key] = ui[key];
+      }
+      function remember() {
+        if (window.openai && window.openai.setWidgetState)
+          window.openai
+            .setWidgetState({
+              modelContent: { phase: state.phase, design: "输入框上方常驻卡" },
+              privateContent: {
+                expanded: state.expanded,
+                phone: state.phone,
+                planFirst: state.planFirst,
+              },
+            })
+            .catch(() => {});
+      }
+      function icon(name) {
+        return '<i class="icon" data-lucide="' + name + '" aria-hidden="true"></i>';
+      }
+      function render() {
+        const current = meta[state.phase];
+        app.classList.toggle("phone", state.phone);
+        dock.dataset.tone = current.tone;
+        dock.classList.toggle("is-complete", state.phase === "completed" && !state.expanded);
+        slot("status").textContent = "协作 · " + current.title;
+        slot("count").textContent = current.count;
+        slot("activity").textContent = current.activity;
+        slot("activity").setAttribute("data-tooltip", current.activity);
+        root.querySelector(".dock-sub").hidden = state.phase === "completed" && !state.expanded;
+        const expand = root.querySelector('[data-action="expand"]');
+        expand.innerHTML = icon(state.expanded ? "chevron-down" : "chevron-up");
+        expand.setAttribute("aria-label", state.expanded ? "收起协作详情" : "展开协作详情");
+        expand.setAttribute("aria-expanded", String(state.expanded));
+        const pause = root.querySelector('[data-action="pause"]');
+        pause.hidden = !["executing", "reviewing", "reworking", "paused"].includes(state.phase);
+        pause.textContent = state.phase === "paused" ? "继续" : "暂停";
+        const steps = state.planFirst
+          ? ["planning", "executing", "reviewing", "acceptance"]
+          : ["executing", "reviewing", "acceptance"];
+        const names = {
+          planning: "规划",
+          executing: "执行",
+          reviewing: "审查",
+          acceptance: "验收",
+        };
+        const active = steps.indexOf(current.step);
+        const complete = state.phase === "completed";
+        const stepper = root.querySelector(".stepper");
+        stepper.hidden = !state.expanded;
+        stepper.innerHTML = steps
+          .map((step, index) => {
+            const done = complete || index < active;
+            const selected = index === active;
+            const label = done ? "✓" : selected ? "●" : "○";
+            return (
+              (index ? '<span class="connector" aria-hidden="true"></span>' : "") +
+              '<span class="step ' +
+              (done ? "is-done " : "") +
+              (selected ? "is-current" : "") +
+              '"' +
+              (selected ? ' aria-current="step"' : "") +
+              '><span class="step-mark" aria-hidden="true">' +
+              label +
+              "</span>" +
+              names[step] +
+              "</span>"
+            );
+          })
+          .join("");
+        let actions = "";
+        if (state.phase === "planning")
+          actions =
+            '<button class="p-button primary" data-action="approve" type="button">批准方案</button><button class="p-button" data-action="revise" type="button">修改方案</button>';
+        if (state.phase === "blocked")
+          actions = state.choosingModel
+            ? '<span class="small muted">接替执行</span><button class="p-button primary" data-action="switch" type="button">Claude · 继续</button><button class="p-button" data-action="cancel-switch" type="button">取消</button>'
+            : '<button class="p-button primary" data-action="choose" type="button">切换模型</button>';
+        if (state.phase === "acceptance")
+          actions =
+            '<button class="p-button primary" data-action="accept" type="button">验收并合并</button><button class="p-button" data-action="revise" type="button">提出修改</button><span class="muted small">本地 main</span>';
+        if (state.phase === "offline")
+          actions =
+            '<button class="p-button" data-action="reconnect" type="button">重新连接</button>';
+        decision.hidden = !actions;
+        decision.innerHTML = actions;
+        detail.hidden = !state.expanded;
+        slot("detail-title").textContent =
+          state.phase === "acceptance" || complete ? "成果摘要" : "实施任务";
+        const allDone = ["reviewing", "acceptance", "completed"].includes(state.phase);
+        const rows = ["复现重复发送", "重试沿用消息编号", "验证重连与并发重试"];
+        slot("tasks").innerHTML = rows
+          .map((name, index) => {
+            const done = allDone || (state.phase !== "planning" && index < 2);
+            const labels = {
+              planning: "待开始",
+              paused: "已暂停",
+              offline: "上次执行中",
+              blocked: "等待接替",
+            };
+            const label = done ? "完成" : labels[state.phase] || "执行中";
+            return (
+              '<div class="task ' +
+              (done ? "done" : "") +
+              '"><span class="task-mark">' +
+              (done ? "✓" : "○") +
+              '</span><span class="task-name">' +
+              name +
+              '</span><span class="muted small">' +
+              label +
+              "</span></div>"
+            );
+          })
+          .join("");
+        slot("evidence").textContent = state.requestChanges
+          ? "请在 Paseo 现有输入框中填写修改意见"
+          : state.phase === "acceptance" || complete
+            ? "验收 5/5 · 已运行重试与断线恢复检查"
+            : "执行 Codex · 审查 Claude";
+        if (globalThis.lucide) lucide.createIcons({ attrs: { width: 16, height: 16 } });
+      }
+      root.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-action]");
+        if (!button) return;
+        const action = button.dataset.action;
+        if (action === "expand") state.expanded = !state.expanded;
+        if (action === "pause") state.phase = state.phase === "paused" ? "executing" : "paused";
+        if (action === "approve" || action === "switch" || action === "reconnect") {
+          state.phase = "executing";
+          state.choosingModel = false;
+        }
+        if (action === "choose") state.choosingModel = true;
+        if (action === "cancel-switch") state.choosingModel = false;
+        if (action === "accept") {
+          state.phase = "completed";
+          state.expanded = false;
+        }
+        if (action === "revise") {
+          state.requestChanges = true;
+          state.expanded = true;
+        }
+        render();
+        remember();
+      });
+      if (window.openai) restore(window.openai.widgetState);
+      window.addEventListener("openai:set_globals", (event) => {
+        if (event.detail && event.detail.globals && event.detail.globals.widgetState) {
+          restore(event.detail.globals.widgetState);
+          render();
+        }
+      });
+      render();
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({
+          container: app,
+          onChange: () => {
+            render();
+            remember();
+          },
+        });
+        tweak.addSelect(state, "phase", {
+          label: "协作状态",
+          options: [
+            { label: "方案待确认", value: "planning" },
+            { label: "执行中", value: "executing" },
+            { label: "审查中", value: "reviewing" },
+            { label: "返工", value: "reworking" },
+            { label: "需要处理", value: "blocked" },
+            { label: "待验收", value: "acceptance" },
+            { label: "已暂停", value: "paused" },
+            { label: "连接断开", value: "offline" },
+            { label: "已合并", value: "completed" },
+          ],
+        });
+        tweak.addToggle(state, "phone", { label: "手机宽度" });
+        tweak.addToggle(state, "planFirst", { label: "先规划" });
+      }
+    })();
+  </script>
+</div>

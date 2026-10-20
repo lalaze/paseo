@@ -158,6 +158,55 @@ test("stopped notices require truthful recovery and retry feedback reaches the w
   );
 });
 
+test("one continuation can retry successive blocked operations without duplicating either retry", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "retry-rounds",
+    workspaceId: "workspace",
+    fresh: true,
+    mode: "execute_review",
+    settings: reviewerSettings(),
+  });
+  h.gateway.user(c.agentId!, "continue", "继续完成原任务");
+  await h.chats.start(c.id, { sourceMessageId: "continue", goal: "完成原任务" });
+  let worker = await advanceTo(h, c.id, "execute");
+  for (const feedback of ["Fix the barrier", "Fix the remaining four tests"]) {
+    h.gateway.states.set(worker.agentId!, {
+      status: "idle",
+      seen: true,
+      output: JSON.stringify({ ...result, status: "blocked" }),
+    });
+    await h.engine.tick();
+    const input = {
+      action: "note" as const,
+      sourceMessageId: "continue",
+      operationId: worker.id,
+      feedback,
+    };
+    await h.chats.control(c.id, input);
+    await h.chats.control(c.id, input);
+    const retry = { ...input, action: "retry" as const, feedback: undefined };
+    await h.chats.control(c.id, retry);
+    await h.chats.control(c.id, retry);
+    const next = await advanceTo(h, c.id, "execute");
+    assert.notEqual(next.id, worker.id);
+    assert.match(next.prompt, new RegExp(feedback));
+    worker = next;
+  }
+  assert.deepEqual(
+    h.chats.summary(c.id).run!.notes?.map((note) => note.text),
+    ["Fix the barrier", "Fix the remaining four tests"],
+  );
+  await assert.rejects(
+    h.chats.control(c.id, {
+      action: "retry",
+      sourceMessageId: "continue",
+      operationId: "stale-operation",
+    }),
+    /步骤已变更/,
+  );
+});
+
 test("blank native conversations don't prepare a branch; duplicate creation is idempotent", async (t) => {
   const h = await fixture(t);
   const first = await h.chats.open({ requestId: "new", workspaceId: "workspace", fresh: true });
@@ -1169,7 +1218,49 @@ test("a stalled poll of one conversation does not delay tool calls from another"
   await tick;
 });
 
+test("final notices persist the exact acceptance evidence without patches, logs or prompts", async (t) => {
+  const h = await fixture(t);
+  const c = await h.chats.open({
+    requestId: "acceptance-evidence",
+    workspaceId: "workspace",
+    fresh: true,
+  });
+  h.gateway.user(c.agentId!, "goal", "实现功能");
+  await h.chats.start(c.id, { sourceMessageId: "goal", goal: "实现功能" });
+  const planning = await advanceTo(h, c.id, "plan");
+  await h.chats.submit(c.id, planning.id, plan);
+  h.gateway.idle(c.agentId!);
+  const execution = await advanceTo(h, c.id, "execute");
+  const runId = h.chats.summary(c.id).runId!;
+  await h.engine.submit(runId, "task-1", execution.id, { ...result, issues: ["未验证真机"] });
+  h.gateway.idle(execution.agentId!);
+  const audit = await advanceTo(h, c.id, "final");
+  await h.chats.submit(c.id, audit.id, review(true));
+  h.gateway.idle(c.agentId!);
+  await h.engine.tick();
+  await h.chats.tick();
+  const notice = h.store.conversation(c.id).notices.at(-1)!;
+  const snapshot = readCollaborationNotice(notice.id, notice.text)!;
+  assert.equal(snapshot.confirmation, "final");
+  assert.equal(snapshot.acceptanceReport?.review.artifactId, "artifact-v1");
+  assert.deepEqual(snapshot.acceptanceReport?.review.criteria, review(true).criteria);
+  assert.deepEqual(snapshot.acceptanceReport?.checks, [{ label: "test", exitCode: 0 }]);
+  assert.deepEqual(snapshot.acceptanceReport?.tasks[0].issues, ["未验证真机"]);
+  assert.equal(snapshot.reviewProgress?.rounds, 1);
+  const serialized = JSON.stringify(snapshot.acceptanceReport);
+  assert.doesNotMatch(serialized, /diffPath|logPath|test log|operationId/);
+  assert.equal(h.store.get(runId).userAcceptance, undefined);
+});
+
 test("main Agent replies stay out of the stage card and end acceptance with exact next actions", () => {
+  assert.match(
+    CHAT_PROMPT,
+    /acceptanceReport, replace the expanded acceptance report above with at most two short sentences/,
+  );
+  assert.match(
+    noticeInstruction("final"),
+    /If acceptanceReport is present, give at most two short sentences/,
+  );
   assert.match(CHAT_PROMPT, /Do not repeat card content/);
   assert.match(CHAT_PROMPT, /Do not narrate the host, scheduler, notices or tool calls/);
   assert.match(CHAT_PROMPT, /what changed, what comes next and whether the user needs to act/);

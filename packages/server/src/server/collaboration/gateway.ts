@@ -36,6 +36,8 @@ import { providerFailureCode } from "./provider-failure.js";
 import type { ConversationGateway } from "./conversations.js";
 import {
   CHAT_PROMPT,
+  PRE_EVIDENCE_CARD_CHAT_PROMPT,
+  PRE_OPERATION_RETRY_CHAT_PROMPT,
   PRE_COMPACT_CHAT_PROMPT,
   PRE_ENGLISH_CHAT_PROMPT,
   PRE_HANDOFF_CHAT_PROMPT,
@@ -57,6 +59,8 @@ export const CHAT_TOOLS = [
   "switch_execution_model",
 ];
 const PREVIOUS_CHAT_PROMPTS = [
+  PRE_EVIDENCE_CARD_CHAT_PROMPT,
+  PRE_OPERATION_RETRY_CHAT_PROMPT,
   PRE_COMPACT_CHAT_PROMPT,
   PRE_ENGLISH_CHAT_PROMPT,
   PRE_SUBMISSION_CHAT_PROMPT,

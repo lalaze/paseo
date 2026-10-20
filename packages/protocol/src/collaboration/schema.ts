@@ -146,7 +146,15 @@ export const ReviewSchema = z
       .max(930),
     findings: z
       .array(
-        z.object({ taskId: Id, location: Text, problem: Text, change: Text, verification: Text }),
+        z.object({
+          /** Assigned by the host; reuse it when the same issue survives re-review. */
+          id: Id.optional(),
+          taskId: Id,
+          location: Text,
+          problem: Text,
+          change: Text,
+          verification: Text,
+        }),
       )
       .max(60),
   })
@@ -258,6 +266,7 @@ export interface ChangeRequest {
 }
 export interface FinalControl {
   feedback?: string;
+  operationId?: string;
   artifactId?: string;
   expectedRevision?: number;
 }

@@ -56,6 +56,7 @@ const controlSchema = z.object({
     "note",
   ]),
   confirmationKey: z.string().optional(),
+  operationId: z.string().optional(),
   goal: z.string().trim().min(1).max(32000).optional(),
   feedback: z.string().trim().min(1).max(16000).optional(),
 });
@@ -417,7 +418,7 @@ export class CollaborationService {
       ),
       define(
         "control_task",
-        "Control collaboration according to the latest user request. Approval requires a real user message and the current confirmation version. accept_final accepts “验收通过”; “验收并合并” also asks the host to commit and merge into the original branch without exiting collaboration. note records additional requirements in feedback without replanning; use revise only when the goal itself changes.",
+        "Control collaboration according to the latest user request. Pass operation.id from the latest status as operationId for retry and operation-specific notes; retries of successive operations must use their own operationId even when continuing the same user message. Retry feedback is persisted for execution and review. Approval requires a real user message and the current confirmation version. accept_final accepts “验收通过”; “验收并合并” also asks the host to commit and merge into the original branch without exiting collaboration. note records additional requirements in feedback without replanning; use revise only when the goal itself changes.",
         controlSchema,
         async (input) => {
           const c = chat();

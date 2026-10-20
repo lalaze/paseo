@@ -3,6 +3,8 @@ import { ENABLE_COLLABORATION_MESSAGE } from "@getpaseo/protocol/collaboration/c
 import {
   readCollaborationNotice,
   readCollaborationPrompt,
+  type AcceptanceReport,
+  type ReviewProgress,
 } from "@getpaseo/protocol/collaboration/presentation";
 import type { UserMessageItem } from "@/types/stream";
 import { ExecutionModelSchema, type Plan } from "@getpaseo/protocol/collaboration/schema";
@@ -45,6 +47,8 @@ export interface CollaborationMessageSummary {
   instructions: string;
   acceptance: string[];
   plan?: Plan;
+  acceptanceReport?: AcceptanceReport;
+  reviewProgress?: ReviewProgress;
   /** Quota handoff carried by this notice. Absent on older notices. */
   execution?: CollaborationNoticeExecution;
 }
@@ -79,24 +83,7 @@ export function collaborationMessageSummary(
       instructions: prompt.instruction,
       acceptance: prompt.acceptance,
     };
-  if (id.startsWith("chat-notice:")) {
-    const notice = readCollaborationNotice(id, item.text);
-    if (!notice) return;
-    let stage = noticeStage(notice.phase);
-    if (notice.confirmation === "plan") stage = "approval";
-    if (notice.confirmation === "final") stage = "acceptance";
-    const execution = readNoticeExecution(item.text);
-    return {
-      stage,
-      text: notice.message,
-      instructions: joinParagraphs(notice.instruction, notice.reply),
-      acceptance: [],
-      ...(notice.phase ? { phase: notice.phase } : {}),
-      ...(notice.control ? { control: notice.control } : {}),
-      ...(notice.plan ? { plan: notice.plan } : {}),
-      ...(execution ? { execution } : {}),
-    };
-  }
+  if (id.startsWith("chat-notice:")) return noticeSummary(id, item.text);
   const boundary = item.text.indexOf(TAKEOVER_MARKER);
   if (id.startsWith("chat-command:") && boundary > 0) {
     const text = item.text.slice(0, boundary);
@@ -112,6 +99,27 @@ export function collaborationMessageSummary(
       acceptance: [],
     };
   }
+}
+
+function noticeSummary(id: string, text: string): CollaborationMessageSummary | undefined {
+  const notice = readCollaborationNotice(id, text);
+  if (!notice) return;
+  let stage = noticeStage(notice.phase);
+  if (notice.confirmation === "plan") stage = "approval";
+  if (notice.confirmation === "final") stage = "acceptance";
+  const execution = readNoticeExecution(text);
+  return {
+    stage,
+    text: notice.message,
+    instructions: joinParagraphs(notice.instruction, notice.reply),
+    acceptance: [],
+    ...(notice.phase ? { phase: notice.phase } : {}),
+    ...(notice.control ? { control: notice.control } : {}),
+    ...(notice.plan ? { plan: notice.plan } : {}),
+    ...(notice.acceptanceReport ? { acceptanceReport: notice.acceptanceReport } : {}),
+    ...(notice.reviewProgress ? { reviewProgress: notice.reviewProgress } : {}),
+    ...(execution ? { execution } : {}),
+  };
 }
 
 function joinParagraphs(...parts: (string | undefined)[]) {

@@ -168,10 +168,37 @@ export const es: TranslationResources = {
       dependsOn: "Depende de",
       acceptanceCriteria: "Criterios de aceptación",
     },
+    report: {
+      title: "Resultado revisado y pruebas",
+      snapshot: "Instantánea revisada",
+      checks: "Comprobaciones del host",
+      noHostChecks: "Sin comprobaciones del host",
+      noChecks:
+        "No se configuraron comprobaciones adicionales del host. Consulta las pruebas de cada criterio de aceptación.",
+      passed: "Superado",
+      failed: "Fallido",
+      incomplete: "Sin resultado de salida",
+      findings: "Problemas bloqueantes",
+      requiredChange: "Cambio necesario",
+      verification: "Cómo verificar",
+      implementation: "Informes de implementación",
+      reportedTests: "Pruebas declaradas por el implementador",
+      limitations: "Limitaciones declaradas",
+      noLimitations:
+        "El implementador no declaró limitaciones. Consulta las pruebas de revisión para conocer el alcance verificado.",
+      reviewHistory: "Historial de revisiones",
+      legacyRound: "Ronda {{round}} · {{decision}} · {{reported}} problemas bloqueantes",
+      round:
+        "Ronda {{round}} · {{decision}} · {{reported}} problemas bloqueantes ({{added}} nuevos, {{recurring}} recurrentes)",
+      approved: "Aprobado",
+      changes_requested: "Cambios solicitados",
+      blocked: "Bloqueado",
+    },
     confirmation: {
       approvePlan: "Aprobar plan",
       acceptAndMerge: "Aceptar y fusionar",
       retryMerge: "Reintentar fusión",
+      mergeTarget: "Fusionar localmente en {{branch}}",
       mergeHint:
         "Confirma los cambios revisados y los fusiona localmente en {{branch}}. No se envía nada al remoto.",
       accept: "Aceptar",

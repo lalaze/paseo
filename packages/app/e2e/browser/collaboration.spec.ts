@@ -350,6 +350,123 @@ async function seedAcceptance(local = true) {
   }
 }
 
+test("acceptance evidence and review history remain readable on desktop and phone after reload", async ({
+  page,
+}, testInfo) => {
+  const fixture = await seedAcceptance();
+  try {
+    const run = fixture.run;
+    run.tasks[0].result = {
+      status: "ready_for_review",
+      summary: "Added the reviewed file accepted.md.",
+      tests: ["Read accepted.md and verified its contents."],
+      issues: ["Native device rendering was not verified."],
+    };
+    run.operations = [
+      {
+        id: "review-before-repair",
+        kind: "final",
+        profileId: "mock",
+        state: "done",
+        prompt: "",
+        createdAt: run.createdAt,
+        formatRetries: 0,
+        response: {
+          ...run.finalReview!,
+          decision: "changes_requested",
+          artifactId: "prior-snapshot",
+          findings: [
+            {
+              id: "F1-1",
+              taskId: "task-1",
+              location: "accepted.md:1",
+              problem: "Missing reviewed text",
+              change: "Add the reviewed text",
+              verification: "Read the file",
+            },
+          ],
+        },
+      },
+      {
+        id: "review-after-repair",
+        kind: "final",
+        profileId: "mock",
+        state: "done",
+        prompt: "",
+        createdAt: run.createdAt + 1,
+        formatRetries: 0,
+        response: run.finalReview,
+      },
+    ];
+    fixture.db.prepare("UPDATE runs SET data=? WHERE id=?").run(JSON.stringify(run), run.id);
+    await openAgentRoute(page, fixture.session);
+    for (const viewport of [
+      { name: "desktop", width: 1280, height: 900 },
+      { name: "phone", width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.reload({ waitUntil: "commit" });
+      const report = page.getByTestId("collaboration-acceptance-report");
+      await expect(report).toHaveCount(1);
+      const summary = report.getByTestId("collaboration-acceptance-summary");
+      await expect(summary).toContainText("Files 1");
+      await expect(summary).toContainText("Acceptance criteria 1/1");
+      await expect(summary).toContainText("No host checks");
+      await expect(summary).toContainText("Reported limitations 1");
+      await expect(report.getByTestId("collaboration-acceptance-details")).toHaveCount(0);
+      await expect(report.getByTestId("collaboration-accept-and-merge")).toBeVisible();
+      await expect(report).toContainText("Merge locally into main");
+      await expect(report).not.toContainText(
+        "To request changes, describe them in the message box.",
+      );
+      const progress = page.getByTestId("collaboration-progress-card");
+      await progress.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: testInfo.outputPath(`acceptance-compact-${viewport.name}.png`),
+      });
+      const compactBounds = await progress.boundingBox();
+      expect(compactBounds!.height).toBeLessThan(400);
+      await expectInsideViewport(page, "collaboration-acceptance-report", viewport.width);
+      expect(await report.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      await page.getByTestId("collaboration-progress-toggle").click();
+      await expect(report.getByTestId("collaboration-acceptance-details")).toBeVisible();
+      await expect(report).toContainText("Reviewed file exists");
+      await expect(report).toContainText(run.finalEvidence!.id.slice(0, 12));
+      await expect(report).toContainText("No additional host checks were configured.");
+      await expect(report).toContainText("Tests reported by the implementer");
+      await expect(report).toContainText("Native device rendering was not verified.");
+      const history = page.getByTestId("collaboration-review-history");
+      await expect(history).toContainText(
+        "Round 1 · Changes requested · 1 blocking issues (1 new, 0 recurring)",
+      );
+      await expect(history).toContainText(
+        "Round 2 · Approved · 0 blocking issues (0 new, 0 recurring)",
+      );
+      await history.getByTestId("collaboration-review-round-1").click();
+      await expect(history).toContainText("F1-1 · accepted.md:1");
+      await expect(history).toContainText("Missing reviewed text");
+      await expect(history).toContainText("Required change: Add the reviewed text");
+      await expect(history).toContainText("Verify with: Read the file");
+      await history.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`review-history-${viewport.name}.png`) });
+      await page.getByTestId("collaboration-progress-toggle").click();
+      await expect(report.getByText("Native device rendering was not verified.")).toHaveCount(0);
+      await expect(report.getByTestId("collaboration-accept-and-merge")).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(`acceptance-collapsed-${viewport.name}.png`),
+      });
+      const saved = fixture.db
+        .prepare("SELECT json_type(data, '$.userAcceptance') AS acceptance FROM runs WHERE id=?")
+        .get(run.id);
+      expect(saved?.acceptance).toBeNull();
+    }
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test("accept and merge delivers the reviewed files without exiting collaboration", async ({
   page,
 }, testInfo) => {
@@ -392,6 +509,9 @@ test("accept and merge delivers the reviewed files without exiting collaboration
       );
       await page.setViewportSize(viewport);
       await page.reload({ waitUntil: "commit" });
+      await expect(page.getByTestId("collaboration-acceptance-summary")).toContainText(
+        "Acceptance criteria 1/1",
+      );
       const question = `验收合并后继续对话：刚才改了哪些文件？（${viewport.name}）`;
       await submitMessageWithButton(page, question);
       const prompt = page.getByTestId("user-message").filter({ hasText: question });

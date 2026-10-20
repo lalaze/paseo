@@ -12,6 +12,149 @@ import { buildPrompt } from "./prompts.js";
 import { readCollaborationPrompt as readDirectorPrompt } from "@getpaseo/protocol/collaboration/presentation";
 import { harness, plan, result, review, reviewerSettings } from "./test-utils/harness.js";
 import { workflowEvidence } from "./workflow-evidence.js";
+import { acceptanceReport, identifyReviewFindings, reviewProgress } from "./review-progress.js";
+
+test("review findings retain host identities through rework and restart, with bounded progress", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  await h.complete(plan);
+  await h.until("execute");
+  await h.complete(result);
+  await h.until("final");
+  await h.complete(review(true, "changes_requested"));
+  const first = h.run().operations.at(-1)!;
+  const firstReview = ReviewSchema.parse(first.response);
+  const id = firstReview.findings[0].id!;
+  assert.match(id, /^F\d+-1$/);
+  assert.match(h.run().tasks[0].feedback!, new RegExp(id));
+  await h.restart();
+  await h.until("execute");
+  await h.complete(result);
+  const second = await h.until("final");
+  assert.match(second.prompt, new RegExp(id));
+  await h.complete({
+    ...review(true, "changes_requested"),
+    findings: [
+      { ...firstReview.findings[0], location: "src/api.ts:20", problem: "空值路径仍然遗漏" },
+    ],
+  });
+  assert.deepEqual(
+    {
+      ...reviewProgress(h.run()),
+      history: reviewProgress(h.run())!.history.map(({ findings: _findings, ...round }) => round),
+    },
+    {
+      rounds: 2,
+      history: [
+        { round: 1, decision: "changes_requested", reported: 1, added: 1, recurring: 0 },
+        { round: 2, decision: "changes_requested", reported: 1, added: 0, recurring: 1 },
+      ],
+    },
+  );
+  await h.until("execute");
+  await h.complete(result);
+  await h.until("final");
+  await h.complete(review(true));
+  assert.equal(h.run().phase, "awaiting_acceptance");
+  assert.deepEqual(reviewProgress(h.run())!.history.at(-1), {
+    round: 3,
+    decision: "approved",
+    reported: 0,
+    findings: [],
+    added: 0,
+    recurring: 0,
+  });
+  const report = acceptanceReport(h.run())!;
+  assert.deepEqual(report.checks, [{ label: "test", exitCode: 0 }]);
+  assert.deepEqual(report.tasks, [
+    { title: "实现", summary: result.summary, tests: result.tests, issues: [] },
+  ]);
+  assert.equal(JSON.stringify(report).includes("/artifacts/"), false);
+});
+
+test("review identities reject invented, duplicate and cross-task ids while legacy findings remain valid", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  await h.complete(plan);
+  await h.until("execute");
+  await h.complete(result);
+  await h.until("final");
+  await h.complete(review(true, "changes_requested"));
+  await h.until("execute");
+  await h.complete(result);
+  const op = await h.until("final");
+  const previous = h
+    .run()
+    .operations.findLast((entry) => entry.kind === "final" && entry.state === "done")!;
+  const finding = ReviewSchema.parse(previous.response).findings[0];
+  const payload = ReviewSchema.parse(review(true, "changes_requested"));
+  assert.equal(identifyReviewFindings(h.run(), op, payload).findings[0].id, finding.id);
+  assert.throws(
+    () =>
+      identifyReviewFindings(h.run(), op, {
+        ...payload,
+        findings: [{ ...finding, id: "invented" }],
+      }),
+    /未知或不属于此任务/,
+  );
+  assert.throws(
+    () =>
+      identifyReviewFindings(h.run(), op, {
+        ...payload,
+        findings: [finding, finding],
+      }),
+    /编号重复/,
+  );
+  const run = h.run();
+  run.tasks.push({ ...run.tasks[0], spec: { ...run.tasks[0].spec, id: "other" } });
+  assert.throws(
+    () =>
+      identifyReviewFindings(run, op, {
+        ...payload,
+        findings: [{ ...finding, taskId: "other" }],
+      }),
+    /未知或不属于此任务/,
+  );
+  run.finalReview = { ...payload, artifactId: "older-snapshot" };
+  assert.equal(acceptanceReport(run), undefined);
+});
+
+test("blocked review identities survive retry and historical counts stay unknown without identities", async (t) => {
+  const h = await harness();
+  t.onTestFinished(() => h.cleanup());
+  await h.until("plan");
+  await h.complete(plan);
+  await h.until("execute");
+  await h.complete(result);
+  await h.until("final");
+  await h.complete({ ...review(true, "changes_requested"), decision: "blocked" });
+  assert.equal(h.run().control, "needs_attention");
+  const finding = h.run().finalReview!.findings[0];
+  await h.restart();
+  await h.engine.control(h.id, "retry");
+  await h.until("final");
+  await h.complete({ ...review(true, "changes_requested"), findings: [finding] });
+  assert.equal(h.run().control, "running");
+  assert.match(h.run().tasks[0].feedback!, new RegExp(finding.id!));
+  const run = h.run();
+  const completed = run.operations.findLast((op) => op.kind === "final" && op.state === "done")!;
+  run.operations = Array.from({ length: 8 }, (_, i) => ({
+    ...completed,
+    id: `historical-${i}`,
+    response: review(true, "changes_requested"),
+  }));
+  const history = reviewProgress(run)!;
+  assert.equal(history.rounds, 8);
+  assert.deepEqual(
+    history.history.map((round) => round.round),
+    [4, 5, 6, 7, 8],
+  );
+  assert.equal(history.history[0].reported, 1);
+  assert.equal(history.history[0].added, undefined);
+  assert.equal(history.history[0].recurring, undefined);
+});
 
 test("execute-review skips planning, uses independent sessions and preserves its mode through rework and changes", async (t) => {
   const h = await harness(

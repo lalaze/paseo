@@ -162,11 +162,38 @@ export const en = {
       dependsOn: "Depends on",
       acceptanceCriteria: "Acceptance criteria",
     },
+    report: {
+      title: "Reviewed result",
+      snapshot: "Reviewed snapshot",
+      checks: "Host checks",
+      noHostChecks: "No host checks",
+      noChecks:
+        "No additional host checks were configured. See the review evidence below the acceptance criteria.",
+      passed: "Passed",
+      failed: "Failed",
+      incomplete: "No exit result",
+      findings: "Blocking issues",
+      requiredChange: "Required change",
+      verification: "Verify with",
+      implementation: "Implementation reports",
+      reportedTests: "Tests reported by the implementer",
+      limitations: "Reported limitations",
+      noLimitations:
+        "The implementer reported no limitations. See the review evidence for verification scope.",
+      reviewHistory: "Review history",
+      legacyRound: "Round {{round}} · {{decision}} · {{reported}} blocking issues",
+      round:
+        "Round {{round}} · {{decision}} · {{reported}} blocking issues ({{added}} new, {{recurring}} recurring)",
+      approved: "Approved",
+      changes_requested: "Changes requested",
+      blocked: "Blocked",
+    },
     confirmation: {
       approvePlan: "Approve plan",
       accept: "Accept",
       acceptAndMerge: "Accept and merge",
       retryMerge: "Retry merge",
+      mergeTarget: "Merge locally into {{branch}}",
       mergeHint:
         "Commits the reviewed changes and merges into {{branch}} locally. Nothing is pushed.",
       reject: "Reject",

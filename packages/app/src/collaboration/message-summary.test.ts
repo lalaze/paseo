@@ -3,6 +3,9 @@ import { ENABLE_COLLABORATION_MESSAGE } from "@getpaseo/protocol/collaboration/c
 import { collaborationMessageSummary, collaborationProgressStatus } from "./message-summary";
 import { collaborationPlanMarkdown } from "./plan-markdown";
 import { collaborationPermissionPlan } from "./permission-plan";
+import { createInstance } from "i18next";
+import { en } from "@/i18n/resources/en";
+import { collaborationAcceptanceMarkdown } from "./acceptance-markdown";
 
 const operationId = "0f8b3c1e-2a4d-4b6f-8c9e-1d2f3a4b5c6d";
 
@@ -69,6 +72,90 @@ const plan = {
   acceptance: ["空输入报错且有效请求正常处理"],
   tasks: [task, { ...task, id: "task-2", title: "验证接口", dependsOn: [task.id] }],
 };
+
+test("acceptance notices retain the reviewed evidence, limitations and review rounds after reload", async () => {
+  const id = "chat-notice:chat-1:acceptance:3";
+  const report = {
+    review: {
+      decision: "approved",
+      artifactId: "snapshot-2",
+      summary: "Empty input now returns a validation error.",
+      criteria: [
+        {
+          criterion: "Empty input is rejected",
+          passed: true,
+          evidence: "POST with an empty body returned 400.",
+        },
+      ],
+      findings: [],
+    },
+    changedFiles: ["src/input.ts"],
+    checks: [
+      { label: "Unit tests", exitCode: 0 },
+      { label: "Build", exitCode: null },
+    ],
+    tasks: [
+      {
+        title: "Input validation",
+        summary: "Added input validation.",
+        tests: ["npm run test:input"],
+        issues: ["Native device behavior was not verified."],
+      },
+    ],
+  };
+  const progress = {
+    rounds: 2,
+    history: [{ round: 2, decision: "approved", reported: 0, added: 0, recurring: 0 }],
+  };
+  const summary = collaborationMessageSummary({
+    clientMessageId: id,
+    text: notice(id, "Wait for acceptance.", {
+      message: "Review passed",
+      phase: "awaiting_acceptance",
+      control: "paused",
+      confirmation: { kind: "final" },
+      acceptanceReport: report,
+      reviewProgress: progress,
+    }),
+  })!;
+  expect(summary.acceptanceReport).toEqual(report);
+  expect(summary.reviewProgress).toEqual(progress);
+  const translator = createInstance();
+  await translator.init({ lng: "en", resources: { en: { translation: en } } });
+  const markdown = collaborationAcceptanceMarkdown(summary.acceptanceReport!, translator.t);
+  expect(markdown).toContain("**Reviewed snapshot**: snapshot-2");
+  expect(markdown).toContain(
+    "**Passed** — Empty input is rejected\n\nPOST with an empty body returned 400.",
+  );
+  expect(markdown).toContain("**No exit result** — Build");
+  expect(markdown).toContain("Tests reported by the implementer");
+  expect(markdown).toContain("Native device behavior was not verified.");
+  const withoutChecks = collaborationAcceptanceMarkdown(
+    { ...report, review: { ...report.review, decision: "approved" }, checks: [] },
+    translator.t,
+  );
+  expect(withoutChecks).toContain("No additional host checks were configured.");
+  expect(withoutChecks).not.toContain("**Passed** — Unit tests");
+});
+
+test.each([undefined, { review: { decision: "approved" } }])(
+  "missing or malformed optional reports preserve final actions",
+  (acceptanceReport) => {
+    const id = "chat-notice:chat-1:acceptance:0";
+    const summary = collaborationMessageSummary({
+      clientMessageId: id,
+      text: notice(id, "Wait.", {
+        message: "Review passed",
+        confirmation: { kind: "final" },
+        acceptanceReport,
+        reviewProgress: { rounds: "invalid" },
+      }),
+    });
+    expect(summary?.stage).toBe("acceptance");
+    expect(summary?.acceptanceReport).toBeUndefined();
+    expect(summary?.reviewProgress).toBeUndefined();
+  },
+);
 
 test.each(["snapshot", "persisted key"])(
   "plan approval exposes the full plan from its %s",

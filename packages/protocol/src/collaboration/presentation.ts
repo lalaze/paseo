@@ -1,5 +1,36 @@
 import { z } from "zod";
-import { PlanSchema, TaskSchema } from "./schema.js";
+import { PlanSchema, TaskSchema, ReviewSchema } from "./schema.js";
+
+export const ReviewProgressSchema = z.object({
+  rounds: z.number().int().min(1),
+  history: z.array(
+    z.object({
+      round: z.number().int().min(1),
+      decision: ReviewSchema.shape.decision,
+      reported: z.number().int().min(0),
+      added: z.number().int().min(0).optional(),
+      recurring: z.number().int().min(0).optional(),
+      findings: ReviewSchema.shape.findings.optional(),
+    }),
+  ),
+});
+export type ReviewProgress = z.infer<typeof ReviewProgressSchema>;
+
+/** The reviewed snapshot, without repository patches, raw logs or operation prompts. */
+export const AcceptanceReportSchema = z.object({
+  review: ReviewSchema,
+  changedFiles: z.array(z.string()),
+  checks: z.array(z.object({ label: z.string(), exitCode: z.number().int().nullable() })),
+  tasks: z.array(
+    z.object({
+      title: z.string(),
+      summary: z.string(),
+      tests: z.array(z.string()),
+      issues: z.array(z.string()),
+    }),
+  ),
+});
+export type AcceptanceReport = z.infer<typeof AcceptanceReportSchema>;
 
 const ContextSchema = z.object({
   goal: z.string(),
@@ -57,6 +88,8 @@ const NoticeSchema = z.object({
   phase: z.string().optional(),
   control: z.string().optional(),
   plan: PlanSchema.optional(),
+  acceptanceReport: z.unknown().optional(),
+  reviewProgress: z.unknown().optional(),
   confirmation: z
     .object({
       kind: z.enum(["plan", "final"]),
@@ -81,10 +114,18 @@ export function readCollaborationNotice(id: string, raw: string) {
       confirmation: data.confirmation?.kind,
       reply: data.confirmation?.reply,
       plan: data.plan ?? persistedNoticePlan(data.confirmation),
+      acceptanceReport: optionalReport(AcceptanceReportSchema, data.acceptanceReport),
+      reviewProgress: optionalReport(ReviewProgressSchema, data.reviewProgress),
     };
   } catch {
     return;
   }
+}
+
+// A malformed optional snapshot must not hide the notice or its confirmation actions.
+function optionalReport<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 // COMPAT(collaborationPlanNotice): added in v0.11.1, remove after 2027-04-13 once saved notices carry plan.

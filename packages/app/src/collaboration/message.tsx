@@ -8,6 +8,7 @@ import { ExpandableBadge } from "@/components/message";
 import { collaborationMessageSummary } from "./message-summary";
 import { CollaborationConfirmationActions } from "./confirmation-actions";
 import { CollaborationPlanCard } from "./plan-card";
+import { CollaborationAcceptanceCard } from "./acceptance-card";
 import { CollaborationHandoffAction } from "./execution-switch-sheet";
 
 /** A stage row disclosing the Agent's instructions, also used inside progress history. */
@@ -71,7 +72,12 @@ export function CollaborationMessage({
   return (
     <View>
       {badge}
-      <CollaborationMessageControls item={item} serverId={serverId} agentId={agentId} />
+      <CollaborationMessageControls
+        item={item}
+        serverId={serverId}
+        agentId={agentId}
+        detailsExpanded={expanded}
+      />
     </View>
   );
 }
@@ -81,15 +87,20 @@ export function CollaborationMessageControls({
   serverId,
   agentId,
   showHandoff = true,
+  showReport = true,
+  detailsExpanded = false,
 }: {
   item: UserMessageItem;
   serverId: string;
   agentId: string;
   showHandoff?: boolean;
+  showReport?: boolean;
+  detailsExpanded?: boolean;
 }) {
   const summary = useMemo(() => collaborationMessageSummary(item), [item]);
   const noticeId = item.clientMessageId ?? item.messageId;
   const confirmation = summary?.stage === "approval" || summary?.stage === "acceptance";
+  const showActionDetails = !summary?.acceptanceReport || detailsExpanded;
   const actions = useMemo(
     () =>
       confirmation && noticeId ? (
@@ -97,18 +108,28 @@ export function CollaborationMessageControls({
           serverId={serverId}
           agentId={agentId}
           noticeId={noticeId}
+          detailsExpanded={showActionDetails}
         />
       ) : null,
-    [confirmation, noticeId, serverId, agentId],
+    [confirmation, noticeId, serverId, agentId, showActionDetails],
   );
   if (!summary) return null;
+  let card = actions;
+  if (confirmation && summary.plan)
+    card = (
+      <CollaborationPlanCard plan={summary.plan} footer={actions} testID="collaboration-plan" />
+    );
+  else if (showReport && summary.stage === "acceptance" && summary.acceptanceReport)
+    card = (
+      <CollaborationAcceptanceCard
+        report={summary.acceptanceReport}
+        footer={actions}
+        expanded={detailsExpanded}
+      />
+    );
   return (
     <>
-      {confirmation && summary.plan ? (
-        <CollaborationPlanCard plan={summary.plan} footer={actions} testID="collaboration-plan" />
-      ) : (
-        actions
-      )}
+      {card}
       {showHandoff ? (
         <CollaborationHandoffAction
           serverId={serverId}

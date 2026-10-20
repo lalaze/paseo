@@ -109,6 +109,9 @@ External blockers and decisions outside the approved scope stop for attention. O
 without a blocker category also stop, so an unknown constraint never triggers automatic rework.
 Retry feedback is saved with the task's notes and reaches later implementation and review steps,
 including after a host restart.
+Retry and operation-specific notes carry the current status's `operation.id`. Repeating that
+request is idempotent; a later stopped operation uses its own ID even when it continues the same
+user message. This prevents a prior round's success receipt from swallowing a new retry.
 
 When planning is on, plan approval is optional. Final user acceptance is required even after the AI approves the
 result. When review requests changes, the affected tasks and their dependents run again, followed
@@ -164,6 +167,13 @@ starts with a patch against the preceding reviewed snapshot and its findings, th
 complete current result against all acceptance criteria. A small incremental patch does not narrow
 the review's scope.
 
+The host assigns an ID to each review finding. Reuse that ID when an issue remains or recurs,
+even if its wording or location changes; leave the ID out for new findings. Review history shows
+the latest five rounds with new and recurring issue counts. Expand a round to read each issue's
+location, required change and verification. Old reviews without IDs keep their reported issue count;
+new and recurring counts remain unknown. A finding absent from a later report
+does not by itself prove a fix; the reviewer must verify previous findings before approving.
+
 Request `detail=usage` from either status tool for operation, role, model and round attribution.
 Usage entries retain the provider's terminal-turn reports, including input, cached input, output
 and USD cost when supplied. Missing fields mean unknown. Providers differ in whether their reports
@@ -190,9 +200,20 @@ Stage rows expand to show the instructions the Agent received, never the marker 
 Plan snapshots, approval and acceptance actions, and the current model handoff stay visible
 outside the collapsed history. The card carries the status, so the Agent's reply must not restate
 it or narrate the scheduler: it says what changed, what is next, and what the user has to do.
-At acceptance the Agent gives one report — actual changes, verification run and results,
-known limitations — and ends with the exact replies: `验收通过` alone to accept, `不采纳成果`
-alone to reject, or a description of the changes to request rework.
+The final acceptance card defaults to a two-line conclusion, file and check counts, acceptance
+coverage, and counts of reported limitations or blocking issues. Accept and reject remain visible.
+Use the progress card's existing **Show details** control for the reviewed snapshot, changed files,
+each criterion's evidence, host check results and implementation reports; there is no second report
+card to expand. Host checks
+and tests reported by the implementer have separate labels. No configured host checks means no
+host verification result, not a passing check. The saved card remains readable after acceptance
+and reload; each later acceptance replaces the visible report with its own snapshot. Older notices
+without a report keep their existing actions.
+When the notice carries an acceptance report, the Agent reads the review and results, then gives
+at most two short sentences about the changes and any important limitation or decision. It does
+not repeat the card's evidence or acceptance phrases. Older notices without a report keep the
+expanded reply with actual changes, verification and limitations, ending with `验收通过` to accept,
+`不采纳成果` to reject, or a description of the changes to request rework.
 
 The stages are parsed from message text (`packages/app/src/collaboration/message-summary.ts`), and
 messages persisted by older hosts must keep parsing. Keep a notice's instruction on the single line

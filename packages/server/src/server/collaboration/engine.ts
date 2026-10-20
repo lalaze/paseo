@@ -34,6 +34,7 @@ import {
 import type { Repository } from "./repository.js";
 import { Store } from "./store.js";
 import { writeContextFiles } from "./model-context.js";
+import { identifyReviewFindings } from "./review-progress.js";
 import { buildPrompt, CONTINUED_SESSION_NOTE, responseSchema } from "./prompts.js";
 import {
   classifyProviderFailure,
@@ -993,7 +994,7 @@ export class Engine {
         this.event(run, `执行完成：${task.spec.title}；全部任务完成后统一审核`);
       }
     } else {
-      const review = ReviewSchema.parse(value),
+      const review = identifyReviewFindings(run, op, ReviewSchema.parse(value)),
         task = run.tasks.find((candidateEntry) => candidateEntry.spec.id === op.taskId);
       const evidence = op.kind === "final" ? run.finalEvidence! : task!.evidence!;
       if (
@@ -1007,6 +1008,7 @@ export class Engine {
       if (review.decision === "approved") {
         await this.validateApproval(run, op, review, evidence, criteria);
       }
+      value = review;
       if (task) task.review = review;
       else run.finalReview = review;
       if (review.decision === "blocked") {
@@ -2055,6 +2057,12 @@ export class Engine {
       this.locked(id, async () => {
         const run = this.store.get(id);
         if (receipt && run.chatReceipts?.[receipt] === action) return { ok: true };
+        if (
+          ["retry", "note"].includes(action) &&
+          final.operationId &&
+          final.operationId !== run.activeOperationId
+        )
+          throw new Error("步骤已变更，请读取当前状态后操作当前步骤");
         if (["accept_final", "reject_final", "request_changes"].includes(action))
           return this.finalControl(run, action, final, receipt);
         const recoveringMerge = this.assertControlState(run, action);

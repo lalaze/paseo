@@ -4,6 +4,7 @@ import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { ChevronRight, Users } from "lucide-react-native";
 import { useTranslation } from "react-i18next";
 import { CollaborationMessage, CollaborationMessageControls } from "./message";
+import { CollaborationReviewHistory } from "./review-history";
 import { CollaborationHandoffAction } from "./execution-switch-sheet";
 import type { CollaborationProgressGroup } from "./progress";
 import { collaborationProgressStatus } from "./message-summary";
@@ -35,7 +36,11 @@ export function CollaborationProgressCard({
   );
   const accessibilityState = useMemo(() => ({ expanded }), [expanded]);
   const latest = group.entries[group.entries.length - 1]!;
+  const reportEntry = group.entries.findLast((entry) => entry.summary.acceptanceReport);
   const status = collaborationProgressStatus(latest.summary);
+  const awaitingDecision =
+    latest.summary.stage === "approval" || latest.summary.stage === "acceptance";
+  const hasAcceptanceReport = !!latest.summary.acceptanceReport;
   return (
     <View style={styles.card} testID="collaboration-progress-card">
       <PressHighlight
@@ -57,10 +62,12 @@ export function CollaborationProgressCard({
       </PressHighlight>
       <View style={styles.current} testID="collaboration-progress-current">
         <Text style={styles.stage}>
-          {t(`collaboration.message.${latest.summary.stage}`)}
-          {status ? ` · ${t(`collaboration.history.status.${status}`)}` : ""}
+          {latest.summary.stage === "acceptance" && status
+            ? t(`collaboration.history.status.${status}`)
+            : t(`collaboration.message.${latest.summary.stage}`)}
+          {!awaitingDecision && status ? ` · ${t(`collaboration.history.status.${status}`)}` : ""}
         </Text>
-        {latest.summary.text ? (
+        {latest.summary.text && !hasAcceptanceReport ? (
           <Text style={styles.summary} selectable numberOfLines={4}>
             {latest.summary.text.split(/\n\s*\n/u)[0]}
           </Text>
@@ -80,6 +87,9 @@ export function CollaborationProgressCard({
               showControls={false}
             />
           ))}
+          {latest.summary.reviewProgress ? (
+            <CollaborationReviewHistory progress={latest.summary.reviewProgress} />
+          ) : null}
         </View>
       ) : null}
       {group.entries.map(({ item }) => (
@@ -89,6 +99,8 @@ export function CollaborationProgressCard({
           serverId={serverId}
           agentId={agentId}
           showHandoff={false}
+          showReport={item.id === reportEntry?.item.id}
+          detailsExpanded={expanded}
         />
       ))}
       <CollaborationHandoffAction

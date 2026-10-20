@@ -35,6 +35,27 @@ test("retry delivers diagnostic feedback after restart and retains it for review
   assert.match(final.prompt, /Only abort the barrier on failure/);
 });
 
+test("retry refuses a stale operation without changing the stopped task", async (t) => {
+  const h = await harness(reviewerSettings(), "execute_review");
+  t.onTestFinished(() => h.cleanup());
+  const worker = await h.until("execute");
+  await h.complete({ ...result, status: "blocked" });
+  await assert.rejects(
+    h.engine.control(h.id, "retry", undefined, { operationId: "stale", feedback: "Do not apply" }),
+    /步骤已变更/,
+  );
+  assert.equal(h.run().control, "needs_attention");
+  assert.equal(h.run().notes, undefined);
+  assert.equal(h.run().activeOperationId, worker.id);
+  await h.engine.control(h.id, "retry", undefined, {
+    operationId: worker.id,
+    feedback: "Fix the current operation",
+  });
+  const next = await h.until("execute");
+  assert.notEqual(next.id, worker.id);
+  assert.match(next.prompt, /Fix the current operation/);
+});
+
 test("implementation blockers receive diagnostic review and carry findings into rework", async (t) => {
   const h = await harness(reviewerSettings());
   t.onTestFinished(() => h.cleanup());

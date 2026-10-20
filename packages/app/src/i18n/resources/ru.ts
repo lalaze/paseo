@@ -166,10 +166,37 @@ export const ru: TranslationResources = {
       dependsOn: "Предшествующие задачи",
       acceptanceCriteria: "Критерии приёмки",
     },
+    report: {
+      title: "Проверенный результат и подтверждения",
+      snapshot: "Проверенный снимок",
+      checks: "Проверки хоста",
+      noHostChecks: "Проверки хоста не настроены",
+      noChecks:
+        "Дополнительные проверки хоста не настроены. См. подтверждения для каждого критерия приёмки.",
+      passed: "Пройдено",
+      failed: "Не пройдено",
+      incomplete: "Нет результата завершения",
+      findings: "Блокирующие проблемы",
+      requiredChange: "Необходимое изменение",
+      verification: "Способ проверки",
+      implementation: "Отчёты об исполнении",
+      reportedTests: "Тесты, заявленные исполнителем",
+      limitations: "Заявленные ограничения",
+      noLimitations:
+        "Исполнитель не сообщил об ограничениях. Область проверки указана в подтверждениях ревью.",
+      reviewHistory: "История ревью",
+      legacyRound: "Раунд {{round}} · {{decision}} · Блокирующих проблем: {{reported}}",
+      round:
+        "Раунд {{round}} · {{decision}} · Блокирующих проблем: {{reported}} (новых: {{added}}, повторных: {{recurring}})",
+      approved: "Одобрено",
+      changes_requested: "Требуются изменения",
+      blocked: "Заблокировано",
+    },
     confirmation: {
       approvePlan: "Одобрить план",
       acceptAndMerge: "Принять и слить",
       retryMerge: "Повторить слияние",
+      mergeTarget: "Локальное слияние в {{branch}}",
       mergeHint:
         "Создаёт коммит проверенных изменений и сливает их локально в {{branch}}. Ничего не отправляется в удалённый репозиторий.",
       accept: "Принять",

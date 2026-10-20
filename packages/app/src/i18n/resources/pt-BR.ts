@@ -166,10 +166,37 @@ export const ptBR: TranslationResources = {
       dependsOn: "Depende de",
       acceptanceCriteria: "Critérios de aceite",
     },
+    report: {
+      title: "Resultado revisado e evidências",
+      snapshot: "Snapshot revisado",
+      checks: "Verificações do host",
+      noHostChecks: "Sem verificações do host",
+      noChecks:
+        "Nenhuma verificação adicional do host foi configurada. Consulte as evidências de cada critério de aceitação.",
+      passed: "Aprovado",
+      failed: "Falhou",
+      incomplete: "Sem resultado de saída",
+      findings: "Problemas bloqueantes",
+      requiredChange: "Alteração necessária",
+      verification: "Como verificar",
+      implementation: "Relatórios de implementação",
+      reportedTests: "Testes relatados pelo implementador",
+      limitations: "Limitações relatadas",
+      noLimitations:
+        "O implementador não relatou limitações. Consulte as evidências da revisão para saber o escopo verificado.",
+      reviewHistory: "Histórico de revisões",
+      legacyRound: "Rodada {{round}} · {{decision}} · {{reported}} problemas bloqueantes",
+      round:
+        "Rodada {{round}} · {{decision}} · {{reported}} problemas bloqueantes ({{added}} novos, {{recurring}} recorrentes)",
+      approved: "Aprovado",
+      changes_requested: "Alterações solicitadas",
+      blocked: "Bloqueado",
+    },
     confirmation: {
       approvePlan: "Aprovar plano",
       acceptAndMerge: "Aceitar e mesclar",
       retryMerge: "Tentar mesclar novamente",
+      mergeTarget: "Mesclar localmente em {{branch}}",
       mergeHint:
         "Cria um commit das alterações revisadas e mescla localmente em {{branch}}. Nada é enviado ao remoto.",
       accept: "Aceitar",

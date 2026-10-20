@@ -22,6 +22,7 @@ interface ConfirmationActionsProps {
   serverId: string;
   agentId: string;
   noticeId: string;
+  detailsExpanded?: boolean;
 }
 
 function useConfirmationActions({ serverId, agentId, noticeId }: ConfirmationActionsProps) {
@@ -152,7 +153,7 @@ export function CollaborationConfirmationActions(props: ConfirmationActionsProps
     send,
     pendingDelivery,
   } = useConfirmationActions(props);
-  const { noticeId } = props;
+  const { noticeId, detailsExpanded = true } = props;
   const approvePlan = useCallback(() => void send("approvePlan"), [send]);
   const acceptAndMerge = useCallback(() => void send("acceptAndMerge"), [send]);
   const reject = useCallback(() => void send("reject"), [send]);
@@ -187,14 +188,21 @@ export function CollaborationConfirmationActions(props: ConfirmationActionsProps
           />
         )}
       </View>
-      <Text style={styles.hint}>
-        {plan
-          ? t("collaboration.confirmation.planHint")
-          : t("collaboration.confirmation.changesHint")}
-      </Text>
+      {plan || detailsExpanded ? (
+        <Text style={styles.hint}>
+          {plan
+            ? t("collaboration.confirmation.planHint")
+            : t("collaboration.confirmation.changesHint")}
+        </Text>
+      ) : null}
       {!plan && canMerge ? (
         <Text style={styles.hint}>
-          {t("collaboration.confirmation.mergeHint", { branch: targetBranch })}
+          {t(
+            detailsExpanded
+              ? "collaboration.confirmation.mergeHint"
+              : "collaboration.confirmation.mergeTarget",
+            { branch: targetBranch },
+          )}
         </Text>
       ) : null}
       {error ? (

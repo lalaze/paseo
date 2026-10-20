@@ -20,6 +20,7 @@ import {
 } from "@getpaseo/protocol/collaboration/schema";
 import type { SwitchExecutionModelToolInput } from "@getpaseo/protocol/collaboration/rpc";
 import { CONFIRMATION_REPLY, noticeInstruction } from "./prompts.js";
+import { acceptanceReport, reviewProgress } from "./review-progress.js";
 import type { Store } from "./store.js";
 import { operationSummary, runStatus, statusDetails, type StatusOptions } from "./model-context.js";
 import type { Engine, AgentSnapshot } from "./engine.js";
@@ -60,9 +61,21 @@ const approvals = {
 interface ConversationControlInput {
   action: ControlAction;
   sourceMessageId: string;
+  operationId?: string;
   confirmationKey?: string;
   goal?: string;
   feedback?: string;
+}
+
+function controlReceipt(input: ConversationControlInput) {
+  const operationId = ["retry", "note"].includes(input.action) ? input.operationId : undefined;
+  const base = `${input.sourceMessageId}:${input.action}`;
+  return { operationId, receipt: operationId ? `${base}:${operationId}` : base };
+}
+
+function assertControlOperation(run: Run, operationId?: string) {
+  if (operationId && operationId !== run.activeOperationId)
+    throw new Error("步骤已变更，请读取当前状态后操作当前步骤");
 }
 
 // Deliberately require a whole, explicit user message. Quotes, code blocks and
@@ -611,7 +624,7 @@ export class Conversations {
     return this.locked(id, async () => {
       const c = this.activeConversation(id);
       if (!c.runId) throw new Error("尚未启动任务");
-      const receipt = `${input.sourceMessageId}:${input.action}`;
+      const { operationId: scopedOperation, receipt } = controlReceipt(input);
       if (c.receipts[receipt]?.state === "done") return c.receipts[receipt].value ?? { ok: true };
       // Approvals are validated against the notice they answer, so page back until it is present too.
       const anchor = c.confirmation?.noticeId;
@@ -621,6 +634,7 @@ export class Conversations {
         (history) => !anchor || history.some((i) => messageId(i) === anchor),
       );
       let run = this.store.get(c.runId);
+      assertControlOperation(run, scopedOperation);
       const accepted = run.chatReceipts?.[`${c.id}:${receipt}`] === input.action;
       const merge = input.action === "accept_final" && normalize(latest!.text) === "验收并合并";
       if (accepted && !merge) return { ok: true };
@@ -642,6 +656,7 @@ export class Conversations {
           input.goal,
           {
             feedback: input.feedback,
+            operationId: scopedOperation,
             expectedRevision: run.revision,
             artifactId: run.finalEvidence?.id,
           },
@@ -821,6 +836,7 @@ export class Conversations {
       op = run.operations.find((o) => o.id === run.activeOperationId);
     const confirmation = confirmationFor(run);
     const execution = executionView(run);
+    const progress = reviewProgress(run);
     const key = digest(
       JSON.stringify([
         run.phase,
@@ -833,6 +849,7 @@ export class Conversations {
         ]),
         confirmation?.key,
         run.delivery,
+        progress,
         ...(execution ? [execution] : []),
       ]),
     );
@@ -854,7 +871,7 @@ export class Conversations {
           )
         : "Collaboration progress update. No Agent response is required.";
       const id = `chat-notice:${c.id}:${key}:${c.notices.length}`;
-      const text = `[paseo-director-chat:${id}]\n${instruction}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: changesRequested ? run.finalReview : undefined, ...(execution ? { execution } : {}) })}`;
+      const text = `[paseo-director-chat:${id}]\n${instruction}\n${JSON.stringify({ goal: run.goal, phase: run.phase, control: run.control, message: run.message, delivery: run.delivery, migratedFrom: c.legacyAgentId, confirmation: confirmation ? { ...confirmation, reply: CONFIRMATION_REPLY[confirmation.kind] } : undefined, plan: confirmation?.kind === "plan" ? run.plan : undefined, finalReview: changesRequested ? run.finalReview : undefined, acceptanceReport: acceptanceReport(run), reviewProgress: progress, ...(execution ? { execution } : {}) })}`;
       // Coalesce unsent intermediate updates; keep sending/sent IDs for recovery.
       c.notices = c.notices.filter((n) => n.state !== "pending");
       c.notices.push({ id, key, text, delivery, state: "pending", createdAt: Date.now() });

@@ -165,10 +165,37 @@ export const ja: TranslationResources = {
       dependsOn: "前提タスク",
       acceptanceCriteria: "受け入れ基準",
     },
+    report: {
+      title: "成果と検証の根拠",
+      snapshot: "レビュー済みスナップショット",
+      checks: "ホストのチェック",
+      noHostChecks: "ホストチェック未設定",
+      noChecks:
+        "追加のホストチェックは設定されていません。各受け入れ基準のレビュー根拠を確認してください。",
+      passed: "成功",
+      failed: "失敗",
+      incomplete: "終了結果なし",
+      findings: "ブロッキング問題",
+      requiredChange: "必要な修正",
+      verification: "検証方法",
+      implementation: "実装レポート",
+      reportedTests: "実装担当が報告したテスト",
+      limitations: "報告された制限",
+      noLimitations:
+        "実装担当から制限の報告はありません。検証範囲はレビューの根拠を確認してください。",
+      reviewHistory: "レビュー履歴",
+      legacyRound: "第 {{round}} 回 · {{decision}} · ブロッキング問題 {{reported}} 件",
+      round:
+        "第 {{round}} 回 · {{decision}} · ブロッキング問題 {{reported}} 件（新規 {{added}}、再報告 {{recurring}}）",
+      approved: "承認済み",
+      changes_requested: "修正が必要",
+      blocked: "ブロック中",
+    },
     confirmation: {
       approvePlan: "プランを承認",
       acceptAndMerge: "承認してマージ",
       retryMerge: "マージを再試行",
+      mergeTarget: "ローカルの {{branch}} にマージ",
       mergeHint:
         "レビュー済みの変更をコミットし、ローカルの {{branch}} にマージします。リモートにはプッシュしません。",
       accept: "受け入れる",

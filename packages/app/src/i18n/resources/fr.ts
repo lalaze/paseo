@@ -169,10 +169,37 @@ export const fr: TranslationResources = {
       dependsOn: "Dépend de",
       acceptanceCriteria: "Critères de validation",
     },
+    report: {
+      title: "Résultat vérifié et preuves",
+      snapshot: "Instantané vérifié",
+      checks: "Vérifications de l’hôte",
+      noHostChecks: "Aucune vérification de l’hôte",
+      noChecks:
+        "Aucune vérification supplémentaire de l’hôte n’a été configurée. Consultez les preuves de chaque critère de validation.",
+      passed: "Réussi",
+      failed: "Échoué",
+      incomplete: "Aucun résultat de sortie",
+      findings: "Problèmes bloquants",
+      requiredChange: "Modification requise",
+      verification: "Méthode de vérification",
+      implementation: "Rapports de réalisation",
+      reportedTests: "Tests déclarés par l’agent de réalisation",
+      limitations: "Limites signalées",
+      noLimitations:
+        "L’agent de réalisation n’a signalé aucune limite. Consultez les preuves de révision pour le périmètre vérifié.",
+      reviewHistory: "Historique des révisions",
+      legacyRound: "Cycle {{round}} · {{decision}} · {{reported}} problèmes bloquants",
+      round:
+        "Cycle {{round}} · {{decision}} · {{reported}} problèmes bloquants ({{added}} nouveaux, {{recurring}} récurrents)",
+      approved: "Approuvé",
+      changes_requested: "Modifications demandées",
+      blocked: "Bloqué",
+    },
     confirmation: {
       approvePlan: "Approuver le plan",
       acceptAndMerge: "Accepter et fusionner",
       retryMerge: "Réessayer la fusion",
+      mergeTarget: "Fusion locale vers {{branch}}",
       mergeHint:
         "Enregistre les modifications vérifiées et les fusionne localement dans {{branch}}. Rien n’est envoyé au dépôt distant.",
       accept: "Accepter",
