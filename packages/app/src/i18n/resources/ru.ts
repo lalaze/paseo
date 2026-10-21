@@ -149,6 +149,13 @@ export const ru: TranslationResources = {
     turnTimeoutMs: "Лимит этапа (минуты)",
     runTimeoutMs: "Лимит цикла (минуты)",
     checks: "Команды проверки (по одной в строке)",
+    dock: {
+      plan: "Планирование",
+      execute: "Реализация",
+      review: "Проверка",
+      acceptance: "Приёмка",
+      awaitingPlan: "Ожидание одобрения плана",
+    },
     message: {
       progressTitle: "Ход совместной работы",
       updates: "Обновлений: {{count}}",

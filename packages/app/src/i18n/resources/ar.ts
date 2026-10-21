@@ -146,6 +146,13 @@ export const ar: TranslationResources = {
     turnTimeoutMs: "مهلة الخطوة (دقائق)",
     runTimeoutMs: "مهلة الجولة (دقائق)",
     checks: "أوامر التحقق (أمر في كل سطر)",
+    dock: {
+      plan: "التخطيط",
+      execute: "التنفيذ",
+      review: "المراجعة",
+      acceptance: "القبول",
+      awaitingPlan: "بانتظار الموافقة على الخطة",
+    },
     message: {
       progressTitle: "تقدم التعاون",
       updates: "{{count}} تحديثات",

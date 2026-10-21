@@ -182,6 +182,13 @@ total. Historical operations without reports cannot be backfilled from prompt le
 
 ## Conversation timeline
 
+The main conversation keeps a compact collaboration card above the composer. It reads the host's
+current status independently of chat pagination, so scrolling through messages never hides the
+stage, task count or latest update. Pause, resume and retry use the same host controls as history;
+pending approval never offers resume. Completed or canceled work reduces to one row. Expanding
+details opens the saved progress, plan and report in a bounded scrolling area, leaving the input
+visible. Fullscreen composing hides the card until you return to the conversation.
+
 Operation prompts reach the main Agent as user-role messages. Ordinary progress notices are
 persisted and streamed to the conversation timeline without starting an Agent turn or entering
 the provider's context. Plan approval, final acceptance, blocked or permission states, and failed

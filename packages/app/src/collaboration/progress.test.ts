@@ -4,6 +4,52 @@ import { createCollaborationProgressProjection } from "./progress";
 import { findMountedWindowStart } from "@/agent-stream/history-window";
 import { createStreamPresentation } from "@/agent-stream/presentation";
 import { buildAgentStreamRenderModel } from "@/agent-stream/model";
+import { collaborationStage, composerControl, type Conversation } from "./conversation-state";
+
+test("composer controls preserve approval gates and stop offering controls after completion or exit", () => {
+  const conversation: Conversation = {
+    id: "conversation",
+    workspaceId: "workspace",
+    title: "Collaboration",
+    run: {
+      id: "run",
+      phase: "executing",
+      control: "running",
+      message: "Implementing",
+      done: 0,
+      total: 1,
+    },
+  };
+  expect(composerControl(conversation)).toBe("pause");
+  expect(
+    composerControl({ ...conversation, run: { ...conversation.run!, control: "paused" } }),
+  ).toBe("resume");
+  expect(
+    composerControl({ ...conversation, run: { ...conversation.run!, control: "needs_attention" } }),
+  ).toBe("retry");
+  expect(
+    composerControl({
+      ...conversation,
+      confirmation: { kind: "plan", noticeId: "approval" },
+      run: { ...conversation.run!, phase: "planning", control: "paused" },
+    }),
+  ).toBeUndefined();
+  expect(
+    composerControl({ ...conversation, run: { ...conversation.run!, phase: "completed" } }),
+  ).toBeUndefined();
+  expect(
+    composerControl({ ...conversation, run: { ...conversation.run!, control: "canceled" } }),
+  ).toBeUndefined();
+  expect(composerControl({ ...conversation, disabledAt: 1 })).toBeUndefined();
+});
+
+test("the dock keeps the current execution stage when collaboration is paused or needs attention", () => {
+  expect(collaborationStage("planning")).toBe(0);
+  expect(collaborationStage("executing")).toBe(1);
+  expect(collaborationStage("reviewing")).toBe(2);
+  expect(collaborationStage("final_review")).toBe(2);
+  expect(collaborationStage("awaiting_acceptance")).toBe(3);
+});
 
 function notice(conversation: string, sequence: number, data: object = {}): UserMessageItem {
   const id = `chat-notice:${conversation}:digest:${sequence}`;

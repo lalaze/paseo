@@ -146,6 +146,13 @@ export const ko: TranslationResources = {
     turnTimeoutMs: "단계 제한 시간(분)",
     runTimeoutMs: "라운드 제한 시간(분)",
     checks: "검증 명령(줄당 하나)",
+    dock: {
+      plan: "계획",
+      execute: "구현",
+      review: "검토",
+      acceptance: "승인",
+      awaitingPlan: "계획 승인 대기 중",
+    },
     message: {
       progressTitle: "협업 진행 상황",
       updates: "업데이트 {{count}}개",

@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import { CircleAlert, Ellipsis } from "lucide-react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
 import { collaborationMode } from "@getpaseo/protocol/collaboration/schema";
-import type { CollaborationState } from "@getpaseo/protocol/collaboration/rpc";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,7 +13,7 @@ import {
   DropdownMenuTrigger,
   type DropdownMenuTriggerProps,
 } from "@/components/ui/dropdown-menu";
-import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { useIsCompactFormFactor } from "@/constants/layout";
 import { settingsStyles } from "@/styles/settings";
 import { ICON_SIZE, type Theme } from "@/styles/theme";
@@ -23,8 +22,12 @@ import { navigateToAgent } from "@/utils/navigate-to-agent";
 import type { CollaborationCommandInput } from "./use-collaboration";
 import { manualSwitchTarget, type ExecutionSwitchTarget } from "./execution-switch";
 import { ExecutionSwitchSheet } from "./execution-switch-sheet";
-type Conversation = CollaborationState["conversations"][number];
-type Control = "pause" | "resume" | "retry" | "cancel" | "switch";
+import {
+  availableControls,
+  conversationStatus,
+  type Conversation,
+  type Control,
+} from "./conversation-state";
 interface HistoryProps {
   serverId: string;
   conversations: Conversation[];
@@ -203,49 +206,6 @@ function HandoffStatus({ run }: { run: Conversation["run"] }) {
         : t(`collaboration.handoff.status.${relay.status}`)}
     </Text>
   );
-}
-
-function conversationStatus({ run, error, disabledAt }: Conversation): {
-  label: string;
-  variant: StatusBadgeVariant;
-} {
-  if (disabledAt) return { label: "disabled", variant: "muted" };
-  if (!run)
-    return error
-      ? { label: "needsAttention", variant: "error" }
-      : { label: "ready", variant: "muted" };
-  if (run.control === "canceled") return { label: "canceled", variant: "muted" };
-  if (run.control === "canceling") return { label: "canceling", variant: "muted" };
-  if (run.phase === "completed" && run.deliveryStatus !== "failed")
-    return { label: "completed", variant: "success" };
-  if (error || run.control === "needs_attention")
-    return { label: "needsAttention", variant: "error" };
-  if (run.control === "paused") return { label: "paused", variant: "warning" };
-  if (run.deliveryStatus === "failed") return { label: "needsAttention", variant: "error" };
-  if (run.control === "waiting_permission")
-    return { label: "waitingPermission", variant: "warning" };
-  if (run.phase === "awaiting_acceptance")
-    return { label: "awaitingAcceptance", variant: "warning" };
-  return { label: "running", variant: "muted" };
-}
-
-function availableControls(run: Conversation["run"]): Control[] {
-  if (
-    !run ||
-    (run.phase === "completed" && run.deliveryStatus !== "failed") ||
-    run.control === "canceled"
-  )
-    return [];
-  if (run.phase === "awaiting_acceptance") return ["cancel"];
-  if (run.control === "paused") return ["resume", "cancel"];
-  if (run.control === "needs_attention") {
-    const actions: Control[] = ["retry", "cancel"];
-    if (manualSwitchTarget(run)) actions.unshift("switch");
-    return actions;
-  }
-  // A timeout stop in progress can still be canceled; cancel does not wait for the AI.
-  if (run.control === "canceling") return ["cancel"];
-  return ["pause", "cancel"];
 }
 
 function RunAction({

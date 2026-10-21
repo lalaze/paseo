@@ -16,6 +16,7 @@ import type { Run } from "@getpaseo/protocol/collaboration/schema";
 import { clickNewChat, gotoWorkspace } from "../support/helpers/launcher";
 import { seedWorkspace } from "../support/helpers/seed-client";
 import { installDaemonWebSocketGate } from "../support/helpers/daemon-websocket-gate";
+import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 
 const gitExec = promisify(execFile);
 
@@ -349,6 +350,105 @@ async function seedAcceptance(local = true) {
     throw error;
   }
 }
+
+test("collaboration stays above the composer while scrolling and after reload on desktop and phone", async ({
+  page,
+}, testInfo) => {
+  const fixture = await seedAcceptance();
+  try {
+    await openAgentRoute(page, fixture.session);
+    const dock = page.getByTestId("collaboration-composer-card");
+    const state = await fixture.client.collaborationCommand("status");
+    const current = state.conversations.find((entry) => entry.id === fixture.conversation.id)!.run!;
+    for (const viewport of [
+      { name: "desktop", width: 1280, height: 900 },
+      { name: "phone", width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expect(dock).toBeVisible();
+      await expect(dock).toContainText("Awaiting your acceptance");
+      await expect(dock).toContainText(current.message);
+      await expectInsideViewport(page, "collaboration-composer-card", viewport.width);
+      const before = await dock.boundingBox();
+      await page.getByTestId("collaboration-progress-card").scrollIntoViewIfNeeded();
+      expect((await dock.boundingBox())!.y).toBe(before!.y);
+      await dock.getByTestId("collaboration-composer-toggle").click();
+      await expect(dock.getByTestId("collaboration-acceptance-report")).toBeVisible();
+      expect((await dock.boundingBox())!.height).toBeLessThan(viewport.height / 2);
+      await expect(composerLocator(page)).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(`collaboration-dock-${viewport.name}.png`),
+      });
+      await dock.getByTestId("collaboration-composer-toggle").click();
+      await page.reload({ waitUntil: "commit" });
+      await expect(dock).toBeVisible();
+      await expect(dock).toContainText("Awaiting your acceptance");
+      await expect(dock.getByTestId("collaboration-composer-details")).toHaveCount(0);
+    }
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("collaboration dock keeps control failures visible and can retry, pause and resume", async ({
+  page,
+}) => {
+  const fixture = await seedAcceptance(false);
+  try {
+    fixture.run.phase = "completed";
+    fixture.run.control = "running";
+    fixture.run.userAcceptance = {
+      decision: "approved",
+      artifactId: fixture.run.finalEvidence!.id,
+      decidedAt: Date.now(),
+    };
+    fixture.run.delivery = {
+      status: "failed",
+      error: "Merge conflict",
+      recovery: { sourceMessageId: "accepted-result" },
+    };
+    fixture.db
+      .prepare("UPDATE runs SET data=? WHERE id=?")
+      .run(JSON.stringify(fixture.run), fixture.run.id);
+    let failNextControl = true;
+    await page.routeWebSocket(daemonWsRoutePattern(), (browser) => {
+      const server = browser.connectToServer();
+      server.onMessage((message) => browser.send(message));
+      browser.onMessage((message) => {
+        if (typeof message !== "string") {
+          server.send(message);
+          return;
+        }
+        const envelope = JSON.parse(message);
+        const request = envelope.message ?? envelope;
+        // A real daemon refusal exercises the error response without changing the user's run.
+        if (
+          failNextControl &&
+          request.type === "collaboration.command.request" &&
+          request.command === "run.control"
+        ) {
+          failNextControl = false;
+          request.input.id = "missing-dock-control-run";
+          server.send(JSON.stringify(envelope));
+        } else server.send(message);
+      });
+    });
+    await openAgentRoute(page, fixture.session);
+    const dock = page.getByTestId("collaboration-composer-card");
+    const control = dock.getByTestId("collaboration-composer-control");
+    await expect(control).toHaveText("Pause dispatch");
+    await control.click();
+    await expect(dock.getByTestId("collaboration-composer-error")).toBeVisible();
+    await expect(control).toBeEnabled();
+    await control.click();
+    await expect(dock.getByTestId("collaboration-composer-error")).toHaveCount(0);
+    await expect(control).toHaveText("Resume");
+    await control.click();
+    await expect(control).toHaveText("Pause dispatch");
+  } finally {
+    await fixture.cleanup();
+  }
+});
 
 test("acceptance evidence and review history remain readable on desktop and phone after reload", async ({
   page,

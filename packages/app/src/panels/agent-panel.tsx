@@ -1,4 +1,5 @@
 import { enableCollaboration } from "@/collaboration/launch";
+import { CollaborationComposerCard } from "@/collaboration/composer-card";
 import { buildModelSelection } from "@/collaboration/launch-model";
 import { isCollaborationEnablePending } from "@/collaboration/enable-store";
 import { getHostRuntimeStore } from "@/runtime/host-runtime";
@@ -1750,8 +1751,10 @@ function ActiveAgentComposer({
     ],
   );
 
+  const fullscreen = useComposerFullscreen(editingSession);
   return (
     <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
+      {fullscreen ? null : <CollaborationComposerCard serverId={serverId} agentId={agentId} />}
       <Composer
         agentId={agentId}
         serverId={serverId}

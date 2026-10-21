@@ -46,7 +46,8 @@ export function useCollaboration(serverId: string) {
   const command = useMutation({
     mutationFn: async ({ name, input }: CollaborationCommandInput) => {
       if (!client) throw new Error("Host disconnected");
-      await client.collaborationCommand(name, input);
+      const state = await client.collaborationCommand(name, input);
+      if (state.error) throw new Error(state.error);
       await query.refetch();
     },
   });

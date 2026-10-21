@@ -148,6 +148,13 @@ export const ja: TranslationResources = {
     turnTimeoutMs: "ステップの制限時間（分）",
     runTimeoutMs: "ラウンドの制限時間（分）",
     checks: "検証コマンド（1行に1つ）",
+    dock: {
+      plan: "計画",
+      execute: "実装",
+      review: "レビュー",
+      acceptance: "承認",
+      awaitingPlan: "計画の承認待ち",
+    },
     message: {
       progressTitle: "共同作業の進捗",
       updates: "更新 {{count}} 件",

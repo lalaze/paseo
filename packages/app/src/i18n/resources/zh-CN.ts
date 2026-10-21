@@ -143,6 +143,13 @@ export const zhCN: TranslationResources = {
     turnTimeoutMs: "单步时限（分钟）",
     runTimeoutMs: "每轮时限（分钟）",
     checks: "验证命令（每行一条）",
+    dock: {
+      plan: "方案",
+      execute: "执行",
+      review: "审查",
+      acceptance: "验收",
+      awaitingPlan: "待批准方案",
+    },
     message: {
       progressTitle: "协作进度",
       updates: "{{count}} 条记录",

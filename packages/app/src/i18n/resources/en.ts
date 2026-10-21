@@ -145,6 +145,13 @@ export const en = {
     turnTimeoutMs: "Step time limit (minutes)",
     runTimeoutMs: "Round time limit (minutes)",
     checks: "Verification commands (one per line)",
+    dock: {
+      plan: "Planning",
+      execute: "Implementation",
+      review: "Review",
+      acceptance: "Acceptance",
+      awaitingPlan: "Awaiting plan approval",
+    },
     message: {
       progressTitle: "Collaboration progress",
       updates: "{{count}} updates",
